@@ -1,5 +1,6 @@
 import AppKit
 import Observation
+import QTAuth
 import QTCore
 import QTLyrics
 import QTPlayback
@@ -43,6 +44,10 @@ public final class QTAppModel {
     @ObservationIgnored private var toastTask: Task<Void, Never>?
 
     // MARK: Account
+    /// Google sign-in for YouTube Music (Settings › Account reads its `state`). Set by whoever wires the live
+    /// backend (data-live); nil in mock runs until the user presses Sign In, which creates one on demand.
+    public var authController: QTAuthController?
+
     public var account: QTAccountKind = .premium {
         didSet { (player.engine as? QTSimulatedPlaybackEngine)?.account = account == .free ? .free : .premium }
     }

@@ -81,6 +81,16 @@
         }
       }
     },
+    "Cancel" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取消"
+          }
+        }
+      }
+    },
     "Close Mini Player" : {
       "localizations" : {
         "zh-Hans" : {
@@ -501,6 +511,16 @@
         }
       }
     },
+    "Session expired" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "登录已过期"
+          }
+        }
+      }
+    },
     "Show Lyric Line" : {
       "localizations" : {
         "zh-Hans" : {
@@ -531,12 +551,62 @@
         }
       }
     },
+    "Sign In Again…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重新登录…"
+          }
+        }
+      }
+    },
     "Sign In…" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "登录…"
+          }
+        }
+      }
+    },
+    "Sign Out" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "退出登录"
+          }
+        }
+      }
+    },
+    "Sign Out…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "退出登录…"
+          }
+        }
+      }
+    },
+    "Sign out of YouTube Music?" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "要退出 YouTube Music 登录吗？"
+          }
+        }
+      }
+    },
+    "Signing In…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在登录…"
           }
         }
       }
@@ -701,12 +771,42 @@
         }
       }
     },
+    "YouTube Music" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "YouTube Music"
+          }
+        }
+      }
+    },
+    "YouTube Music Premium" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "YouTube Music Premium"
+          }
+        }
+      }
+    },
     "Your library and likes are not affected." : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "你的资料库和喜欢的音乐不受影响。"
+          }
+        }
+      }
+    },
+    "Your library and likes stay in your YouTube Music account." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的资料库和喜欢的音乐会保留在 YouTube Music 账户中。"
           }
         }
       }

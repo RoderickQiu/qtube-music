@@ -41,6 +41,41 @@ import Testing
         #expect(glyphOnly.size.width < 30)
     }
 
+    @Test func lockedDesktopLyricsDropTheToolbarRow() {
+        var p = QTDesktopLyricsPrefs()
+        p.isLocked = true
+        let locked = QTDesktopLyricsPanel.panelSize(prefs: p, screenWidth: 1920)
+        p.isLocked = false
+        let unlocked = QTDesktopLyricsPanel.panelSize(prefs: p, screenWidth: 1920)
+        #expect(unlocked.height - locked.height == QTDesktopLyricsPanel.toolbarHeight(p))
+        #expect(QTDesktopLyricsPanel.isDefaultPosition(QTDesktopLyricsPrefs()))
+        p.verticalPosition = 0.5
+        #expect(!QTDesktopLyricsPanel.isDefaultPosition(p))
+    }
+
+    @Test func popoverLyricLinePreviewsTheNextLineAndCollapsesAtTheEnd() {
+        let doc = QTLyricsDocument(lines: [
+            QTLyricsLine(start: 10, duration: 3, text: "first"),
+            QTLyricsLine(start: 14, duration: nil, text: ""),
+            QTLyricsLine(start: 30, duration: 4, text: "second"),
+        ], syncKind: .line, source: QTLyricsSource(id: "test", name: "Test"))
+        // Before the first line: the first line, dimmed.
+        #expect(QTCurrentLyricLine.display(in: doc, at: 2).map { [$0.index] + [$0.isUpcoming ? 1 : 0] } == [0, 1])
+        #expect(QTCurrentLyricLine.display(in: doc, at: 11).map { [$0.index] + [$0.isUpcoming ? 1 : 0] } == [0, 0])
+        // Empty interlude line: preview the next sung line.
+        #expect(QTCurrentLyricLine.display(in: doc, at: 20).map { [$0.index] + [$0.isUpcoming ? 1 : 0] } == [2, 1])
+        // After the last line has run out: nothing (the popover section collapses).
+        #expect(QTCurrentLyricLine.display(in: doc, at: 60) == nil)
+        #expect(QTCurrentLyricLine.display(in: nil, at: 0) == nil)
+    }
+
+    @Test func accountMonograms() {
+        #expect(QTAccountAvatar.initials("Alex Rivera") == "AR")
+        #expect(QTAccountAvatar.initials("周杰伦") == "周")
+        #expect(QTAccountAvatar.initials("  ") == nil)
+        #expect(QTAccountAvatar.initials(nil) == nil)
+    }
+
     @Test func appleIntelligenceUnavailableStatesExplainThemselves() {
         let states: [QTAppleIntelligence.Status] = [.requiresNewerMacOS, .deviceNotEligible, .notEnabled, .modelNotReady,
                                                     .languageUnsupported("vi"), .unavailable]

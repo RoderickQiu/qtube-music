@@ -15,6 +15,7 @@ final class QTDesktopLyricsPanel: NSPanel, NSWindowDelegate {
 
     private var prefs = QTDesktopLyricsPrefs()
     private var isPlacing = false
+    private var avoidedFrame: NSRect?
 
     init<Content: View>(content: Content) {
         super.init(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 120),
@@ -42,9 +43,12 @@ final class QTDesktopLyricsPanel: NSPanel, NSWindowDelegate {
     override var canBecomeMain: Bool { false }
 
     /// Applies size / position / lock. Idempotent: a frame equal to the current one is left alone.
-    func apply(prefs new: QTDesktopLyricsPrefs, preferredScreenName: String?, force: Bool = false) {
-        let changed = new != prefs
+    /// - Parameter avoiding: the app's own main window frame when it is visible. Until the user moves the overlay,
+    ///   its default spot steps out of the window's way (below it, else above it, else the bottom of the screen).
+    func apply(prefs new: QTDesktopLyricsPrefs, preferredScreenName: String?, avoiding: NSRect? = nil, force: Bool = false) {
+        let changed = new != prefs || avoiding != avoidedFrame
         prefs = new
+        avoidedFrame = avoiding
         ignoresMouseEvents = new.isLocked
         guard changed || force || !isVisible else { return }
         let screen = QTWindowPlacement.screen(named: new.screenName) ?? QTWindowPlacement.screen(named: preferredScreenName)
@@ -52,7 +56,18 @@ final class QTDesktopLyricsPanel: NSPanel, NSWindowDelegate {
         guard let v = screen?.visibleFrame else { return }
         let size = Self.panelSize(prefs: new, screenWidth: v.width)
         let midX = v.midX + CGFloat(new.horizontalOffset) * v.width
-        let minY = v.minY + CGFloat(new.verticalPosition) * v.height
+        var minY = v.minY + CGFloat(new.verticalPosition) * v.height
+        if Self.isDefaultPosition(new), let window = avoiding, window.intersects(v) {
+            let lines = size.height - Self.toolbarHeight(new) // the unlock toolbar grows upwards, out of the way
+            let margin: CGFloat = 6
+            if window.minY - v.minY >= lines + margin * 2 {
+                minY = max(v.minY + margin, min(minY, window.minY - margin - lines))
+            } else if v.maxY - window.maxY >= size.height + margin * 2 {
+                minY = window.maxY + margin
+            } else {
+                minY = v.minY + 2
+            }
+        }
         var f = NSRect(x: midX - size.width / 2, y: minY, width: size.width, height: size.height)
         f.origin.x = min(max(f.origin.x, v.minX), v.maxX - f.width)
         f.origin.y = min(max(f.origin.y, v.minY), v.maxY - f.height)
@@ -63,14 +78,20 @@ final class QTDesktopLyricsPanel: NSPanel, NSWindowDelegate {
         isPlacing = false
     }
 
-    /// Wide enough for long lines, tall enough for two lines at the chosen size plus the unlock toolbar.
+    static func isDefaultPosition(_ p: QTDesktopLyricsPrefs) -> Bool {
+        let d = QTDesktopLyricsPrefs()
+        return p.screenName == nil && p.verticalPosition == d.verticalPosition && p.horizontalOffset == d.horizontalOffset
+    }
+
+    /// Lines plus a little breathing room for the baked shadow; the toolbar row only while unlocked.
     static func panelSize(prefs: QTDesktopLyricsPrefs, screenWidth: CGFloat) -> NSSize {
         let font = QTLyricsFontOverride(mainSize: prefs.fontSize, design: prefs.fontDesign)
-        let main = font.mainSize * 1.32
-        let second = prefs.lineCount > 1 ? font.translationSize * 1.4 + 6 : 0
-        let chrome: CGFloat = 44 + 36 // padding + toolbar row when unlocked
-        return NSSize(width: min(max(screenWidth * 0.72, 720), 1500), height: (main + second + chrome).rounded())
+        let lines = QTDesktopLyricsView.linesHeight(font: font, lineCount: prefs.lineCount)
+        let chrome = 2 * QTDesktopLyricsView.verticalPadding + toolbarHeight(prefs)
+        return NSSize(width: min(max(screenWidth * 0.72, 720), 1500), height: (lines + chrome).rounded())
     }
+
+    static func toolbarHeight(_ prefs: QTDesktopLyricsPrefs) -> CGFloat { prefs.isLocked ? 0 : 40 }
 
     func windowDidMove(_ notification: Notification) {
         guard !isPlacing, !prefs.isLocked, let screen else { return }
@@ -101,22 +122,22 @@ public struct QTDesktopLyricsView: View {
     public var body: some View {
         let font = QTLyricsFontOverride(mainSize: prefs.fontSize, design: prefs.fontDesign)
         VStack(spacing: 0) {
-            toolbar
-                .frame(height: 36)
-                .opacity(prefs.isLocked ? 0 : 1)
-            Spacer(minLength: 0)
+            if !prefs.isLocked {
+                toolbar
+                    .frame(height: QTDesktopLyricsPanel.toolbarHeight(prefs))
+                    .transition(.opacity)
+            }
             lines(font: font)
                 .padding(.horizontal, 28)
-                .padding(.vertical, 10)
+                .padding(.vertical, Self.verticalPadding)
                 .background {
                     if prefs.isLocked && (contrast == .increased || reduceTransparency) {
                         RoundedRectangle(cornerRadius: 18, style: .continuous)
                             .fill(.black.opacity(0.5))
                     }
                 }
-            Spacer(minLength: 0)
+                .frame(maxHeight: .infinity, alignment: .bottom)
         }
-        .padding(.bottom, 8)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
             if !prefs.isLocked {
@@ -153,6 +174,8 @@ public struct QTDesktopLyricsView: View {
         }
     }
 
+    static let verticalPadding: CGFloat = 10
+
     /// Main line plus, in two-line mode, the second line (same ratios as `QTDesktopLyricsPanel.panelSize`).
     static func linesHeight(font: QTLyricsFontOverride, lineCount: Int) -> CGFloat {
         let main = font.mainSize * 1.32
@@ -188,7 +211,6 @@ public struct QTDesktopLyricsView: View {
         .controlSize(.large)
         .foregroundStyle(.white.opacity(0.85))
         .padding(.horizontal, 18)
-        .padding(.top, 6)
-        .disabled(prefs.isLocked)
+        .padding(.top, 8)
     }
 }

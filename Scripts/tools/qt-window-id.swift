@@ -6,6 +6,7 @@
 //
 // Without --title it picks the largest normal-layer window. Titles need Screen Recording permission for the
 // calling terminal; without it, matching falls back to the largest window when exactly one candidate exists.
+import AppKit
 import CoreGraphics
 import Foundation
 
@@ -27,6 +28,17 @@ var args = Array(CommandLine.arguments.dropFirst())
 func value(_ flag: String) -> String? {
     guard let i = args.firstIndex(of: flag), i + 1 < args.count else { return nil }
     return args[i + 1]
+}
+// `--display-bounds <name substring>` → "x y w h" of that display in global CG coordinates (region captures
+// clamp to it so they never include another display, e.g. the user's main screen).
+if let name = value("--display-bounds") {
+    for screen in NSScreen.screens where screen.localizedName.range(of: name, options: .caseInsensitive) != nil {
+        guard let n = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { continue }
+        let b = CGDisplayBounds(CGDirectDisplayID(n.uint32Value))
+        print("\(Int(b.minX)) \(Int(b.minY)) \(Int(b.width)) \(Int(b.height))")
+        exit(0)
+    }
+    exit(1)
 }
 guard let pidString = value("--pid"), let pid = Int32(pidString) else {
     FileHandle.standardError.write(Data("usage: qt-window-id --pid <pid> [--title <substring>] [--wait <s>] [--list]\n".utf8))

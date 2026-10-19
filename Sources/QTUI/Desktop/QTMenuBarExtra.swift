@@ -158,6 +158,7 @@ public struct QTMenuBarLabel: View {
 public struct QTMenuBarContent: View {
     @Environment(QTAppModel.self) private var model
     @Environment(QTPlayerModel.self) private var player
+    @State private var isHoveringTitle = false
 
     public init() {}
 
@@ -168,12 +169,9 @@ public struct QTMenuBarContent: View {
                 .padding(.top, QTTheme.Spacing.m)
             controls
                 .padding(.top, 6)
-            if player.ad == nil, player.lyrics != nil {
-                Divider()
-                    .padding(.top, 14)
-                QTCurrentLyricLine(style: .popover)
-                    .padding(.top, 12)
-            }
+            // Divider + line only while there is a line to show (current, or the next one dimmed before the first
+            // line / in an interlude); after the last line the section collapses instead of leaving a band.
+            QTCurrentLyricLine(style: .popover)
         }
         .padding(QTTheme.Spacing.m)
         .frame(width: 300)
@@ -202,7 +200,9 @@ public struct QTMenuBarContent: View {
                     Text(QTLoc.tr("Then: %@", player.nowPlaying?.title ?? "")).font(QTTheme.Typography.secondary)
                         .foregroundStyle(.secondary)
                 } else if let track = player.nowPlaying {
-                    Text(track.title).font(QTTheme.Typography.body.weight(.semibold))
+                    // Long titles scroll while the pointer is over them (like the mini player).
+                    QTMarqueeText(text: track.title, font: .headline, measureFont: QTMiniPlayerView.titleFont,
+                                  isActive: isHoveringTitle)
                     Text(track.artistLine).font(QTTheme.Typography.secondary).foregroundStyle(.secondary)
                 } else {
                     Text(QTLoc.tr("Not Playing", table: .desktop)).font(QTTheme.Typography.body.weight(.semibold))
@@ -211,6 +211,7 @@ public struct QTMenuBarContent: View {
             }
             .lineLimit(1)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .onHover { isHoveringTitle = $0 }
 
             if let track = player.nowPlaying {
                 let liked = player.isLiked(track)
@@ -260,7 +261,8 @@ public struct QTMenuBarContent: View {
 }
 
 /// The current lyric line (plain text, cross-fading between lines) for the menu bar popover and mini player.
-/// Uses semantic colours so it works in light, dark and over art.
+/// Before the first line and in instrumental gaps it previews the next line, dimmed; with nothing left to sing it
+/// takes no space. Uses semantic colours so it works in light, dark and over art.
 struct QTCurrentLyricLine: View {
     enum Style { case popover, miniCompact, miniArt }
 
@@ -269,16 +271,43 @@ struct QTCurrentLyricLine: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let style: Style
 
+    /// What to show at playback time `t`: the current line, or the upcoming one (`isUpcoming`).
+    static func display(in doc: QTLyricsDocument?, at t: TimeInterval) -> (index: Int, isUpcoming: Bool)? {
+        guard let doc, doc.syncKind != .plain, !doc.lines.isEmpty else { return nil }
+        let isSung = { (i: Int) in !doc.lines[i].text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let current = doc.lineIndex(atPlaybackTime: t)
+        if let current, isSung(current) {
+            // A line whose own duration has run out sits in a gap until the next one starts.
+            let line = doc.lines[current]
+            let lyricTime = doc.lyricTime(forPlaybackTime: t)
+            let ended = line.duration.map { lyricTime > line.start + $0 + 0.6 } ?? false
+            if !ended { return (current, false) }
+        }
+        let from = (current ?? -1) + 1
+        guard from < doc.lines.count, let next = (from..<doc.lines.count).first(where: isSung) else { return nil }
+        return (next, true)
+    }
+
     var body: some View {
         // Lyric + translation from the shared resolution (`QTAppModel.resolvedLyrics`): same lane as every surface.
         let resolved = player.ad == nil ? model.resolvedLyrics : .none
         TimelineView(.periodic(from: .now, by: player.timeline.rate > 0 ? 0.2 : 3600)) { _ in
-            let current = resolved.currentLine(atPlaybackTime: player.timeline.currentTime)
-            let index = current?.index
-            content(current?.line, translation: current?.translation)
-                .id(index ?? -1)
-                .transition(.opacity)
-                .animation(QTTheme.Motion.animation(QTTheme.Motion.lyricScroll, reduceMotion: reduceMotion), value: index)
+            let doc = resolved.document
+            let shown = Self.display(in: doc, at: player.timeline.currentTime)
+            let line = shown.flatMap { s in doc?.lines[s.index] }
+            if let shown, let line {
+                VStack(spacing: 0) {
+                    if style == .popover {
+                        Divider()
+                            .padding(.top, 14)
+                            .padding(.bottom, 12)
+                    }
+                    content(line, translation: resolved.translation(forLine: shown.index), upcoming: shown.isUpcoming)
+                        .id(shown.index)
+                        .transition(.opacity)
+                }
+                .animation(QTTheme.Motion.animation(QTTheme.Motion.lyricScroll, reduceMotion: reduceMotion), value: shown.index)
+            }
         }
         .frame(maxWidth: .infinity)
         .qtHostsLyricsTranslation(style == .popover)
@@ -286,28 +315,32 @@ struct QTCurrentLyricLine: View {
     }
 
     @ViewBuilder
-    private func content(_ line: QTLyricsLine?, translation: String?) -> some View {
+    private func content(_ line: QTLyricsLine, translation: String?, upcoming: Bool) -> some View {
         switch style {
         case .popover:
             VStack(spacing: 3) {
-                Text(line?.text ?? " ")
-                    .font(QTTheme.Typography.body.weight(.semibold))
+                Text(line.text)
+                    .font(.headline)
+                    .foregroundStyle(upcoming ? .tertiary : .primary)
                 if let translation, !translation.isEmpty {
-                    Text(translation).font(QTTheme.Typography.secondary).foregroundStyle(.secondary)
+                    Text(translation)
+                        .font(.subheadline)
+                        .foregroundStyle(upcoming ? .quaternary : .secondary)
                 }
             }
             .multilineTextAlignment(.center)
             .lineLimit(2)
+            .frame(maxWidth: .infinity)
         case .miniCompact:
-            Text(line?.text ?? " ")
+            Text(line.text)
                 .font(QTTheme.Typography.secondary.weight(.medium))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(upcoming ? .tertiary : .secondary)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
         case .miniArt:
-            Text(line?.text ?? " ")
-                .font(QTTheme.Typography.body.weight(.semibold))
-                .foregroundStyle(QTTheme.Colors.onArt)
+            Text(line.text)
+                .font(.headline)
+                .foregroundStyle(QTTheme.Colors.onArt.opacity(upcoming ? 0.6 : 1))
                 .shadow(color: .black.opacity(0.5), radius: 6, y: 1)
                 .multilineTextAlignment(.center)
                 .lineLimit(2)

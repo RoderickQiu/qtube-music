@@ -12,6 +12,9 @@ import SwiftUI
 final class QTMiniPlayerPanel: NSPanel, NSWindowDelegate {
     static let compactHeight: CGFloat = QTTheme.Metrics.miniCompact.height
     static let lyricLineHeight: CGFloat = 30
+    /// The lyric line makes the artwork square taller (and so wider); widen the strip by as much so the title
+    /// keeps its room.
+    static let lyricLineExtraWidth: CGFloat = 40
     static let compactWidths: ClosedRange<CGFloat> = 280...560
     static let artSides: ClosedRange<CGFloat> = 220...560
 
@@ -19,8 +22,9 @@ final class QTMiniPlayerPanel: NSPanel, NSWindowDelegate {
     private var showsLyricLine = false
     private var isApplying = false
 
-    init<Content: View>(content: Content, mode: QTMiniPlayerMode) {
+    init<Content: View>(content: Content, mode: QTMiniPlayerMode, showsLyricLine: Bool = false) {
         self.mode = mode
+        self.showsLyricLine = showsLyricLine
         super.init(contentRect: NSRect(origin: .zero, size: QTTheme.Metrics.miniCompact),
                    styleMask: [.titled, .fullSizeContentView, .nonactivatingPanel, .resizable],
                    backing: .buffered, defer: false)
@@ -54,6 +58,8 @@ final class QTMiniPlayerPanel: NSPanel, NSWindowDelegate {
     func apply(mode newMode: QTMiniPlayerMode, showsLyricLine lyric: Bool) {
         guard newMode != mode || lyric != showsLyricLine else { return }
         let modeChanged = newMode != mode
+        let widthDelta: CGFloat = !modeChanged && newMode == .compact && lyric != showsLyricLine
+            ? (lyric ? Self.lyricLineExtraWidth : -Self.lyricLineExtraWidth) : 0
         if modeChanged { saveFrame() }
         mode = newMode
         showsLyricLine = lyric
@@ -61,10 +67,17 @@ final class QTMiniPlayerPanel: NSPanel, NSWindowDelegate {
         isApplying = true
         defer { isApplying = false }
         let target: NSRect
-        if modeChanged, let screen, let saved = Self.savedFrame(screen: screen, mode: newMode) {
+        if modeChanged, let screen, var saved = Self.savedFrame(screen: screen, mode: newMode) {
+            if newMode == .compact {
+                let h = defaultSize(for: .compact, keepingWidth: true).height
+                if saved.midY > screen.visibleFrame.midY { saved.origin.y = saved.maxY - h }
+                saved.size.height = h
+            }
             target = saved
         } else {
-            target = anchoredFrame(for: defaultSize(for: newMode, keepingWidth: !modeChanged))
+            var size = defaultSize(for: newMode, keepingWidth: !modeChanged)
+            size.width = min(max(size.width + widthDelta, Self.compactWidths.lowerBound), Self.compactWidths.upperBound)
+            target = anchoredFrame(for: newMode == .compact ? size : defaultSize(for: newMode, keepingWidth: false))
         }
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         setFrame(clamped(target), display: true, animate: isVisible && !reduceMotion)
@@ -88,7 +101,8 @@ final class QTMiniPlayerPanel: NSPanel, NSWindowDelegate {
     private func defaultSize(for mode: QTMiniPlayerMode, keepingWidth: Bool) -> NSSize {
         switch mode {
         case .compact:
-            let w = keepingWidth ? frame.width : QTTheme.Metrics.miniCompact.width
+            let w = keepingWidth ? frame.width
+                : QTTheme.Metrics.miniCompact.width + (showsLyricLine ? Self.lyricLineExtraWidth : 0)
             return NSSize(width: w, height: Self.compactHeight + (showsLyricLine ? Self.lyricLineHeight : 0))
         case .art:
             return QTTheme.Metrics.miniArt
@@ -111,7 +125,11 @@ final class QTMiniPlayerPanel: NSPanel, NSWindowDelegate {
         let size = defaultSize(for: mode, keepingWidth: false)
         if let saved = Self.savedFrame(screen: screen, mode: mode) {
             var f = saved
-            if mode == .compact { f.size.height = size.height }
+            if mode == .compact {
+                f.size.height = size.height
+                // The lyric line widens the strip; a frame saved without it would squeeze the title.
+                if showsLyricLine { f.size.width = max(f.size.width, size.width) }
+            }
             setFrame(clamped(f, on: screen), display: false)
         } else {
             let v = screen.visibleFrame
@@ -197,47 +215,53 @@ public struct QTMiniPlayerView: View {
 
     private var compact: some View {
         let height = QTMiniPlayerPanel.compactHeight + (prefs.showsLyricLine ? QTMiniPlayerPanel.lyricLineHeight : 0)
-        return HStack(spacing: QTTheme.Spacing.s) {
+        return HStack(spacing: 12) {
             QTArtworkView(track: player.nowPlaying, cornerRadius: 0)
                 .frame(width: height, height: height)
                 .saturation(player.ad != nil ? 0.6 : 1)
                 .brightness(player.ad != nil ? -0.15 : 0)
                 .overlay { if hovering { expandButton.transition(.opacity) } }
             VStack(alignment: .leading, spacing: 0) {
-                HStack(spacing: QTTheme.Spacing.s) {
+                HStack(spacing: 6) {
                     titles
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    QTTransportControls(style: .compact)
-                        .padding(.trailing, 14)
+                    QTMiniTransportControls()
                 }
-                .frame(height: QTMiniPlayerPanel.compactHeight - (prefs.showsLyricLine ? 8 : 0))
+                .frame(height: QTMiniPlayerPanel.compactHeight - (prefs.showsLyricLine ? 10 : 0))
                 if prefs.showsLyricLine {
                     // The shared karaoke renderer's single-line style (word fill in the render server, no timers).
                     QTLyricsView(document: player.ad == nil ? player.lyrics : nil, time: player.timeline, style: .mini,
                                  showsTranslation: false) { _ in }
-                        .padding(.trailing, 14)
-                        .frame(height: QTMiniPlayerPanel.lyricLineHeight + 8, alignment: .topLeading)
+                        .frame(height: QTMiniPlayerPanel.lyricLineHeight, alignment: .topLeading)
+                        .padding(.bottom, 10)
                 }
             }
+            .padding(.trailing, 10)
         }
         .frame(height: height)
         .background(QTPanelGlassBackground())
     }
 
+    /// Title + artist at the prototype's 13 / 11–12 pt (`.headline` / `.subheadline`); long titles scroll on hover.
     private var titles: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 1) {
             if player.ad != nil {
-                Text(QTLoc.tr("Advertisement")).font(QTTheme.Typography.rowTitle.weight(.semibold)).lineLimit(1)
-                Text(QTLoc.tr("Then: %@", player.nowPlaying?.title ?? "")).font(QTTheme.Typography.secondary)
+                Text(QTLoc.tr("Advertisement")).font(.headline).lineLimit(1)
+                Text(QTLoc.tr("Then: %@", player.nowPlaying?.title ?? "")).font(.subheadline)
                     .foregroundStyle(.secondary).lineLimit(1)
             } else if let track = player.nowPlaying {
-                Text(track.title).font(QTTheme.Typography.rowTitle.weight(.semibold)).lineLimit(1)
-                Text(track.artistLine).font(QTTheme.Typography.secondary).foregroundStyle(.secondary).lineLimit(1)
+                QTMarqueeText(text: track.title, font: .headline, measureFont: QTMiniPlayerView.titleFont, isActive: hovering)
+                QTMarqueeText(text: track.artistLine, font: .subheadline, measureFont: QTMiniPlayerView.subtitleFont,
+                              isActive: hovering)
+                    .foregroundStyle(.secondary)
             } else {
-                Text(QTLoc.tr("Not Playing", table: .desktop)).font(QTTheme.Typography.rowTitle).foregroundStyle(.secondary)
+                Text(QTLoc.tr("Not Playing", table: .desktop)).font(.headline).foregroundStyle(.secondary)
             }
         }
     }
+
+    static var titleFont: NSFont { NSFont.preferredFont(forTextStyle: .headline) }
+    static var subtitleFont: NSFont { NSFont.preferredFont(forTextStyle: .subheadline) }
 
     // MARK: Art
 
@@ -257,16 +281,16 @@ public struct QTMiniPlayerView: View {
 
             if hovering {
                 VStack(spacing: 10) {
-                    VStack(spacing: 2) {
+                    VStack(spacing: 1) {
                         Text(player.ad != nil ? QTLoc.tr("Advertisement") : player.nowPlaying?.title ?? "")
-                            .font(QTTheme.Typography.rowTitle.weight(.semibold))
+                            .font(.headline)
                         Text(player.nowPlaying?.artistLine ?? "")
-                            .font(QTTheme.Typography.secondary)
+                            .font(.subheadline)
                             .foregroundStyle(QTTheme.Colors.onArtSecondary)
                     }
                     .lineLimit(1)
                     .padding(.horizontal, QTTheme.Spacing.m)
-                    QTTransportControls(style: .compact)
+                    QTMiniTransportControls(size: .regular)
                 }
                 .padding(.bottom, QTTheme.Spacing.m)
                 .transition(.opacity)

@@ -18,11 +18,11 @@ public struct QTSettingsView: View {
         // Each tab has its own content height, so the window resizes to fit it instead of scrolling or
         // leaving dead space.
         TabView(selection: $tab) {
-            Tab(QTLoc.tr("General"), systemImage: "gearshape", value: QTSettingsTab.general) { QTGeneralSettings().qtSettingsFitsContent(maxHeight: 340) }
-            Tab(QTLoc.tr("Playback", table: .desktop), systemImage: "play.circle", value: QTSettingsTab.playback) { QTPlaybackSettings().qtSettingsFitsContent(maxHeight: 350) }
-            Tab(QTLoc.tr("Lyrics"), systemImage: QTIcon.lyrics.systemName, value: QTSettingsTab.lyrics) { QTLyricsSettings().qtSettingsFitsContent(maxHeight: 650) }
-            Tab(QTLoc.tr("Account"), systemImage: "person.crop.circle", value: QTSettingsTab.account) { QTAccountSettings().qtSettingsFitsContent(maxHeight: 220) }
-            Tab(QTLoc.tr("Advanced", table: .desktop), systemImage: "gearshape.2", value: QTSettingsTab.advanced) { QTAdvancedSettings().qtSettingsFitsContent(maxHeight: 310) }
+            Tab(QTLoc.tr("General"), systemImage: "gearshape", value: QTSettingsTab.general) { QTGeneralSettings().qtSettingsPane() }
+            Tab(QTLoc.tr("Playback", table: .desktop), systemImage: "play.circle", value: QTSettingsTab.playback) { QTPlaybackSettings().qtSettingsPane() }
+            Tab(QTLoc.tr("Lyrics"), systemImage: QTIcon.lyrics.systemName, value: QTSettingsTab.lyrics) { QTLyricsSettings().qtSettingsPane() }
+            Tab(QTLoc.tr("Account"), systemImage: "person.crop.circle", value: QTSettingsTab.account) { QTAccountSettings().qtSettingsPane() }
+            Tab(QTLoc.tr("Advanced", table: .desktop), systemImage: "gearshape.2", value: QTSettingsTab.advanced) { QTAdvancedSettings().qtSettingsPane() }
         }
         .frame(width: 560)
         .scrollContentBackground(.visible)
@@ -43,6 +43,16 @@ public struct QTSettingsView: View {
             }
         })
         .accessibilityIdentifier("qt.settings")
+    }
+}
+
+extension View {
+    /// A grouped Form that is exactly as tall as its sections (no empty slab under the last one): scrolling off,
+    /// ideal height. The Settings window then resizes per tab, like System Settings' panes in Music and Finder.
+    func qtSettingsPane() -> some View {
+        self
+            .scrollDisabled(true)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -104,19 +114,29 @@ struct QTPlaybackSettings: View {
                 Toggle(QTLoc.tr("Prefer videos when available"), isOn: setting(store, \.preferVideos))
             }
             Section {
-                Toggle(QTLoc.tr("Gapless playback", table: .desktop), isOn: setting(store, \.playbackEffects.gapless))
+                // Controls show what is in effect: with the free engine none of these apply, so they read off
+                // (the saved Premium choices come back when the engine does).
+                let effects = store.settings.playbackEffects
+                let crossfade = isFree ? 0 : effects.crossfadeSeconds
+                Toggle(QTLoc.tr("Gapless playback", table: .desktop),
+                       isOn: Binding(get: { !isFree && store.settings.playbackEffects.gapless },
+                                     set: { v in store.update { $0.playbackEffects.gapless = v } }))
                 LabeledContent(QTLoc.tr("Crossfade", table: .desktop)) {
                     HStack(spacing: QTTheme.Spacing.s) {
-                        Slider(value: setting(store, \.playbackEffects.crossfadeSeconds), in: 0...12, step: 1)
+                        Slider(value: Binding(get: { isFree ? 0 : store.settings.playbackEffects.crossfadeSeconds },
+                                              set: { v in store.update { $0.playbackEffects.crossfadeSeconds = v } }),
+                               in: 0...12, step: 1)
                             .frame(width: 200)
-                            .accessibilityValue(crossfadeLabel(store.settings.playbackEffects.crossfadeSeconds))
-                        Text(crossfadeLabel(store.settings.playbackEffects.crossfadeSeconds))
+                            .accessibilityValue(crossfadeLabel(crossfade))
+                        Text(crossfadeLabel(crossfade))
                             .monospacedDigit()
                             .foregroundStyle(.secondary)
                             .frame(minWidth: 40, alignment: .trailing)
                     }
                 }
-                Picker(QTLoc.tr("Equalizer", table: .desktop), selection: setting(store, \.playbackEffects.equalizer)) {
+                Picker(QTLoc.tr("Equalizer", table: .desktop),
+                       selection: Binding(get: { isFree ? .off : store.settings.playbackEffects.equalizer },
+                                          set: { v in store.update { $0.playbackEffects.equalizer = v } })) {
                     ForEach(QTEqualizerPreset.allCases, id: \.self) { p in
                         Text(Self.name(p)).tag(p)
                         if p == .off { Divider() }
@@ -129,6 +149,8 @@ struct QTPlaybackSettings: View {
                     Text(QTLoc.tr("Free accounts play through YouTube’s own player, which doesn’t support these.", table: .desktop))
                         .font(.callout)
                         .foregroundStyle(.secondary)
+                        .padding(.leading, 10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             .disabled(isFree)
@@ -193,9 +215,11 @@ struct QTLyricsSettings: View {
             } header: {
                 Text(QTLoc.tr("Unofficial sources"))
             } footer: {
-                Text(QTLoc.tr("NetEase, Kugou and QQ Music — unofficial, may stop working"))
+                Text(QTLoc.tr("Unofficial, may stop working", table: .lyrics))
                     .font(.callout)
                     .foregroundStyle(.secondary)
+                    .padding(.leading, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             QTDesktopLyricsSettingsSection()
         }
@@ -250,47 +274,6 @@ struct QTDesktopLyricsSettingsSection: View {
     }
 }
 
-// MARK: - Account
-
-struct QTAccountSettings: View {
-    @Environment(QTAppModel.self) private var model
-
-    var body: some View {
-        Form {
-            Section {
-                HStack(spacing: QTTheme.Spacing.s) {
-                    Image(systemName: "person.crop.circle.fill")
-                        .font(.system(size: 36))
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(.secondary)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(QTLoc.tr("Not signed in", table: .desktop)).font(.headline)
-                        Text(verbatim: "YouTube Music").font(.callout).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    // Google sign-in lands with QTAuth (M3).
-                    Button(QTLoc.tr("Sign In…", table: .desktop)) {}
-                        .disabled(true)
-                }
-                .padding(.vertical, 4)
-            }
-            Section {
-                #if DEBUG
-                Picker(QTLoc.tr("Playback engine", table: .desktop), selection: Binding(get: { model.account }, set: { model.account = $0 })) {
-                    Text(QTLoc.tr("Premium engine")).tag(QTAccountKind.premium)
-                    Text(QTLoc.tr("Free (ads)")).tag(QTAccountKind.free)
-                }
-                #else
-                LabeledContent(QTLoc.tr("Playback engine", table: .desktop)) {
-                    Text(model.account == .premium ? QTLoc.tr("Premium engine") : QTLoc.tr("Free (ads)"))
-                }
-                #endif
-            }
-        }
-        .formStyle(.grouped)
-    }
-}
-
 // MARK: - Advanced
 
 struct QTAdvancedSettings: View {
@@ -332,31 +315,5 @@ struct QTAdvancedSettings: View {
         let short = info?["CFBundleShortVersionString"] as? String ?? "0.1.0"
         let build = info?["CFBundleVersion"] as? String ?? "1"
         return "\(short) (\(build))"
-    }
-}
-
-// MARK: - Content-sized tabs
-
-/// Sizes a grouped Form tab to its content (up to `maxHeight`, then it scrolls), so the Settings window grows and
-/// shrinks per tab like System Settings panes instead of leaving empty space under short forms.
-private struct QTSettingsContentHeight: ViewModifier {
-    let maxHeight: CGFloat
-    @State private var contentHeight: CGFloat?
-
-    func body(content: Content) -> some View {
-        content
-            .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentSize.height }) { _, h in
-                if h > 0, abs((contentHeight ?? 0) - h - 8) > 0.5 { contentHeight = h + 8 }
-            }
-            .frame(height: min(maxHeight, contentHeight ?? maxHeight))
-            // The tab area can be a few points taller than the form; let the window background show through
-            // so there's no seam between them.
-            .scrollContentBackground(.hidden)
-    }
-}
-
-extension View {
-    func qtSettingsFitsContent(maxHeight: CGFloat) -> some View {
-        modifier(QTSettingsContentHeight(maxHeight: maxHeight))
     }
 }

@@ -39,8 +39,18 @@ else
   # "x,y WxH" in global CG coordinates
   read -r X Y W H < <(echo "$BOUNDS" | sed -E 's/([-0-9]+),([-0-9]+) ([0-9]+)x([0-9]+)/\1 \2 \3 \4/')
   FILE="$QT_SCREENSHOTS/$OUT.png"
-  screencapture -x -R"$((X - MARGIN)),$((Y - MARGIN)),$((W + 2 * MARGIN)),$((H + 2 * MARGIN))" "$FILE"
-  echo "$FILE"
+  # Clamp to the test display so a margin never reaches into another display (the user's main screen).
+  RX=$((X - MARGIN)); RY=$((Y - MARGIN)); RX2=$((X + W + MARGIN)); RY2=$((Y + H + MARGIN))
+  if read -r DX DY DW DH < <("$TOOL" --display-bounds "${QT_SCREEN:-U270CA}"); then
+    (( RX < DX )) && RX=$DX; (( RY < DY )) && RY=$DY
+    (( RX2 > DX + DW )) && RX2=$((DX + DW)); (( RY2 > DY + DH )) && RY2=$((DY + DH))
+  else
+    echo "error: display ${QT_SCREEN:-U270CA} not found; not capturing" >&2; STATUS=1; RX2=$RX
+  fi
+  if (( RX2 > RX && RY2 > RY )); then
+    screencapture -x -R"$RX,$RY,$((RX2 - RX)),$((RY2 - RY))" "$FILE"
+    echo "$FILE"
+  fi
 fi
 kill "$PID" 2>/dev/null || true
 rm -f "$READY"

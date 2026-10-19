@@ -56,8 +56,9 @@ State (environment, `@MainActor @Observable`):
   (`QTSidebarItem`), `selectedTrackIDs`, `isPanelShown`, `panelTab` (`.nowPlaying/.queue`), `isVideoMode`,
   `account` (`.premium/.free`), `searchText`, `toast` + `showToast(_:undo:)`, persisted shortcuts `stageLayout`,
   `stageBackground`, `theme`, `lyricsTranslation`, `isDesktopLyricsShown`, `resolvedTranslationLanguage`, `palette`,
-  `catalog` (`QTMockCatalog`), `settings` (`QTSettingsStore`), `launch` (`QTLaunchOptions`). One per process:
-  `QTAppModel.shared`.
+  `catalog` (`QTMockCatalog`), `settings` (`QTSettingsStore`), `launch` (`QTLaunchOptions`), `authController`
+  (`QTAuthController?` — the data-live wiring sets it; Settings › Account reads its `state`/`account` and creates one
+  on demand when the user presses Sign In). One per process: `QTAppModel.shared`.
 - `QTPlayerModel` — `@Environment(QTPlayerModel.self)`. UI façade over playback: `state`, `timeline`, `queue`,
   `nowPlaying`, `isPlaying`, `ad`, `duration`, `lyrics`, `mode` (song/video), `likedTrackIDs`, `isShuffleOn`,
   `repeatMode`; `play(_:startingAt:source:startTime:autoplay:mode:)`, `togglePlayPause`, `next`, `previous`,
@@ -103,7 +104,8 @@ Coordinators (one per process, `@MainActor`):
   bar, so `QTStageTitlebar` (Stage/) swaps in an empty unified toolbar and re-shows the title bar while the Stage
   is up, and hands the window's own toolbar back when it closes.
 - `QTDesktopCoordinator.shared` (Desktop/) — mini player, desktop lyrics (hidden while the Stage is up, inline or
-  detached), menu bar title, Dock menu, `showMainWindow()` (user-initiated only).
+  detached; until the user moves it, its default spot steps out of the main window's way), menu bar title, Dock
+  menu, `showMainWindow()` (user-initiated only).
 - `QTLyricsTiming.nudge(model, by:)` (Lyrics/) — offset change + toast; `QTLyricsVersionStore.shared`.
 
 Keyboard ownership: `QTCommands` (Commands/) is the only menu definition — every shortcut is bound once there
@@ -218,7 +220,7 @@ Builders add their own as `qt.<area>.<name>` (e.g. `qt.stage.chrome hidden`, `qt
 | player | `qt.player.upNext demo\|id,id` · `qt.player.autoplay NO` · `qt.player.shuffle YES` · `qt.player.repeat off\|all\|one` · `qt.player.adElapsed <s>` (with `qt.ad`: run the ad `<s>` s then pause; 2 = "Skip in 3", 6 = skippable) · DEBUG `qt.player.keyAppearance YES` (best-effort key-window rendering in background captures; check the shot and retake) |
 | lyrics-ui | `qt.lyrics.scrolled` · `qt.lyrics.options` · `qt.lyrics.demoVersions` · `qt.lyrics.translationState same\|translating\|download\|unavailable\|onDevice\|appleIntelligence` · `qt.lyrics.lab` · `qt.lyrics.debug` |
 | stage | `qt.stage.chrome hidden` · `qt.stage.queue YES` · `qt.stage.popover appearance` · `qt.stage.window YES` (detached window) · `qt.stage.reduceMotion YES` · `qt.stage.visualizerOnBattery YES` · `qt.stage.closeAfter <s>` · `qt.stage.noAd YES` (free account without the simulated pre-roll, e.g. the visualizer fallback) |
-| desktop | `qt.desktop.miniMode compact\|art` · `qt.desktop.miniLyric` · `qt.desktop.miniHover` · `qt.desktop.lyricsUnlocked` · `qt.desktop.menuBarScroll` · `qt.desktop.lyricsSize <pt>` · `qt.settingsTab general\|playback\|lyrics\|account\|advanced`; DEBUG: `qt.desktop.switchLanguage`, `qt.desktop.popUpMenu <index>`, `qt.desktop.showShortcuts` |
+| desktop | `qt.desktop.miniMode compact\|art` · `qt.desktop.miniLyric` · `qt.desktop.miniHover` · `qt.desktop.lyricsUnlocked` · `qt.desktop.menuBarScroll` · `qt.desktop.lyricsSize <pt>` · `qt.settingsTab general\|playback\|lyrics\|account\|advanced`; DEBUG: `qt.desktop.switchLanguage`, `qt.desktop.popUpMenu <index>`, `qt.desktop.showShortcuts`, `qt.desktop.accountPreview signedIn\|premium\|signingIn\|expired\|signedOut` (Settings › Account without Keychain access) |
 
 Env-gated test suites: `QT_LIVE=1` (live anonymous InnerTube / lyrics / playback), `QT_RECORD=1` (re-record
 InnerTube fixtures), `QT_DUMP=1` (print parser output), `QT_KEYCHAIN_TEST=1` (Keychain round trip).
@@ -238,9 +240,11 @@ InnerTube fixtures), `QT_DUMP=1` (print parser output), `QT_KEYCHAIN_TEST=1` (Ke
   ids with `Scripts/tools/qt-window-id.swift` (compiled to `.build/qt-tools/`, CGWindowList by pid + title; Settings
   via the ready file because its title is the localized tab name), `screencapture -l<id> -o -x` into the main
   checkout's `screenshots/<outname>.png` (+ `<outname>-<window>.png`), quits, restores the frontmost app if it
-  moved. Retakes a capture that Stage Manager shrank or caught mid-animation (narrower than the window or nearly
-  empty). `QT_KEEP=1` leaves it running; `QT_BUILD=1` builds first. Prefix outnames with your area.
-- `Scripts/shoot-region.sh` — screen-region capture on U270CA (mini player, unlocked desktop lyrics); other
+  moved. Retakes a capture that Stage Manager shrank or caught mid-animation (narrower than the window, wrong
+  aspect, transparent corners, nearly empty, or not yet stable across two captures). Passes `-qt.catalog mock`
+  unless the caller gives `-qt.catalog`. `QT_SETTLE` (default 1 s) waits before capturing. `QT_KEEP=1` leaves it
+  running; `QT_BUILD=1` builds first. Prefix outnames with your area.
+- `Scripts/shoot-region.sh` — screen-region capture on U270CA (mini player, unlocked desktop lyrics), clamped to that display (`qt-window-id --display-bounds`) so a margin never reaches the user’s screen; other
   windows on that display can show at the edges. `Scripts/tools/qt-composite.swift` composites a transparent
   window capture over system wallpapers (desktop-lyrics shots).
 - `Scripts/make-app-icon.sh` (`Scripts/tools/qt-make-icon.swift`) — renders `Assets/AppIcon.icns` (macOS 15–25)

@@ -42,7 +42,10 @@ struct QTLyricsMetrics {
     var dotSize: CGFloat
 
     var mainColor: NSColor { overArt ? .white : .labelColor }
-    var laneColor: NSColor { overArt ? NSColor.white.withAlphaComponent(0.62) : .secondaryLabelColor }
+    /// Translation / romanization lanes. The desktop overlay (the only style with an outline) keeps them brighter.
+    var laneColor: NSColor {
+        overArt ? NSColor.white.withAlphaComponent(outline != nil ? 0.88 : 0.62) : .secondaryLabelColor
+    }
 
     /// Same metrics with every lane in the given system font design.
     func withDesign(_ design: NSFontDescriptor.SystemDesign) -> QTLyricsMetrics {
@@ -91,18 +94,20 @@ struct QTLyricsMetrics {
             let s = QTTheme.Typography.lyricSizes(.desktop)
             let main = (desktopFontSize ?? s.main) * textScale
             let shadow = NSShadow()
-            shadow.shadowColor = NSColor.black.withAlphaComponent(0.6)
-            shadow.shadowBlurRadius = 8
-            shadow.shadowOffset = NSSize(width: 0, height: -2)
+            // Tighter and darker than a decorative drop shadow: it is what keeps the line legible on pale or busy
+            // wallpapers (desktop polish round).
+            shadow.shadowColor = NSColor.black.withAlphaComponent(0.55)
+            shadow.shadowBlurRadius = 6
+            shadow.shadowOffset = NSSize(width: 0, height: -1)
             return QTLyricsMetrics(
                 main: .init(size: main, weight: .bold, lineHeight: 1.2, centered: true),
                 romanization: .init(size: main * 0.5, weight: .semibold, lineHeight: 1.3, centered: true),
                 translation: .init(size: main * s.translation / s.main, weight: .semibold, lineHeight: 1.3, centered: true),
-                rowPadding: 0, laneGap: 6, inset: 0, anchor: 0.5, inactiveOpacity: 0.55, hoverOpacity: 1,
-                // A touch stronger than the in-app styles: the unsung part must still read on pale wallpapers.
-                farOpacity: nil, unsungOpacity: 0.55, inactiveScale: 1, futureBlur: 0, farBlur: 0, edge: 16,
+                rowPadding: 0, laneGap: 6, inset: 0, anchor: 0.5, inactiveOpacity: 0.85, hoverOpacity: 1,
+                // The unsung fill dims, its outline + shadow (`mainHalo`) don't: legible on pale and busy wallpapers.
+                farOpacity: nil, unsungOpacity: 0.7, inactiveScale: 1, futureBlur: 0, farBlur: 0, edge: 16,
                 fadeTop: 0, fadeBottom: 1, overArt: true, shadow: shadow,
-                outline: (width: max(1.5, main / 18), color: NSColor.black.withAlphaComponent(0.28)), dotSize: 10)
+                outline: (width: max(2, main / 13), color: NSColor.black.withAlphaComponent(0.5)), dotSize: 10)
         }
     }
 }
@@ -297,6 +302,9 @@ enum QTLyricsRowBuilder {
 final class QTLyricsRowNode {
     let container = CALayer()
     let selection = CALayer()
+    /// Desktop overlay only: the outline + shadow at full strength under the (dimmed) unsung text, so the halo
+    /// that keeps it legible doesn't fade with the unsung opacity, and the sung fill stays crisp.
+    let mainHalo = CALayer()
     let mainBase = CALayer()
     let mainFill = CALayer()
     /// The glyphs as an alpha mask for `mainFill`, whose sublayers are the moving colour bands (one per visual line).
@@ -316,10 +324,11 @@ final class QTLyricsRowNode {
         selection.cornerRadius = 8
         selection.cornerCurve = .continuous
         selection.isHidden = true
-        for l in [container, selection, mainBase, mainFill, textMask, romanization, translation] {
+        for l in [container, selection, mainHalo, mainBase, mainFill, textMask, romanization, translation] {
             l.actions = QTLyricsRowNode.noActions
         }
         container.addSublayer(selection)
+        container.addSublayer(mainHalo)
         container.addSublayer(mainBase)
         container.addSublayer(mainFill)
         container.addSublayer(romanization)
@@ -350,11 +359,18 @@ final class QTLyricsRowNode {
             buildDots(metrics: m, appearance: appearance)
             return true
         }
-        var mainImage: CGImage?, romaImage: CGImage?, trImage: CGImage?
+        var mainImage: CGImage?, haloImage: CGImage?, romaImage: CGImage?, trImage: CGImage?
         appearance.performAsCurrentDrawingAppearance {
-            mainImage = model.main?.render(color: m.mainColor, scale: scale, shadow: m.shadow, outline: m.outline)
-            romaImage = model.romanization?.render(color: m.laneColor, scale: scale, shadow: m.shadow)
-            trImage = model.translation?.render(color: m.laneColor, scale: scale, shadow: m.shadow)
+            if m.outline != nil || m.shadow != nil {
+                // Halo (stroke + shadow, no fill) on its own layer; the glyphs (and so the karaoke mask) stay clean.
+                haloImage = model.main?.render(color: .clear, scale: scale, shadow: m.shadow, outline: m.outline)
+                mainImage = model.main?.render(color: m.mainColor, scale: scale)
+            } else {
+                mainImage = model.main?.render(color: m.mainColor, scale: scale)
+            }
+            let laneOutline = m.outline.map { (width: max(1, $0.width * 0.7), color: $0.color) }
+            romaImage = model.romanization?.render(color: m.laneColor, scale: scale, shadow: m.shadow, outline: laneOutline)
+            trImage = model.translation?.render(color: m.laneColor, scale: scale, shadow: m.shadow, outline: laneOutline)
         }
         func place(_ layer: CALayer, _ layout: QTLyricTextLayout?, _ origin: CGPoint, _ image: CGImage?) {
             guard let layout, let image else {
@@ -369,6 +385,7 @@ final class QTLyricsRowNode {
             let img = layout.imageSize
             layer.frame = CGRect(x: origin.x - layout.padding.left, y: origin.y - layout.padding.top, width: img.width, height: img.height)
         }
+        place(mainHalo, model.main, model.mainOrigin, haloImage)
         place(mainBase, model.main, model.mainOrigin, mainImage)
         place(mainFill, model.main, model.mainOrigin, mainImage)
         mainFill.contents = nil

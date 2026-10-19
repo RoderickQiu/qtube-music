@@ -39,7 +39,7 @@ public final class QTDesktopCoordinator {
     private(set) var model: QTAppModel?
     private var miniPanel: QTMiniPlayerPanel?
     private var lyricsPanel: QTDesktopLyricsPanel?
-    private var menuBarPreview: NSPanel?
+    private var menuBarPreview: QTPreviewPanel?
     private var observers: [NSObjectProtocol] = []
     /// SwiftUI's `openWindow`, captured from a scene so AppKit paths (Dock, reopen) can bring the main window back.
     private var openWindowAction: OpenWindowAction?
@@ -54,6 +54,7 @@ public final class QTDesktopCoordinator {
         QTKeyRouting.install()
         observeMainWindowClose()
         observeMainWindowKey()
+        observeMainWindowFrame()
         observe()
         observeScreens()
         if model.launch.surface == .mini { hideMainWindowAfterLaunch() }
@@ -152,7 +153,7 @@ public final class QTDesktopCoordinator {
         let showLyrics = settings.desktopLyrics.isShown && model.surface != .stage && !QTStageCoordinator.shared.isDetached
         if showLyrics {
             let panel = lyricsPanel ?? makeLyricsPanel(model: model)
-            panel.apply(prefs: settings.desktopLyrics, preferredScreenName: screenName)
+            panel.apply(prefs: settings.desktopLyrics, preferredScreenName: screenName, avoiding: visibleMainWindowFrame)
             if !panel.isVisible { panel.orderFrontRegardless() }
         } else {
             lyricsPanel?.orderOut(nil)
@@ -162,6 +163,7 @@ public final class QTDesktopCoordinator {
         if extra.contains(.menuBarPopover) {
             if menuBarPreview == nil { menuBarPreview = makeMenuBarPreview(model: model, screenName: screenName) }
             menuBarPreview?.orderFrontRegardless()
+            if let p = menuBarPreview { placeMenuBarPreview(p, screenName: screenName) }
         }
 
         // Menu bar marquee only runs when it has something to do.
@@ -176,7 +178,8 @@ public final class QTDesktopCoordinator {
         let root = QTMiniPlayerView()
             .environment(model)
             .environment(model.player)
-        let panel = QTMiniPlayerPanel(content: root, mode: model.settings.settings.miniPlayer.mode)
+        let prefs = model.settings.settings.miniPlayer
+        let panel = QTMiniPlayerPanel(content: root, mode: prefs.mode, showsLyricLine: prefs.showsLyricLine)
         let screen = QTWindowPlacement.screen(named: screenName) ?? mainWindow?.screen ?? NSScreen.main
         panel.restoreFrame(on: screen, mode: model.settings.settings.miniPlayer.mode)
         miniPanel = panel
@@ -273,6 +276,32 @@ public final class QTDesktopCoordinator {
         return panel
     }
 
+    /// The main window's frame while it is on screen (desktop lyrics keep out of its way by default).
+    var visibleMainWindowFrame: NSRect? {
+        guard let w = mainWindow, w.isVisible, !w.isMiniaturized, model?.surface != .mini else { return nil }
+        return w.frame
+    }
+
+    /// Main window moved, resized, minimised or came back: re-place the overlay if it sits at its default spot.
+    private func observeMainWindowFrame() {
+        let names: [Notification.Name] = [NSWindow.didMoveNotification, NSWindow.didEndLiveResizeNotification,
+                                          NSWindow.didMiniaturizeNotification, NSWindow.didDeminiaturizeNotification,
+                                          NSWindow.didChangeOcclusionStateNotification]
+        for name in names {
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { note in
+                let window = note.object as? NSWindow
+                MainActor.assumeIsolated {
+                    let c = QTDesktopCoordinator.shared
+                    guard window?.identifier == QTWindowID.main.identifier, let model = c.model,
+                          let panel = c.lyricsPanel, panel.isVisible else { return }
+                    let screenName = model.launch.screen ?? model.launch.effectiveScreenName
+                    panel.apply(prefs: model.settings.settings.desktopLyrics, preferredScreenName: screenName,
+                                avoiding: c.visibleMainWindowFrame)
+                }
+            })
+        }
+    }
+
     public func toggleDesktopLyrics() {
         model?.isDesktopLyricsShown.toggle()
     }
@@ -302,13 +331,40 @@ public final class QTDesktopCoordinator {
 
     // MARK: Menu bar popover preview
 
-    private func makeMenuBarPreview(model: QTAppModel, screenName: String?) -> NSPanel {
+    private func makeMenuBarPreview(model: QTAppModel, screenName: String?) -> QTPreviewPanel {
         let root = QTMenuBarContent()
             .environment(model)
             .environment(model.player)
         let panel = QTDesktopPanels.makePreviewPanel(id: .menuBarPopover, content: root)
-        QTWindowPlacement.placePanel(panel, screenName: screenName, corner: .topRight)
+        // The hosting controller sizes the panel after the first layout (and again when the lyric section
+        // collapses), so re-anchor on every size change instead of once at creation.
+        panel.onSizeChange = { [weak panel] in
+            guard let panel else { return }
+            QTDesktopCoordinator.shared.placeMenuBarPreview(panel, screenName: screenName)
+        }
+        placeMenuBarPreview(panel, screenName: screenName)
         return panel
+    }
+
+    /// Like the real menu bar extra window: hangs under the status item when it is on that display, otherwise
+    /// under the menu bar at the trailing edge; always inside the display's visible frame.
+    func placeMenuBarPreview(_ panel: NSWindow, screenName: String?) {
+        guard let screen = QTWindowPlacement.screen(named: screenName) ?? NSScreen.main else { return }
+        let v = screen.visibleFrame
+        let size = panel.frame.size
+        let statusItem = NSApp.windows.first { w in
+            w !== panel && w.className.contains("StatusBarWindow") && w.isVisible && w.screen == screen
+        }
+        var origin: NSPoint
+        if let item = statusItem?.frame {
+            origin = NSPoint(x: item.midX - size.width / 2, y: item.minY - 5 - size.height)
+        } else {
+            origin = NSPoint(x: v.maxX - size.width - 12, y: v.maxY - 5 - size.height)
+        }
+        origin.x = min(max(origin.x, v.minX + 8), v.maxX - size.width - 8)
+        origin.y = min(max(origin.y, v.minY + 8), v.maxY - size.height)
+        let frame = NSRect(origin: origin, size: size).integral
+        if frame != panel.frame { panel.setFrame(frame, display: true) }
     }
 
     // MARK: Screens
@@ -320,7 +376,8 @@ public final class QTDesktopCoordinator {
                 let c = QTDesktopCoordinator.shared
                 c.miniPanel?.clampToScreen()
                 if let model = c.model, let panel = c.lyricsPanel, panel.isVisible {
-                    panel.apply(prefs: model.settings.settings.desktopLyrics, preferredScreenName: model.launch.screen, force: true)
+                    panel.apply(prefs: model.settings.settings.desktopLyrics, preferredScreenName: model.launch.screen,
+                                avoiding: c.visibleMainWindowFrame, force: true)
                 }
             }
         })
@@ -337,14 +394,14 @@ public final class QTDesktopCoordinator {
 @MainActor
 enum QTDesktopPanels {
     /// A system-material panel hosting `content`, resizing with it (used for the menu bar popover debug host).
-    static func makePreviewPanel<Content: View>(id: QTWindowID, content: Content) -> NSPanel {
+    static func makePreviewPanel<Content: View>(id: QTWindowID, content: Content) -> QTPreviewPanel {
         let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
         let root = content
-            .background(QTVisualEffectBackground(material: .popover))
+            .background(QTPanelGlassBackground(cornerRadius: 14))
             .clipShape(shape)
         let controller = NSHostingController(rootView: root)
         controller.sizingOptions = [.preferredContentSize]
-        let panel = NSPanel(contentRect: NSRect(origin: .zero, size: controller.view.fittingSize),
+        let panel = QTPreviewPanel(contentRect: NSRect(origin: .zero, size: controller.view.fittingSize),
                             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.contentViewController = controller
         panel.identifier = id.identifier
@@ -357,6 +414,32 @@ enum QTDesktopPanels {
         panel.backgroundColor = .clear
         panel.hasShadow = true
         return panel
+    }
+}
+
+/// Borderless panel that reports size changes however they happen (the hosting controller resizes it through
+/// `setContentSize`, which doesn't always post `didResizeNotification` before the first display).
+final class QTPreviewPanel: NSPanel {
+    var onSizeChange: (@MainActor () -> Void)?
+    private var isReporting = false
+
+    override func setFrame(_ frameRect: NSRect, display flag: Bool) {
+        let old = frame.size
+        super.setFrame(frameRect, display: flag)
+        report(from: old)
+    }
+
+    override func setContentSize(_ size: NSSize) {
+        let old = frame.size
+        super.setContentSize(size)
+        report(from: old)
+    }
+
+    private func report(from old: NSSize) {
+        guard frame.size != old, !isReporting else { return }
+        isReporting = true
+        onSizeChange?()
+        isReporting = false
     }
 }
 
