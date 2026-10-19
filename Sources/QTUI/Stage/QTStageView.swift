@@ -100,6 +100,13 @@ public struct QTStageView: View {
                     .contextMenu { stageMenu }
                     .accessibilityHidden(true)
 
+                // Over the music video the synced line sits on a soft dark fall-off at the bottom of the picture
+                // (no box), so it stays legible on bright frames; the bottom control slab sits on it too.
+                if appearance.isVideo, showsVideoLyrics, appearance.artSlot != .ad {
+                    QTStageVideoLyricScrim()
+                        .transition(.opacity)
+                }
+
                 content(appearance, size: geo.size, trailingReserve: drawerReserve)
                     .scaleEffect(appeared || reduceMotion ? 1 : 1.015)
                     .opacity(appeared ? 1 : 0)
@@ -443,9 +450,11 @@ public struct QTStageView: View {
     private var bottomBar: some View {
         VStack(spacing: 6) {
             QTScrubber(overArt: true, identifier: "qt.stage.scrubber")
+            // Volume on the left balances like / queue / AirPlay on the right around the centred transport.
             ZStack {
                 QTTransportControls(style: .stage)
                 HStack(spacing: 10) {
+                    QTStageVolumeControl()
                     Spacer(minLength: 0)
                     sideControls
                 }
@@ -694,4 +703,17 @@ enum QTStageLaunchState {
 /// Weak holder so `@State` doesn't retain the window.
 final class QTStageWeakWindow {
     weak var window: NSWindow?
+}
+
+/// Bottom fall-off under the video lyric: transparent over the upper picture, darkening towards the bottom edge.
+private struct QTStageVideoLyricScrim: View {
+    var body: some View {
+        LinearGradient(stops: [
+            .init(color: .clear, location: 0.45),
+            .init(color: .black.opacity(0.28), location: 0.68),
+            .init(color: .black.opacity(0.5), location: 1),
+        ], startPoint: .top, endPoint: .bottom)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
 }

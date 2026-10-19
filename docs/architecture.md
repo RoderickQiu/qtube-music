@@ -381,15 +381,17 @@ The prototype defines layout, hierarchy, copy and states; the app must look like
   (segmented/menu), `Toggle` (`.button` style for shuffle/repeat = filled when on), `Slider`, `Stepper`, `Menu`,
   `.popover`, grouped `Form` in Settings, `NSMenu`/`.contextMenu`, sheets/alerts.
 - System semantics only: `QTTheme.Colors` wraps label/secondary/tertiary/separator/window/selection colours.
-- **Accent policy (R4).** The *system* accent for selection and system controls: sidebar and table selection, Play,
-  toggles, segmented pickers, focus rings, the selected mood chip's wash, drop highlights. The main window applies
-  `.qtArtworkAccent(palette)` — it sets only `\.qtAccent`, `.tint` stays the system accent. The artwork accent is a
-  light tint read from `\.qtAccent`: scrubber progress, now-playing marks (title colour, speaker glyph), panel and
-  window washes, the Liked Songs tile. Never a "liked" colour and never a selection: hearts are one stable neutral
-  (`secondaryLabel` filled when liked, `tertiaryLabel` outline) and show only on hover, selection and the
-  now-playing row (table and quick-pick rows; the player bar's heart is a system control). Surfaces drawn over the
-  art (Stage, mini player, menu bar popover) keep `.qtArtworkTint(palette)` (`.tint` + `\.qtAccent`). Increase
-  Contrast: system accent everywhere.
+- **Accent policy (R5).** The main window is system-themed: every control, mark and selection uses the *system*
+  accent — sidebar and table selection, Play, toggles, segmented pickers, focus rings, the scrubber fill and volume
+  slider, liked hearts (filled accent when liked, `tertiaryLabel` outline otherwise; one colour in the player bar,
+  the track tables and Home quick picks, shown on hover, selection and the now-playing row), now-playing marks
+  (title colour, speaker glyph), the selected mood chip's wash, drop highlights. The Liked Songs tile is a fixed,
+  calm system-accent gradient (it never changes with the song); collections without art get a neutral system fill.
+  The main window applies `.qtArtworkAccent(palette)` — it sets only `\.qtAccent`, `.tint` stays the system accent —
+  and the artwork colour appears only as ambient wash (window tint, panel backdrop), never as a control colour.
+  Surfaces drawn over the art (Stage, mini player, menu bar popover) are art-themed and keep
+  `.qtArtworkTint(palette)` (`.tint` + `\.qtAccent`, contrast-guarded); the Stage's own slab draws its controls white.
+  Increase Contrast: system accent everywhere.
 - **Window chrome (R4).** Sidebar: the stock `NavigationSplitView` sidebar, full height — what Apple's own apps
   (Music, Finder, System Settings) show on this macOS 27 host (references `screenshots/r4-shell-ref-*.png`); no
   custom sidebar background. Search: `.searchable(placement: .toolbarPrincipal)` puts the system field in the
@@ -418,9 +420,9 @@ The prototype defines layout, hierarchy, copy and states; the app must look like
   Transparency solid surfaces — decided in ONE place, `Theme/QTGlass.swift`. Feature code never calls
   `glassEffect` or paints `.material` backgrounds itself:
   - `qtGlass(_ role, in: shape, tint:, interactive:)` — roles `.chrome` (floating pieces over our content: toasts,
-    lyrics "Current" pill), `.bar` (the player bar: glass with a neutral window-colour wash so titles stay legible
-    over vivid art; in light mode it also gets a hairline + soft outside shadow so it has an edge over white
-    content), `.overArt` (Stage chrome, queue drawer, ad badges, mini player art controls; dark context).
+    lyrics "Current" pill), `.bar` (the player bar: glass with a dense (0.8) window-colour wash so list text never
+    ghosts through the title; in light mode it also gets a hairline + soft outside shadow so it has an edge over
+    white content), `.overArt` (Stage chrome, queue drawer, ad badges, mini player art controls; dark context).
     Tint = the artwork accent at ~0.12–0.16 opacity, only over art.
   - `qtGlassButton(.primary | .secondary, iconOnly:)` — `.glassProminent` tinted with the system accent (the page's
     one primary action: collection / search top result Play) / `.glass` (Shuffle, More, open); capsule or circle.
@@ -430,7 +432,8 @@ The prototype defines layout, hierarchy, copy and states; the app must look like
   - `qtSoftScrollEdges()` — `.scrollEdgeEffectStyle(.soft, for: .top)` on macOS 26+.
   - `QTGlassGroup { … }` — `GlassEffectContainer` for neighbouring glass shapes (Stage top bar).
   - `qtFloatingBottomBar { … }` — `safeAreaBar` on macOS 26 (scroll edge effect under the bar), `safeAreaInset`
-    before. The player bar floats over the bottom of content + inspector (10 pt inset, radius 22); the sidebar
+    before; the bar sits on `QTBottomBarBackdrop` (a material that fades in from the bar's top edge to the window
+    edge), so SwiftUI pages and AppKit tables are frosted behind it and no half-cut rows show in the gutters. The player bar floats over the bottom of content + inspector (10 pt inset, radius 22); the sidebar
     keeps the window's full height and pages scroll under the bar.
   - `QTPanelGlassBackground(cornerRadius:)` — window-level glass for clear panels (`NSGlassEffectView` on 26,
     `.popover` vibrancy before): mini player strip, desktop lyrics controls.

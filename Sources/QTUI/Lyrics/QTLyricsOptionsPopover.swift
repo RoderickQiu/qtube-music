@@ -19,7 +19,7 @@ public struct QTLyricsOptionsButton: View {
         Button {
             isPresented.toggle()
         } label: {
-            Label(QTLoc.tr("Lyrics options"), systemImage: isPresented ? "quote.bubble.fill" : QTIcon.lyrics.systemName)
+            Label(QTLoc.tr("Lyrics options"), systemImage: QTIcon.lyricsOptions.systemName)
                 .labelStyle(.iconOnly)
                 .contentTransition(.symbolEffect(.replace))
         }

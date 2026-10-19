@@ -133,6 +133,57 @@ final class QTTrackTablePageView: NSView {
     @objc private func clipBoundsChanged(_ note: Notification) { scrolled() }
     @objc private func clipFrameChanged(_ note: Notification) { needsLayout = true }
 
+    // MARK: Initial focus
+
+    /// The window we still owe the initial focus to: a list page never starts with its Filter field focused (Space
+    /// would type into it instead of playing, like Music, which starts on the list). AppKit picks the first key view
+    /// in the key-view loop when the window first becomes key — and the header's NSSearchField came first in some
+    /// launches — so the page claims the table instead, once: the moment it's in a key window, or when its window
+    /// first becomes key. The filter takes focus only from ⌘F or a click.
+    private weak var pendingFocusWindow: NSWindow?
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if let old = pendingFocusWindow {
+            NotificationCenter.default.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: old)
+            pendingFocusWindow = nil
+        }
+        super.viewWillMove(toWindow: newWindow)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard let window else { return }
+        window.initialFirstResponder = tableView
+        if window.isKeyWindow {
+            DispatchQueue.main.async { [weak self] in self?.claimInitialFocus() }
+        } else {
+            pendingFocusWindow = window
+            NotificationCenter.default.addObserver(self, selector: #selector(windowBecameKey(_:)),
+                                                   name: NSWindow.didBecomeKeyNotification, object: window)
+        }
+    }
+
+    @objc private func windowBecameKey(_ note: Notification) {
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: note.object)
+        pendingFocusWindow = nil
+        // After AppKit has settled the window's first responder for this activation.
+        DispatchQueue.main.async { [weak self] in self?.claimInitialFocus() }
+    }
+
+    /// Moves focus to the table when nothing has it yet or AppKit handed it to this page's filter field; never takes
+    /// it from anything the user focused (sidebar, search, another control).
+    private func claimInitialFocus() {
+        guard let window, window.isKeyWindow else { return }
+        let responder = window.firstResponder
+        let isOwnFilter: Bool = {
+            guard let editor = responder as? NSTextView, editor.isFieldEditor,
+                  let field = editor.delegate as? NSView else { return false }
+            return field.isDescendant(of: self)
+        }()
+        guard responder == nil || responder === window || isOwnFilter else { return }
+        window.makeFirstResponder(tableView)
+    }
+
     // MARK: Layout
 
     var tableTop: CGFloat { headerHeight + Self.columnHeaderHeight }

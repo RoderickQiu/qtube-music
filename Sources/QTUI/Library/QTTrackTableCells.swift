@@ -205,7 +205,7 @@ final class QTTrackTitleCell: NSTableCellView {
 
     override var backgroundStyle: NSView.BackgroundStyle { didSet { if backgroundStyle != oldValue { applyTitle() } } }
 
-    /// The now-playing title takes the artwork accent; over the focused (accent-filled) selection it's white.
+    /// The now-playing title takes the system accent; over the focused (accent-filled) selection it's white.
     private func applyTitle() {
         let onSelection = backgroundStyle.isEmphasizedSelection
         let titleColor: NSColor = onSelection ? .alternateSelectedControlTextColor : (shown.isPlaying ? shown.accent : .labelColor)
@@ -319,8 +319,9 @@ final class QTTrackHeartCell: NSTableCellView {
     /// Set by the row: hovered or selected.
     var isRowRevealing = false { didSet { if isRowRevealing != oldValue { applyVisibility() } } }
 
-    /// One stable, neutral heart (filled when liked) that shows on hover, selection and the now-playing row — the
-    /// artwork accent is never a "liked" colour. `accent` is unused (kept for callers).
+    /// One stable heart that shows on hover, selection and the now-playing row: filled in the system accent when
+    /// liked — the same heart as the player bar and Home (accent policy); the artwork accent is never a "liked"
+    /// colour. `accent` is unused (kept for callers).
     func configure(liked: Bool, accent: NSColor, enabled: Bool, isCurrent: Bool = false) {
         self.liked = liked
         self.isCurrent = isCurrent
@@ -339,7 +340,7 @@ final class QTTrackHeartCell: NSTableCellView {
         if backgroundStyle.isEmphasizedSelection {
             button.contentTintColor = .alternateSelectedControlTextColor
         } else {
-            button.contentTintColor = liked ? .secondaryLabelColor : .tertiaryLabelColor
+            button.contentTintColor = liked ? .controlAccentColor : .tertiaryLabelColor
         }
     }
 

@@ -291,7 +291,9 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
         guard let tableColumn, let column = Column(rawValue: tableColumn.identifier.rawValue), rows.indices.contains(row),
               let config else { return nil }
         let track = rows[row]
-        let accent = config.tint.accent(for: tableView.effectiveAppearance)
+        // Now-playing marks (speaker glyph, title) use the system accent like every mark and control in the window;
+        // the artwork colour stays an ambient wash (accent policy).
+        let accent = NSColor.controlAccentColor
         let isCurrent = track.videoId == config.playingID
         let cellID = NSUserInterfaceItemIdentifier(column.rawValue + ".cell")
         let view: NSView

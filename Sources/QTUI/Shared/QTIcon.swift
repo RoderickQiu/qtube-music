@@ -7,7 +7,7 @@ public enum QTIcon: String, CaseIterable, Sendable {
     case heart, heartFill
     case home, compass, note, album, mic, clock, list, playlist
     case search, chevL, chevR, chevD, chevU
-    case expand, mini, lyrics, volume, volumeMuted, airplay, more, sidebar
+    case expand, mini, lyrics, lyricsOptions, volume, volumeMuted, airplay, more, sidebar
     case grip, video, check, layers, close, sparkle, pin
 
     public var systemName: String {
@@ -37,6 +37,8 @@ public enum QTIcon: String, CaseIterable, Sendable {
         case .expand: "arrow.up.left.and.arrow.down.right"
         case .mini: "pip"
         case .lyrics: "quote.bubble"
+        // Its own glyph: `lyrics` (quote.bubble) is the player bar's show/hide-lyrics toggle.
+        case .lyricsOptions: "slider.horizontal.3"
         case .volume: "speaker.wave.2.fill"
         case .volumeMuted: "speaker.slash.fill"
         case .airplay: "airplay.audio"

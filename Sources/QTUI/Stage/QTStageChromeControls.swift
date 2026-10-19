@@ -1,5 +1,6 @@
 import AVKit
 import QTCore
+import QTPlayback
 import SwiftUI
 
 /// Quiet icon button over art, behaving like a toolbar button: glyph only, a soft rounded bezel on hover or when
@@ -102,5 +103,38 @@ private struct QTStagePlayButtonBody: View {
             .onHover { hovering = $0 && isEnabled }
             .animation(reduceMotion ? nil : .spring(response: 0.28, dampingFraction: 0.7), value: configuration.isPressed)
             .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.8), value: hovering)
+    }
+}
+
+/// The Stage's volume: speaker (click = mute, waves follow the level) + a short slider, white like the Stage's
+/// scrubber so every control on the slab shares one colour over any art or video.
+struct QTStageVolumeControl: View {
+    @Environment(QTPlayerModel.self) private var player
+
+    var body: some View {
+        let state = player.state
+        let level = state.isMuted ? 0 : state.volume
+        let muteTitle = QTLoc.tr(state.isMuted ? "Unmute" : "Mute", table: .player)
+        HStack(spacing: 4) {
+            Button { player.engine.setMuted(!state.isMuted) } label: {
+                Label {
+                    Text(muteTitle)
+                } icon: {
+                    Image(systemName: level == 0 ? QTIcon.volumeMuted.systemName : "speaker.wave.3.fill", variableValue: level)
+                }
+            }
+            .buttonStyle(QTStageChromeButtonStyle(glyph: 15))
+            .help(muteTitle)
+            .accessibilityIdentifier("qt.stage.mute")
+            Slider(value: Binding(get: { level }, set: { v in
+                if state.isMuted { player.engine.setMuted(false) }
+                player.setVolume(v)
+            }), in: 0...1)
+                .controlSize(.small)
+                .tint(.white.opacity(0.92))
+                .frame(width: 96)
+                .accessibilityLabel(QTLoc.tr("Volume"))
+                .accessibilityIdentifier("qt.stage.volume")
+        }
     }
 }

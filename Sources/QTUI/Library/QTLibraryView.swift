@@ -76,25 +76,37 @@ struct QTHostedEnvironment {
 
 // MARK: - Header
 
-/// Collection artwork: the playlist's own art, or the Liked Songs tile (artwork accent gradient + heart).
+/// Collection artwork: the playlist's own art, or a fixed tile. Liked Songs is a calm gradient of the *system*
+/// accent with a white heart (like Music's Favourites tile) — it never changes with the playing song; a collection
+/// without art gets a quiet system fill with its glyph.
 struct QTCollectionTile: View {
     let collection: QTTrackCollection
     let size: CGFloat
     var cornerRadius: CGFloat = QTTheme.Radius.artworkLarge
     var showsShadow = true
-    @Environment(\.qtAccent) private var accent
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         Group {
-            if collection.kind == .liked || collection.artwork.isEmpty {
+            if collection.kind == .liked {
+                let accent = QTTheme.Colors.systemAccent
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(LinearGradient(colors: [accent, accent.mix(with: .black, by: 0.55)],
+                    .fill(LinearGradient(colors: [accent.mix(with: .white, by: scheme == .dark ? 0.12 : 0.22),
+                                                  accent.mix(with: .black, by: scheme == .dark ? 0.30 : 0.16)],
                                          startPoint: .topLeading, endPoint: .bottomTrailing))
                     .overlay {
                         collection.placeholderIcon.image
                             .font(.system(size: size * 0.38, weight: .regular))
                             .foregroundStyle(.white)
-                            .symbolRenderingMode(.hierarchical)
+                            .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
+                    }
+            } else if collection.artwork.isEmpty {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(.fill.tertiary)
+                    .overlay {
+                        collection.placeholderIcon.image
+                            .font(.system(size: size * 0.34, weight: .regular))
+                            .foregroundStyle(.secondary)
                     }
             } else {
                 QTArtworkView(collection.artwork, cornerRadius: cornerRadius, placeholder: collection.placeholderIcon)

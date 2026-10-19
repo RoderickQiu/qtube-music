@@ -50,7 +50,7 @@ struct QTStageCurrentLyric: View {
                     if showsTranslation, let tr = current?.translation {
                         Text(tr)
                             .font(.system(size: style == .videoOverlay ? 22 : 15, weight: style == .videoOverlay ? .semibold : .regular))
-                            .foregroundStyle(.white.opacity(style == .videoOverlay ? 0.75 : 0.6))
+                            .foregroundStyle(.white.opacity(style == .videoOverlay ? 0.86 : 0.6))
                     }
                 }
             }
@@ -61,7 +61,10 @@ struct QTStageCurrentLyric: View {
             }
             .animation(QTTheme.Motion.animation(QTTheme.Motion.lyricSpring, reduceMotion: reduceMotion), value: index)
         }
-        .shadow(color: style == .videoOverlay ? .black.opacity(0.5) : .clear, radius: 9, y: 2)
+        // Subtitle-style over video: a tight dark edge keeps every glyph readable on a bright frame, a wide soft
+        // shadow lifts the line off busy pictures (with the scrim QTStageView lays under the lower picture).
+        .shadow(color: style == .videoOverlay ? .black.opacity(0.55) : .clear, radius: 1.5, y: 1)
+        .shadow(color: style == .videoOverlay ? .black.opacity(0.4) : .clear, radius: 12, y: 2)
         .qtHostsLyricsTranslation(showsTranslation)
         .foregroundStyle(QTTheme.Colors.onArt)
         .accessibilityElement(children: .combine)
@@ -83,9 +86,10 @@ struct QTStageCurrentLyric: View {
         return next.map { max(0, $0 - now) / time.rate }
     }
 
-    /// Sung words full white, the rest dimmed (`--ly-on` / `--ly-off`).
+    /// Sung words full white, the rest dimmed (`--ly-on` / `--ly-off`). Over video the unsung words stay near-white
+    /// (a grey fill would depend on the frame being dark); the sweep reads as brightness, helped by the shadow.
     private func attributed(_ line: QTLyricsLine, lyricTime: TimeInterval) -> AttributedString {
-        let off = Color.white.opacity(style == .videoOverlay ? 0.45 : 0.4)
+        let off = Color.white.opacity(style == .videoOverlay ? 0.7 : 0.4)
         guard let words = line.words, !words.isEmpty else {
             var s = AttributedString(line.text)
             s.foregroundColor = .white

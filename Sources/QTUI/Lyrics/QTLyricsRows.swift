@@ -80,7 +80,7 @@ struct QTLyricsMetrics {
                 main: .init(size: s.main * textScale, weight: .bold, lineHeight: 1.3, centered: false, tracking: -0.005),
                 romanization: .init(size: (s.translation - 1) * textScale, weight: .medium, lineHeight: 1.3, centered: false),
                 translation: .init(size: s.translation * textScale, weight: .medium, lineHeight: 1.3, centered: false),
-                rowPadding: 7, laneGap: 3, inset: 30, anchor: 0.31, inactiveOpacity: dim, hoverOpacity: 0.62,
+                rowPadding: 7, laneGap: 3, inset: 30, anchor: 0.24, inactiveOpacity: dim, hoverOpacity: 0.62,
                 farOpacity: nil, unsungOpacity: increaseContrast ? 0.5 : 0.36, inactiveScale: 0.97,
                 futureBlur: 0, farBlur: 0, edge: 10 * textScale, fadeTop: 0.14, fadeBottom: 0.80, overArt: false,
                 shadow: nil, outline: nil, dotSize: 7 * textScale,

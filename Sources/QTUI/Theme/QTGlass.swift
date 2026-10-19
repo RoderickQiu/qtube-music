@@ -40,7 +40,9 @@ enum QTGlassRole {
     /// The glass tint when the caller gives none.
     fileprivate var defaultTint: Color? {
         switch self {
-        case .bar: QTTheme.Colors.windowBackground.opacity(0.62)
+        // Dense enough that list text scrolling underneath never ghosts through the title and artist (Music's
+        // floating player reads as frosted, not clear); the backdrop under the bar blurs it first.
+        case .bar: QTTheme.Colors.windowBackground.opacity(0.8)
         case .chrome, .overArt: nil
         }
     }
@@ -288,14 +290,42 @@ extension View {
     }
 
     /// A bar floating over the bottom of a scrolling region (the player bar): on macOS 26 a `safeAreaBar`, so the
-    /// scroll view draws its edge effect under the glass and content stays legible through it; a plain safe-area
-    /// inset before.
+    /// scroll view draws its edge effect under the glass; a plain safe-area inset before. Either way the bar sits on
+    /// `QTBottomBarBackdrop`, a frosted layer that fades in from the bar's top edge, so content (SwiftUI pages and
+    /// the AppKit track tables alike) is blurred behind the bar and never shows as sharp, half-cut rows in the
+    /// gutters around it.
     @ViewBuilder
     func qtFloatingBottomBar<Bar: View>(@ViewBuilder _ bar: () -> Bar) -> some View {
         if #available(macOS 26, *) {
-            safeAreaBar(edge: .bottom, spacing: 0, content: bar)
+            safeAreaBar(edge: .bottom, spacing: 0) { bar().background { QTBottomBarBackdrop() } }
         } else {
-            safeAreaInset(edge: .bottom, spacing: 0, content: bar)
+            safeAreaInset(edge: .bottom, spacing: 0) { bar().background { QTBottomBarBackdrop() } }
         }
+    }
+}
+
+/// The frosted fade behind a floating bottom bar: transparent at the top of the bar's region, a full material from
+/// about its middle down to the window edge. Reduce Transparency: the window colour, same fade.
+struct QTBottomBarBackdrop: View {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    var body: some View {
+        Group {
+            if reduceTransparency || QTGlassDebug.forcesSolid {
+                Rectangle().fill(QTTheme.Colors.windowBackground)
+            } else {
+                Rectangle().fill(.regularMaterial)
+            }
+        }
+        .mask {
+            LinearGradient(stops: [
+                .init(color: .clear, location: 0),
+                .init(color: .black.opacity(0.85), location: 0.4),
+                .init(color: .black, location: 0.7),
+            ], startPoint: .top, endPoint: .bottom)
+        }
+        .ignoresSafeArea(edges: .bottom)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }

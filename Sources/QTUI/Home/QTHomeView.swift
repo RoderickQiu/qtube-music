@@ -208,7 +208,6 @@ struct QTHomeCard: View {
     @Environment(QTAppModel.self) private var model
     @Environment(QTPlayerModel.self) private var player
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.qtAccent) private var accent
     @State private var isHovered = false
 
     var body: some View {
@@ -243,7 +242,7 @@ struct QTHomeCard: View {
                     .padding(.bottom, 6)
                 Text(verbatim: t.title)
                     .font(QTTheme.Typography.rowTitle)
-                    .foregroundStyle(isCurrent ? AnyShapeStyle(accent) : AnyShapeStyle(.primary))
+                    .foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
                     .lineLimit(1)
                 Text(verbatim: t.artistLine)
                     .font(QTTheme.Typography.secondary)
@@ -450,14 +449,13 @@ struct QTQuickPickRow: View {
     /// Chart position, shown before the artwork.
     var rank: Int? = nil
     @Environment(QTPlayerModel.self) private var player
-    @Environment(\.qtAccent) private var accent
     @State private var isHovered = false
 
     var body: some View {
         let isCurrent = player.nowPlaying?.videoId == track.videoId
         let liked = player.isLiked(track)
-        // The heart is a control, not decoration: it appears on hover and on the now-playing row, in one stable
-        // neutral colour (filled when liked) — never a column of vivid hearts that changes colour with the song.
+        // The heart is a control, not decoration: it appears on hover and on the now-playing row, filled in the
+        // system accent when liked — the same heart as the player bar and the track tables (accent policy).
         let showsHeart = isHovered || isCurrent
         HStack(spacing: 14) {
             if let rank {
@@ -483,7 +481,7 @@ struct QTQuickPickRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(verbatim: track.title)
                     .font(QTTheme.Typography.rowTitle)
-                    .foregroundStyle(isCurrent ? AnyShapeStyle(accent) : AnyShapeStyle(.primary))
+                    .foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
                     .lineLimit(1)
                 Text(verbatim: track.artistLine)
                     .font(QTTheme.Typography.secondary)
@@ -496,7 +494,7 @@ struct QTQuickPickRow: View {
             } label: {
                 Label(QTLoc.tr(liked ? "Remove from Liked Songs" : "Like"), systemImage: (liked ? QTIcon.heartFill : QTIcon.heart).systemName)
                     .labelStyle(.iconOnly)
-                    .foregroundStyle(liked ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tertiary))
+                    .foregroundStyle(liked ? AnyShapeStyle(.tint) : AnyShapeStyle(.tertiary))
             }
             .buttonStyle(.borderless)
             .frame(width: 32)

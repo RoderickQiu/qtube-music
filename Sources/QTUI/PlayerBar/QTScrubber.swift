@@ -5,11 +5,12 @@ import SwiftUI
 
 // Owner: builder "player". Shared by the player bar, Stage, mini player and menu bar popover.
 
-/// Elapsed · progress · remaining, tinted with the artwork accent.
+/// Elapsed · progress · remaining. The fill is `.tint`: the system accent in the main window (one control colour
+/// with Play, the volume slider and the hearts — accent policy), the artwork accent on art-themed surfaces that set
+/// `qtArtworkTint` (mini player, menu bar popover), white over art (Stage).
 ///
 /// Drawn like the progress bar in Music.app's player (a thin capsule that thickens and shows its knob on hover)
-/// rather than an `NSSlider`, because a slider's fill turns grey whenever the window isn't key and the spec asks
-/// for an artwork-tinted progress bar. It behaves like a native adjustable control: VoiceOver adjustable action,
+/// rather than an `NSSlider`, because a slider's fill turns grey whenever the window isn't key. It behaves like a native adjustable control: VoiceOver adjustable action,
 /// keyboard focus (Full Keyboard Access) with ←/→ = ∓5 s, click or drag to seek. While an ad plays it shows
 /// "Ad" · the ad countdown in the amber ad tint (`QTAdTint`) and is disabled.
 public struct QTScrubber: View {
@@ -41,7 +42,6 @@ private struct QTScrubberContent: View {
     let duration: TimeInterval
     let onSeek: (TimeInterval) -> Void
 
-    @Environment(\.qtAccent) private var accent
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorSchemeContrast) private var contrast
     @State private var dragFraction: Double?
@@ -66,9 +66,9 @@ private struct QTScrubberContent: View {
         if overArt { return .white.opacity(contrast == .increased ? 0.4 : 0.22) }
         return contrast == .increased ? QTTheme.Colors.tertiaryLabel : QTTheme.Colors.quaternaryLabel
     }
-    private var fillColor: Color {
-        if ad != nil { return QTAdTint.color(overArt: overArt, increasedContrast: contrast == .increased) }
-        return overArt ? .white.opacity(0.92) : accent
+    private var fillStyle: AnyShapeStyle {
+        if ad != nil { return AnyShapeStyle(QTAdTint.color(overArt: overArt, increasedContrast: contrast == .increased)) }
+        return overArt ? AnyShapeStyle(.white.opacity(0.92)) : AnyShapeStyle(.tint)
     }
 
     private var isActive: Bool { (isHovering || dragFraction != nil || isFocused) && ad == nil }
@@ -96,7 +96,7 @@ private struct QTScrubberContent: View {
             ZStack(alignment: .leading) {
                 Capsule().fill(trackColor)
                     .frame(height: thickness)
-                Capsule().fill(fillColor)
+                Capsule().fill(fillStyle)
                     .frame(width: max(thickness, width * fraction), height: thickness)
                 Circle()
                     .fill(.white)
