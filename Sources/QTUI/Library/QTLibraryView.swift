@@ -131,7 +131,8 @@ struct QTLibraryHeader: View {
         let loaded = collection.tracks.count
         let total = max(loaded, reportedCount ?? 0)
         if filter.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            if isLoadingMore && total > loaded { return QTLoc.tr("%lld songs", table: .main, total) }
+            // Still loading, or no durations to add up (a Home shelf's songs come without them): the count alone.
+            if (isLoadingMore && total > loaded) || collection.totalDuration == 0 { return QTLoc.tr("%lld songs", table: .main, total) }
             return QTFormat.songCountAndMinutes(count: total, seconds: collection.totalDuration)
         }
         return QTLoc.tr("%lld of %lld songs", table: .main, rows.count, total)

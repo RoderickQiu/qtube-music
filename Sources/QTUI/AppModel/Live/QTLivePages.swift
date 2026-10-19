@@ -17,7 +17,9 @@ struct QTLivePage: View {
         let store = QTLiveCatalogStore.shared
         switch store.mode {
         case .restoring:
-            skeleton
+            // Home's own loading state (real greeting, chip and shelf placeholders), so restoring → loading →
+            // loaded never swaps one skeleton for another of a different shape.
+            if destination == .section(.home) { QTHomeView(isRestoring: true) } else { skeleton }
         case .signedOut:
             QTLiveSignedOutView()
         case .mock, .live:
@@ -31,7 +33,6 @@ struct QTLivePage: View {
 
     private var skeleton: QTLiveSkeleton {
         switch destination {
-        case .section(.home): QTLiveSkeleton(layout: .shelves, title: QTHomeView.greeting(at: .now))
         case .section(.explore): QTLiveSkeleton(layout: .shelves, title: QTLoc.tr("Explore"))
         case .section(.albums): QTLiveSkeleton(layout: .grid, title: QTLoc.tr("Albums"))
         case .section(.artists): QTLiveSkeleton(layout: .grid, title: QTLoc.tr("Artists"))
@@ -56,6 +57,7 @@ struct QTLivePage: View {
         case .album(let key): QTAlbumPageView(key: key)
         case .artist(let key): QTArtistPageView(key: key)
         case .mood(let chip): QTMoodPageView(chip: chip)
+        case .shelf(let shelf): QTLibraryView(collection: .shelf(shelf), destination: destination)
         }
     }
 }

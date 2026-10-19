@@ -206,6 +206,8 @@ struct QTContentRouter: View {
             QTArtistPageView(key: key)
         case .mood(let chip):
             QTMoodPageView(chip: chip)
+        case .shelf(let shelf):
+            QTLibraryView(collection: .shelf(shelf), destination: d)
         }
     }
 }
@@ -226,6 +228,8 @@ enum QTWindowTitle {
             return QTSidebarView.title(for: item)
         case .mood(let chip):
             return chip.title.resolved
+        case .shelf(let shelf):
+            return shelf.title.resolved
         case .album(let key):
             return navigator.pageTitle(for: destination) ?? (isBrowseID(key) ? QTLoc.tr("Album") : key)
         case .artist(let key):

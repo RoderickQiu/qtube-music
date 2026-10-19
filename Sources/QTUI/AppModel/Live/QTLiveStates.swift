@@ -14,8 +14,6 @@ struct QTLiveSkeleton: View {
     enum Layout { case shelves, trackList, artist, grid, search }
     let layout: Layout
     var title: String?
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var pulse = false
 
     var body: some View {
         // Takes exactly the space it's offered (never asks the window for its own, wider ideal size); top-leading
@@ -34,14 +32,7 @@ struct QTLiveSkeleton: View {
             .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
             .clipped()
         }
-        // The pulse animates opacity only (a transaction-wide repeatForever would also animate first layout).
-        .opacity(pulse ? 0.55 : 1)
-        .animation(reduceMotion ? nil : .easeInOut(duration: 1.1).repeatForever(autoreverses: true), value: pulse)
-        .task {
-            guard !reduceMotion else { return }
-            try? await Task.sleep(for: .milliseconds(50))
-            pulse = true
-        }
+        .qtSkeletonPulse()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(QTLoc.tr("Loading", table: .live)))
         .accessibilityIdentifier("qt.live.skeleton")
@@ -244,6 +235,145 @@ struct QTLiveSkeleton: View {
             .padding(.horizontal, QTTheme.Spacing.gutter)
             .padding(.top, 28)
         }
+    }
+}
+
+/// The skeletons' slow, quiet pulse; static with Reduce Motion.
+private struct QTSkeletonPulse: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var pulse = false
+
+    func body(content: Content) -> some View {
+        content
+            // Opacity only (a transaction-wide repeatForever would also animate first layout).
+            .opacity(pulse ? 0.55 : 1)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 1.1).repeatForever(autoreverses: true), value: pulse)
+            .task {
+                guard !reduceMotion else { return }
+                try? await Task.sleep(for: .milliseconds(50))
+                pulse = true
+            }
+    }
+}
+
+extension View {
+    func qtSkeletonPulse() -> some View { modifier(QTSkeletonPulse()) }
+}
+
+// MARK: - Home placeholders
+
+// Home loads in sections: the greeting is real at once, the mood chips and the shelves each swap their own
+// placeholder for content in place. The placeholders are built from the real views' metrics (a hidden chip, hidden
+// text in the real fonts, `QTSongShelfLayout`), so nothing moves when the content arrives.
+
+/// Mood chips while Home's feed loads: hidden real chips with a capsule each, so size, spacing and wrapping match.
+/// The hidden titles are YouTube Music's usual ten moods in the interface language (never shown).
+struct QTMoodChipsSkeleton: View {
+    private static var words: [String] {
+        switch QTLoc.language {
+        case .en: ["Energize", "Workout", "Relax", "Feel good", "Party", "Commute", "Focus", "Romance", "Sad", "Sleep"]
+        case .zhHans: ["焕活能量", "健身", "休闲放松", "轻松愉悦", "派对", "通勤", "专注", "浪漫", "伤心难过", "睡眠"]
+        }
+    }
+
+    var body: some View {
+        QTChipFlow(spacing: 10) {
+            ForEach(Self.words, id: \.self) { word in
+                Toggle(isOn: .constant(false)) { Text(verbatim: word) }
+                    .toggleStyle(QTChipToggleStyle())
+                    .hidden()
+                    .overlay { Capsule(style: .continuous).fill(.fill.secondary) }
+            }
+        }
+        .qtSkeletonPulse()
+        .accessibilityHidden(true)
+    }
+}
+
+/// Home's shelves while they load: a song shelf in its paged four-row grid, then two card rows.
+struct QTHomeShelvesSkeleton: View {
+    @State private var width: CGFloat = 0
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            shelf(title: 170) { songGrid }
+            shelf(title: 130) { cards }
+            shelf(title: 190) { cards }
+        }
+        .qtSkeletonPulse()
+        .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width = $0 }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(QTLoc.tr("Loading", table: .live)))
+        .accessibilityIdentifier("qt.live.skeleton")
+    }
+
+    private var fill: some ShapeStyle { .fill.secondary }
+
+    /// A bar the height of one line of `font`, so the rows keep the real text's height.
+    private func line(_ font: Font, width: CGFloat, height: CGFloat) -> some View {
+        Text(verbatim: "Placeholder")
+            .font(font)
+            .hidden()
+            .frame(width: width, alignment: .leading)
+            .overlay(alignment: .leading) {
+                RoundedRectangle(cornerRadius: height / 2, style: .continuous).fill(fill).frame(width: width, height: height)
+            }
+    }
+
+    private func tile(_ size: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: QTTheme.Radius.artwork, style: .continuous).fill(fill).frame(width: size, height: size)
+    }
+
+    private func shelf<Content: View>(title: CGFloat, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            line(QTTheme.Typography.shelfTitle, width: title, height: 18)
+                .padding(.horizontal, QTTheme.Spacing.gutter)
+            content()
+        }
+        .padding(.top, QTTheme.Spacing.shelfSpacing)
+    }
+
+    /// `QTQuickPickRow`'s geometry: 6 pt padding, 52 pt art, 14 pt gap, title over artist.
+    private var songGrid: some View {
+        let layout = QTSongShelfLayout(width: width, tracks: 20, ranked: false)
+        return HStack(alignment: .top, spacing: QTSongShelfLayout.columnSpacing) {
+            ForEach(0..<layout.perPage, id: \.self) { c in
+                VStack(alignment: .leading, spacing: QTSongShelfLayout.rowSpacing) {
+                    ForEach(0..<layout.rows, id: \.self) { r in
+                        let i = c * layout.rows + r
+                        HStack(spacing: 14) {
+                            tile(QTTheme.Metrics.quickPickArtwork)
+                            VStack(alignment: .leading, spacing: 2) {
+                                line(QTTheme.Typography.rowTitle, width: CGFloat([150, 120, 170, 135][i % 4]), height: 12)
+                                line(QTTheme.Typography.secondary, width: CGFloat([90, 70, 105, 80][i % 4]), height: 10)
+                            }
+                        }
+                        .padding(6)
+                    }
+                }
+                .frame(width: layout.columnWidth, alignment: .leading)
+            }
+        }
+        .padding(.horizontal, QTTheme.Spacing.gutter)
+        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+        .clipped()
+    }
+
+    /// `QTHomeCard`'s geometry: square art, 6 + 4 pt, title, artist.
+    private var cards: some View {
+        HStack(alignment: .top, spacing: QTTheme.Spacing.shelfGap) {
+            ForEach(0..<8, id: \.self) { i in
+                VStack(alignment: .leading, spacing: 4) {
+                    tile(QTTheme.Metrics.card).padding(.bottom, 6)
+                    line(QTTheme.Typography.rowTitle, width: CGFloat([120, 100, 135, 110][i % 4]), height: 12)
+                    line(QTTheme.Typography.secondary, width: CGFloat([80, 65, 90, 70][i % 4]), height: 10)
+                }
+            }
+        }
+        .padding(.horizontal, QTTheme.Spacing.gutter)
+        .padding(.bottom, 10)
+        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+        .clipped()
     }
 }
 

@@ -1299,6 +1299,16 @@
         }
       }
     },
+    "See All" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "查看全部"
+          }
+        }
+      }
+    },
     "Show Main Window" : {
       "localizations" : {
         "zh-Hans" : {

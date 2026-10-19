@@ -2,67 +2,67 @@ import QTCore
 import SwiftUI
 
 // Owner: builder "window". Home (prototype home.jsx + styles.css `.home`): greeting + mood chips, then the feed's
-// shelves (Listen again, Quick picks in 3 columns, Music videos, playlists). ONE view for the demo catalog and the
-// live library: live adds the load phase (skeleton / failure) and mood chips that load that mood's feed; in the
-// demo the chips only toggle. (Kaset ADR-0038: AppKit beats SwiftUI for *big* shelves — these are lazy and small.)
+// shelves (Listen again, song shelves as a paged four-row grid, Music videos, playlists). ONE view for the demo
+// catalog and the live library: live adds the load phase and mood chips that load that mood's feed; in the demo the
+// chips only toggle. Loading is per section: the greeting is real at once; the chips and the shelves each swap their
+// own placeholder (QTMoodChipsSkeleton, QTHomeShelvesSkeleton) in place, in the real geometry. (Kaset ADR-0038: AppKit
+// beats SwiftUI for *big* shelves — these are lazy and small.)
 
 public struct QTHomeView: View {
     @Environment(QTAppModel.self) private var model
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var position = ScrollPosition(edge: .top)
     /// Demo catalog only; live Home keeps the chosen mood in the store (it survives leaving the page).
     @State private var demoMood: String?
     @State private var didRestore = false
     @State private var didApplyLaunchMood = false
+    /// The signed-in session is still restoring: Home's loading state, before the store is live.
+    private let isRestoring: Bool
 
-    public init() {}
+    public init(isRestoring: Bool = false) {
+        self.isRestoring = isRestoring
+    }
 
     public var body: some View {
         let store = QTLiveCatalogStore.shared
-        if store.isLive {
-            QTLivePhaseView(phase: store.homePhase,
-                            skeleton: QTLiveSkeleton(layout: .shelves, title: Self.greeting(at: .now)),
-                            retry: { Task { await store.loadHome(force: true) } }) {
-                feed(live: store)
-            }
-            .task { await store.loadHome() }
-        } else {
-            feed(live: nil)
-        }
+        feed(live: store.isLive && !isRestoring ? store : nil)
+            .task(id: store.isLive) { if store.isLive && !isRestoring { await store.loadHome() } }
     }
 
     private func feed(live store: QTLiveCatalogStore?) -> some View {
         let mood = store?.homeMood ?? (store == nil ? demoMood : nil)
         // Live: a chosen mood shows that mood's feed (its own phase); the demo has no per-mood feeds.
-        let moodPhase: QTLivePhase = (store != nil ? mood.map { store?.moodPhases[$0] ?? .loading } : nil) ?? .loaded
+        let phase: QTLivePhase = isRestoring ? .loading
+            : store.map { s in s.pinnedPhase ?? mood.map { s.moodPhases[$0] ?? .loading } ?? s.homePhase } ?? .loaded
         let shelves = store.flatMap { s in mood.flatMap { s.moodFeeds[$0]?.shelves } } ?? model.catalog.home.shelves
         return ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 0) {
-                header(store: store, selected: mood)
-                switch moodPhase {
+                header(store: store, selected: mood, phase: phase)
+                switch phase {
                 case .failed(let f):
-                    QTLiveFailureView(failure: f) { if let mood, let store { Task { await store.loadMood(mood) } } }
-                        .frame(height: 360)
+                    QTLiveFailureView(failure: f) {
+                        guard let store else { return }
+                        Task { if let mood { await store.loadMood(mood) } else { await store.loadHome(force: true) } }
+                    }
+                    .frame(height: 360)
                 case .loaded:
                     ForEach(shelves) { shelf in
                         QTHomeShelf(shelf: shelf)
                             .padding(.top, QTTheme.Spacing.shelfSpacing)
                     }
-                    .transition(.opacity)
-                default:
-                    QTLiveSkeleton(layout: .shelves).frame(height: 760).padding(.top, -110)
+                case .idle, .loading:
+                    QTHomeShelvesSkeleton()
                 }
             }
             .padding(.bottom, 48)
-            .animation(QTTheme.Motion.animation(QTTheme.Motion.ui, reduceMotion: reduceMotion), value: mood)
         }
         .qtSoftScrollEdges()
         .scrollPosition($position)
         .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentOffset.y + $0.contentInsets.top }) { _, y in
-            guard didRestore else { return }
+            guard didRestore, !isRestoring else { return }
             QTNavigator.shared.setScrollOffset(y, for: .section(.home))
         }
         .onAppear {
+            guard !isRestoring else { return }
             let saved = model.launch.double("qt.home.scroll").map { CGFloat($0) } ?? QTNavigator.shared.scrollOffset(for: .section(.home))
             if saved > 0 { position.scrollTo(y: saved) }
             didRestore = true
@@ -75,24 +75,31 @@ public struct QTHomeView: View {
         .accessibilityIdentifier("qt.home")
     }
 
-    private func header(store: QTLiveCatalogStore?, selected: String?) -> some View {
-        VStack(alignment: .leading, spacing: 18) {
+    private func header(store: QTLiveCatalogStore?, selected: String?, phase: QTLivePhase) -> some View {
+        let moods = isRestoring ? [] : model.catalog.home.moods
+        let isLoading = switch phase { case .idle, .loading: true; default: false }
+        return VStack(alignment: .leading, spacing: 18) {
             Text(Self.greeting(at: .now))
                 .font(QTTheme.Typography.pageTitle)
                 .accessibilityAddTraits(.isHeader)
-            QTChipFlow(spacing: 10) {
-                ForEach(model.catalog.home.moods) { mood in
-                    Toggle(mood.title.resolved, isOn: Binding(
-                        get: { selected == mood.id },
-                        set: { on in
-                            if let store { store.selectMood(on ? mood.id : nil) } else { demoMood = on ? mood.id : nil }
-                        }
-                    ))
-                    .toggleStyle(QTChipToggleStyle())
-                    .accessibilityIdentifier("qt.home.mood.\(mood.id)")
+            if !moods.isEmpty {
+                QTChipFlow(spacing: 10) {
+                    ForEach(moods) { mood in
+                        Toggle(mood.title.resolved, isOn: Binding(
+                            get: { selected == mood.id },
+                            set: { on in
+                                if let store { store.selectMood(on ? mood.id : nil) } else { demoMood = on ? mood.id : nil }
+                            }
+                        ))
+                        .toggleStyle(QTChipToggleStyle())
+                        .accessibilityIdentifier("qt.home.mood.\(mood.id)")
+                    }
                 }
+                .controlSize(.large)
+            } else if isLoading {
+                QTMoodChipsSkeleton()
+                    .controlSize(.large)
             }
-            .controlSize(.large)
         }
         .padding(.top, 40)
         .padding(.horizontal, QTTheme.Spacing.gutter)
@@ -116,20 +123,32 @@ struct QTHomeShelf: View {
     @Environment(QTAppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var firstVisible: String?
+    /// The song grid's first visible column.
+    @State private var firstColumn: Int?
     @State private var width: CGFloat = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack {
+            HStack(spacing: QTTheme.Spacing.m) {
                 Text(shelf.title.resolved)
                     .font(QTTheme.Typography.shelfTitle)
                     .accessibilityAddTraits(.isHeader)
                 Spacer()
-                if shelf.style != .quickPicks && !fitsWithoutPaging { pager }
+                switch shelf.style {
+                case .quickPicks:
+                    if songLayout.pages {
+                        Button(QTLoc.tr("See All")) { QTNavigator.shared.go(.shelf(shelf)) }
+                            .buttonStyle(.link)
+                            .accessibilityIdentifier("qt.home.shelf.\(shelf.id).seeAll")
+                        songPager
+                    }
+                case .cards, .videos:
+                    if !fitsWithoutPaging { pager }
+                }
             }
             .padding(.horizontal, QTTheme.Spacing.gutter)
             switch shelf.style {
-            case .quickPicks: QTQuickPicks(tracks: tracks, source: source, ranked: ranked)
+            case .quickPicks: songGrid
             case .cards, .videos: row
             }
         }
@@ -173,19 +192,31 @@ struct QTHomeShelf: View {
         let ids = shelf.items.map(\.id)
         let index = firstVisible.flatMap { ids.firstIndex(of: $0) } ?? 0
         let perPage = max(1, Int((width - QTTheme.Spacing.gutter * 2 + QTTheme.Spacing.shelfGap) / (itemWidth + QTTheme.Spacing.shelfGap)))
+        return chevrons(index: index, perPage: perPage, count: ids.count) { i in
+            guard ids.indices.contains(i) else { return }
+            firstVisible = ids[i]
+        }
+    }
+
+    private func chevrons(index: Int, perPage: Int, count: Int, to page: @escaping (Int) -> Void) -> some View {
+        let go = { (i: Int) in
+            withAnimation(QTTheme.Motion.animation(QTTheme.Motion.ui, reduceMotion: reduceMotion)) { page(i) }
+        }
         return HStack(spacing: 2) {
             Button {
-                page(to: max(0, index - perPage), ids: ids)
+                go(max(0, index - perPage))
             } label: {
                 Label(QTLoc.tr("Scroll left"), systemImage: QTIcon.chevL.systemName)
             }
             .disabled(index == 0)
+            .accessibilityIdentifier("qt.home.shelf.\(shelf.id).previous")
             Button {
-                page(to: min(ids.count - 1, index + perPage), ids: ids)
+                go(min(count - 1, index + perPage))
             } label: {
                 Label(QTLoc.tr("Scroll right"), systemImage: QTIcon.chevR.systemName)
             }
-            .disabled(index + perPage >= ids.count)
+            .disabled(index + perPage >= count)
+            .accessibilityIdentifier("qt.home.shelf.\(shelf.id).next")
         }
         .labelStyle(.iconOnly)
         .buttonStyle(.borderless)
@@ -193,9 +224,76 @@ struct QTHomeShelf: View {
         .controlSize(.large)
     }
 
-    private func page(to i: Int, ids: [String]) {
-        guard ids.indices.contains(i) else { return }
-        withAnimation(QTTheme.Motion.animation(QTTheme.Motion.ui, reduceMotion: reduceMotion)) { firstVisible = ids[i] }
+    // MARK: Song grid
+
+    private var songLayout: QTSongShelfLayout { QTSongShelfLayout(width: width, tracks: tracks.count, ranked: ranked) }
+
+    /// Song shelves (Quick picks, Trending, charts) as Music.app's Top Songs: up to four rows, columns filling top
+    /// to bottom (YouTube Music's order), as many columns as the width holds per page, paged sideways; See All
+    /// opens the whole list as a track table.
+    private var songGrid: some View {
+        let layout = songLayout
+        let tracks = self.tracks
+        let source = self.source
+        return ScrollView(.horizontal) {
+            LazyHStack(alignment: .top, spacing: QTSongShelfLayout.columnSpacing) {
+                ForEach(0..<layout.columns, id: \.self) { c in
+                    VStack(alignment: .leading, spacing: QTSongShelfLayout.rowSpacing) {
+                        ForEach(layout.range(ofColumn: c, tracks: tracks.count), id: \.self) { i in
+                            QTQuickPickRow(track: tracks[i], tracks: tracks, source: source, rank: ranked ? i + 1 : nil)
+                        }
+                    }
+                    .frame(width: layout.columnWidth, alignment: .topLeading)
+                    .id(c)
+                }
+            }
+            .scrollTargetLayout()
+        }
+        .contentMargins(.horizontal, QTTheme.Spacing.gutter, for: .scrollContent)
+        .scrollIndicators(.never)
+        .scrollPosition(id: $firstColumn, anchor: .leading)
+        .scrollTargetBehavior(.viewAligned)
+        .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width = $0 }
+    }
+
+    private var songPager: some View {
+        let layout = songLayout
+        return chevrons(index: firstColumn ?? 0, perPage: layout.perPage, count: layout.columns) { firstColumn = $0 }
+    }
+}
+
+/// Geometry of a paged song shelf (pure, tested): columns per page by the Quick picks rule (up to three, none
+/// narrower than a readable row), up to four rows, then as many columns as the songs need.
+struct QTSongShelfLayout: Equatable {
+    static let maxRows = 4
+    static let maxColumnsPerPage = 3
+    static let columnSpacing: CGFloat = 20
+    static let rowSpacing: CGFloat = 4
+
+    /// Columns on screen at once.
+    let perPage: Int
+    let rows: Int
+    /// All columns.
+    let columns: Int
+    let columnWidth: CGFloat
+
+    /// More columns than one page: chevrons and See All.
+    var pages: Bool { columns > perPage }
+
+    /// - Parameter width: the shelf's full width, gutters included (0 = not measured yet).
+    init(width: CGFloat, tracks: Int, ranked: Bool) {
+        let perPage = QTQuickPicks.columnCount(forWidth: width, tracks: tracks, maxColumns: Self.maxColumnsPerPage, ranked: ranked)
+        let rows = min(Self.maxRows, max(1, (tracks + perPage - 1) / perPage))
+        self.perPage = perPage
+        self.rows = rows
+        columns = max(1, (tracks + rows - 1) / rows)
+        let inner = width - QTTheme.Spacing.gutter * 2 - Self.columnSpacing * CGFloat(perPage - 1)
+        columnWidth = width > 0 ? max(120, inner / CGFloat(perPage)) : QTQuickPicks.minRowWidth
+    }
+
+    /// Song indices in column `c` (top to bottom).
+    func range(ofColumn c: Int, tracks: Int) -> Range<Int> {
+        min(tracks, c * rows)..<min(tracks, (c + 1) * rows)
     }
 }
 

@@ -312,6 +312,14 @@ public final class QTLiveCatalogStore {
         }
     }
 
+    /// DEBUG `-qt.live.loadDelay <s>`: Home and mood feeds arrive this much later (a slow network, for loading and
+    /// transition screenshots).
+    private func debugLoadDelay() async {
+        #if DEBUG
+        if let s = model?.launch.double("qt.live.loadDelay"), s > 0 { try? await Task.sleep(for: .milliseconds(Int(s * 1000))) }
+        #endif
+    }
+
     /// `-qt.live.signIn YES`: the Google sign-in window at launch, in a private throwaway WebKit store (so it shows
     /// Google's page even when signed in, and a login there is never kept).
     private func openSignInAfterLaunch() {
@@ -527,6 +535,7 @@ public final class QTLiveCatalogStore {
         await run("home") { [self] in
             homePhase = .loading
             do {
+                await debugLoadDelay()
                 let feed = try await service.homeFeed()
                 updateCatalog { $0.home = feed }
                 remember(feed.shelves.flatMap { $0.items.compactMap(\.track) })
@@ -548,6 +557,7 @@ public final class QTLiveCatalogStore {
         await run("mood:\(id)") { [self] in
             moodPhases[id] = .loading
             do {
+                await debugLoadDelay()
                 let page = try await client.home(QTBrowseTarget(moodChipID: id))
                 moodFeeds[id] = page.feed
                 remember(page.feed.shelves.flatMap { $0.items.compactMap(\.track) })

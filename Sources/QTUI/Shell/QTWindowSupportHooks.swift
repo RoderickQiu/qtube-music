@@ -25,7 +25,7 @@ final class QTWindowKeyMonitor {
 /// | `qt.library.sort` | `title` `album` `artist` `time` `added`, `:desc` suffix | sort of the opening list |
 /// | `qt.library.select` | row numbers, comma separated (1-based) | selected rows |
 /// | `qt.home.scroll` | points | Home scroll offset |
-/// | `qt.window.page` | `album:<title>` `artist:<name>` `mood:<id>` | opens a page on top of `qt.section` |
+/// | `qt.window.page` | `album:<title>` `artist:<name>` `mood:<id>` `shelf:<id>` | opens a page on top of `qt.section` |
 /// | `qt.window.scroll` | points | scroll offset of the opening browse page (Explore, artist, mood) |
 @MainActor
 enum QTWindowLaunchHooks {
@@ -52,7 +52,7 @@ enum QTWindowLaunchHooks {
         }
     }
 
-    /// `album:<title>`, `artist:<name>`, `mood:<id>` (Home moods and Explore genres).
+    /// `album:<title>`, `artist:<name>`, `mood:<id>` (Home moods and Explore genres), `shelf:<id>` (a Home shelf's See All).
     static func destination(_ s: String, model: QTAppModel) -> QTDestination? {
         guard let colon = s.firstIndex(of: ":") else { return nil }
         let kind = s[..<colon], value = String(s[s.index(after: colon)...])
@@ -63,6 +63,9 @@ enum QTWindowLaunchHooks {
             // Demo moods/genres by id; any other id is a YouTube Music mood browse id (live library).
             let moods = QTMockBrowseService(catalog: model.catalog).moodsNow().groups.flatMap(\.moods) + model.catalog.home.moods
             return .mood(moods.first { $0.id == value } ?? QTMoodChip(id: value, title: .verbatim(value)))
+        case "shelf":
+            // A Home shelf's full list by shelf id (the catalog's Home feed: demo, or live once loaded).
+            return model.catalog.home.shelves.first { $0.id == value }.map { .shelf($0) }
         default: return nil
         }
     }

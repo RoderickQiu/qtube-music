@@ -4,7 +4,7 @@ import QTCore
 
 /// What a track-table page shows: Liked Songs, a playlist, an album, an artist, all songs, or search results.
 public struct QTTrackCollection: Identifiable, Sendable {
-    public enum Kind: Sendable, Hashable { case liked, playlist, album, artist, songs, history, search }
+    public enum Kind: Sendable, Hashable { case liked, playlist, album, artist, songs, history, search, shelf }
 
     public var id: String
     public var kind: Kind
@@ -31,6 +31,7 @@ public struct QTTrackCollection: Identifiable, Sendable {
         case .artist: QTLoc.tr("Artist", table: .main)
         case .songs, .history: QTLoc.tr("Library")
         case .search: QTLoc.tr("Search music")
+        case .shelf: QTLoc.tr("Songs")
         }
     }
 
@@ -47,6 +48,7 @@ public struct QTTrackCollection: Identifiable, Sendable {
         case .songs: QTQueueSource(kind: .playlist, title: .localized("Songs"))
         case .history: QTQueueSource(kind: .playlist, title: .localized("History"))
         case .search: QTQueueSource(kind: .search, title: .verbatim(title))
+        case .shelf: QTQueueSource(kind: .playlist, title: .verbatim(title))
         }
     }
 
@@ -58,7 +60,7 @@ public struct QTTrackCollection: Identifiable, Sendable {
         case .liked: .heartFill
         case .album: .album
         case .artist: .mic
-        case .songs: .note
+        case .songs, .shelf: .note
         case .history: .clock
         case .playlist, .search: .playlist
         }
@@ -99,8 +101,21 @@ public struct QTTrackCollection: Identifiable, Sendable {
         case .section(.playlist(let id)): "playlist:\(id)"
         case .album(let t): "album:\(t)"
         case .artist(let n): "artist:\(n)"
+        case .shelf(let shelf): "shelf:\(shelf.id)"
         case .section, .mood: nil
         }
+    }
+
+    /// A song shelf's full list ("See All"); its id matches `listKey(for: .shelf(shelf))`.
+    public static func shelf(_ shelf: QTShelf) -> QTTrackCollection {
+        let tracks = shelf.items.compactMap { item -> QTTrack? in
+            switch item {
+            case .track(let t), .video(let t): t
+            default: nil
+            }
+        }
+        return QTTrackCollection(id: "shelf:\(shelf.id)", kind: .shelf, title: shelf.title.resolved,
+                                 artwork: tracks.first?.artwork ?? [], tracks: tracks)
     }
 
     public static func album(_ title: String, catalog: QTMockCatalog) -> QTTrackCollection {

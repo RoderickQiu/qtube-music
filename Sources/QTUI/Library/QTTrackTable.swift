@@ -313,7 +313,7 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
         case .time:
             let cell = (tableView.makeView(withIdentifier: cellID, owner: nil) as? QTTrackTextCell)
                 ?? QTTrackTextCell(font: QTTrackFonts.time, alignment: .right)
-            cell.configure(QTFormat.duration(track.duration))
+            cell.configure(track.duration > 0 ? QTFormat.duration(track.duration) : "")
             view = cell
         }
         view.identifier = cellID
