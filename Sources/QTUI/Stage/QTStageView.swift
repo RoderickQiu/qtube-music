@@ -105,6 +105,8 @@ public struct QTStageView: View {
                     .opacity(appeared ? 1 : 0)
 
                 chrome(appearance)
+                    // The scrubber's clock stops while the chrome is faded out (re-rendered the moment it returns).
+                    .environment(\.qtPausesTimeDrivenViews, !chromeVisible)
                     .opacity(chromeVisible ? 1 : 0)
                     .allowsHitTesting(chromeVisible)
                     .accessibilityHidden(!chromeVisible && !NSWorkspace.shared.isVoiceOverEnabled)

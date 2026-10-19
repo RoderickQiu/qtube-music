@@ -361,7 +361,7 @@ public struct QTMiniPlayerView: View {
 
     /// 2 pt progress line along the bottom edge, tinted with the artwork accent.
     private var progressLine: some View {
-        TimelineView(.periodic(from: .now, by: player.timeline.rate > 0 ? 0.5 : 3600)) { _ in
+        QTTickingView(every: .milliseconds(500), isRunning: player.timeline.rate > 0) {
             let fraction = player.ad?.progress ?? (player.duration > 0 ? player.timeline.currentTime / player.duration : 0)
             GeometryReader { g in
                 Rectangle()

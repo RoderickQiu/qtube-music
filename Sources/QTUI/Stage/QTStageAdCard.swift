@@ -14,7 +14,7 @@ struct QTStageAdCard: View {
             QTStageProcessedImage(images: track?.artwork ?? [], look: .adCard) { image in
                 QTStageLayerImage(image: image, overscan: 20, crossfade: 0)
             }
-            TimelineView(.periodic(from: .now, by: 0.25)) { _ in
+            QTTickingView(every: .milliseconds(250)) {
                 if let ad = player.ad {
                     content(ad)
                 }

@@ -230,8 +230,12 @@ Views:
   `accessibilityRepresentation`; identifier default `qt.player.scrubber`, the Stage passes `qt.stage.scrubber`).
 - `QTSongVideoToggle(isVideo:hasVideo:)` — segmented Picker.
 - `QTToastOverlay()`, `QTIcon` (prototype icon name → SF Symbol; test checks every symbol exists).
-- `QTNowPlayingIndicator.symbolName/image(isPlaying:)` + `QTNowPlayingGlyph(isPlaying:)` (Shared/) — the one marker for
-  the current track in tables and lists: speaker only while playing, pause glyph while paused.
+- `QTNowPlayingIndicator.symbolName/image(isPlaying:)` + `QTNowPlayingGlyph(isPlaying:pointSize:weight:tint:)`
+  (Shared/; an `NSImageView` with an AppKit symbol effect, so pass size and colour instead of `.font`/
+  `.foregroundStyle`) — the one marker for the current track in tables and lists: speaker only while playing,
+  pause glyph while paused.
+- `QTTickingView(every:isRunning:)` / `QTTickingView(isRunning:restartOn:nextChange:)` + `\.qtPausesTimeDrivenViews`
+  (Shared/) — the only way to redraw SwiftUI on a clock (see *Performance rules*).
 - `QTAdTint.color(overArt:increasedContrast:)` (PlayerBar/) — the amber ad colour (scrubber fill + "Ad" label).
 - Window plumbing: `QTWindowID` (identifiers + capture titles), `QTWindowAccessor`, `QTWindowPlacement`,
   `QTReadiness` (`hold`/`release` around anything async the first frame needs). The main window keeps the user's
@@ -439,6 +443,27 @@ The prototype defines layout, hierarchy, copy and states; the app must look like
 - VoiceOver labels on every control (`Label` + `.labelStyle(.iconOnly)`), `.help` tooltips with shortcuts,
   specific accessibility identifiers (`qt.<area>.<control>`).
 
+## Performance rules (spec §9 budgets)
+
+Budgets: idle < 1 % CPU; playing in the window or on the Blur Stage < 8 % (app + WebContent); visualizer < 15 %;
+video as low as possible. Measured with `Scripts/perf-cpu.py` (table and method in `docs/perf.md`). What the
+budget depends on — every one of these was a real regression:
+- **No `TimelineView` for clocks.** On macOS 26+ a `TimelineView(.periodic)` / `.animation` re-checks its schedule
+  every display frame, which keeps the whole window's SwiftUI graph, layout and CA commits running at 120 Hz: the
+  4 Hz scrubber alone cost 10–12 % CPU. Use `QTTickingView` (`Shared/QTTickingView.swift`): `every:` for a fixed
+  cadence, `nextChange:` + `restartOn:` for event-driven redraws (the current-lyric line wakes at the next word or
+  line, not 20×/s). It stops while its window is hidden or fully covered (`NSWindow.occlusionState`) and while an
+  ancestor sets `\.qtPausesTimeDrivenViews` (the browsing UI under the in-window Stage does).
+- **No SwiftUI `.symbolEffect` that repeats** (variable colour, pulse…): SwiftUI redraws it through its display
+  list every frame (~15 % for one glyph in the Queue). Use AppKit's `NSImageView.addSymbolEffect`, which Core
+  Animation runs — `QTNowPlayingGlyph` is the model. `.contentTransition(.symbolEffect(.replace))` (one-shot) is fine.
+- Continuous motion goes to Core Animation (`QTStageLayerImage` drift / Ken Burns / vinyl spin) or Metal, never to
+  per-frame SwiftUI state. The lyrics rail is AppKit/CA with boundary timers (`QTLyricsRailView`).
+- Metal views stop their display link when settled and while their window is occluded, and cover only the area
+  they draw (the visualizer's view is the bottom half of the Stage, `QTStageVisualizerView.heightFraction`).
+- Pre-render expensive images once per track (`QTStageImageProcessor`: blurred art, frosted cover), not per frame.
+- After touching anything that moves on screen, re-run the matching `perf-cpu.py` scenario and compare.
+
 ## Localization
 
 - Call `QTLoc.tr("English key")` / `QTLoc.tr("Skip in %lld", 5)` / `QTLoc.tr("Key", table: .stage)`. Keys are the
@@ -587,6 +612,13 @@ InnerTube fixtures), `QT_DUMP=1` (print parser output), `QT_KEYCHAIN_TEST=1` (Ke
   `clients`, `cipher`, `avplayer`) — the M5 native-engine spike, headless and muted; appends one line per bench run
   to `~/Library/Caches/com.roderickqiu.qtube.native-spike/runs.jsonl` for breakage tracking. Findings, numbers and
   the decision the user owns: `docs/native-engine-spike.md`.
+- `Scripts/perf-cpu.py <label> [--seconds 30] [--settle 8] [--sample] [--trace "Time Profiler"|SwiftUI] [--shot <name>]
+  [--background] [--keep] [launch args]` (`QT_VARIANT=…`, `QT_SCREEN`, default the built-in display) — CPU of the
+  bundled app + its WebContent process over a window (`ps` cputime), mock catalog unless given. Brings the app
+  forward for the measurement (clock-driven views pause while covered) and hands focus back; warns when other
+  QTube instances run (they pollute the numbers). Appends a JSON line to `.build/perf-cpu.jsonl`; `--trace` writes
+  `.build/perf-<label>.trace` (Instruments traces embed the process environment — keep them out of git and delete
+  them after use). See `docs/perf.md`.
 - `Scripts/contact-sheet.sh <outname> [--title T] [--columns N] <img> <caption>…` — one captioned PNG in
   `screenshots/` (AppKit, offline).
 

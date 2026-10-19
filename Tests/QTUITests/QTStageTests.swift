@@ -1,4 +1,6 @@
+import Foundation
 import QTCore
+import QTPlayback
 import Testing
 @testable import QTUI
 
@@ -79,6 +81,32 @@ import Testing
         let playing = QTStageVisualizerRenderer.synthetic(t: 3, playing: true)
         #expect(playing.contains { $0 > 0.12 } && playing.allSatisfy { $0 >= 0 && $0 < 0.6 })
         #expect(zip(playing, paused).allSatisfy { $0 >= $1 * 0.6 - 1e-6 })
+    }
+
+    @Test func visualizerNeverDrawsAboveItsCroppedHeight() {
+        // The Metal view covers only the bottom `heightFraction` of the Stage; the tallest bar stays well below it.
+        for t in stride(from: 0.0, through: 12, by: 0.05) {
+            let peak = QTStageVisualizerRenderer.synthetic(t: t, playing: true).max() ?? 0
+            #expect(Double(peak) < QTStageVisualizerView.heightFraction * 0.65)
+        }
+    }
+
+    @MainActor @Test func currentLyricWakesAtTheNextWordOrLine() {
+        let words = [QTLyricsWord(start: 10, duration: 0.4, text: "a "), QTLyricsWord(start: 10.5, duration: 0.4, text: "b "),
+                     QTLyricsWord(start: 11, duration: 0.8, text: "c")]
+        let doc = QTLyricsDocument(lines: [QTLyricsLine(start: 10, text: "a b c", words: words), QTLyricsLine(start: 14, text: "d")],
+                                   syncKind: .word, source: .lrclib)
+        func next(at t: TimeInterval, rate: Double = 1) -> TimeInterval? {
+            QTStageCurrentLyric.secondsToNextChange(in: doc, time: QTPlaybackTimeline(time: t, rate: rate, anchorUptime: ProcessInfo.processInfo.systemUptime))
+        }
+        #expect(abs((next(at: 5) ?? 0) - 5) < 0.05)        // intro → first line
+        #expect(abs((next(at: 10.2) ?? 0) - 0.3) < 0.05)   // → word "b"
+        #expect(abs((next(at: 12) ?? 0) - 2) < 0.05)       // last word lit → next line
+        #expect(next(at: 15) == nil)                       // nothing left
+        #expect(next(at: 10.2, rate: 0) == nil)            // paused
+        var nudged = doc
+        nudged.offset = 0.5                                // lyrics 0.5 s earlier
+        #expect(abs((QTStageCurrentLyric.secondsToNextChange(in: nudged, time: QTPlaybackTimeline(time: 9.7, rate: 1, anchorUptime: ProcessInfo.processInfo.systemUptime)) ?? 0) - 0.3) < 0.05)
     }
 
     @Test func spectrumIsMirroredAroundTheCentre() {

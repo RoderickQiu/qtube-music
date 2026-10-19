@@ -101,6 +101,8 @@ public struct QTMainWindowView: View {
             .accessibilityHidden(model.surface == .stage)
             .allowsHitTesting(model.surface != .stage)
             .disabled(isBrowsingCovered)
+            // …and its clocks (player bar scrubber, panel) stop redrawing under the opaque Stage.
+            .environment(\.qtPausesTimeDrivenViews, isBrowsingCovered)
             .onChange(of: model.surface == .stage, initial: true) { _, covered in
                 coverTask?.cancel()
                 guard covered else { isBrowsingCovered = false; return }

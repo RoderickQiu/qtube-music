@@ -12,7 +12,33 @@ import SwiftUI
 /// visualizer) and the display link stops once they settle. Data: `QTPlaybackEngine.spectrum(bandCount:)` when
 /// the engine provides it; otherwise (M1, simulated engine) a synthetic spectrum with the prototype's envelope and
 /// beat. Holds a still frame on battery, and runs at 30 fps in Low Power Mode / Reduce Motion.
-struct QTStageVisualizerView: NSViewRepresentable {
+struct QTStageVisualizerView: View {
+    let palette: QTArtworkPalette?
+    let accent: Color
+    let isPlaying: Bool
+    let policy: QTStageMotionPolicy
+
+    /// Share of the Stage height the Metal view covers, from the bottom edge. The tallest bar is ~0.27 of the
+    /// height, and its bloom and the floor glow fade below 1/255 well before half way, so the top half is never
+    /// drawn: half the drawable, half the fill and compositing per frame, the same picture.
+    nonisolated static let heightFraction: CGFloat = 0.5
+
+    var body: some View {
+        GeometryReader { geo in
+            QTStageVisualizerMetalView(palette: palette, accent: accent, isPlaying: isPlaying, policy: policy)
+                .frame(width: geo.size.width, height: geo.size.height * Self.heightFraction)
+                .frame(maxHeight: .infinity, alignment: .bottom)
+        }
+    }
+
+    /// Bar base, bar tip and glow colours from the artwork (system accent without artwork).
+    static func colors(palette: QTArtworkPalette?, accent: Color) -> QTStageVisualizerColors {
+        QTStageVisualizerMetalView.colors(palette: palette, accent: accent)
+    }
+}
+
+/// The Metal view itself (bottom part of the Stage, see `QTStageVisualizerView.heightFraction`).
+struct QTStageVisualizerMetalView: NSViewRepresentable {
     let palette: QTArtworkPalette?
     let accent: Color
     let isPlaying: Bool
@@ -65,7 +91,32 @@ struct QTStageVisualizerColors: Equatable {
 }
 
 final class QTStageVisualizerMTKView: MTKView {
+    /// Called with false when the window goes fully out of sight (minimised, another Space, covered), true when
+    /// it's back — the display link has no business running for an invisible window.
+    var onVisibilityChange: ((Bool) -> Void)?
+    private(set) var isWindowVisible = true
+    private var occlusionObserver: NSObjectProtocol?
+
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
+        occlusionObserver = nil
+        guard let window else { return }
+        occlusionObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main) { [weak self] _ in
+            QTMainActorHop.onMainThread { self?.updateVisibility() }
+        }
+        updateVisibility()
+    }
+
+    private func updateVisibility() {
+        let visible = window?.occlusionState.contains(.visible) ?? false
+        guard visible != isWindowVisible else { return }
+        isWindowVisible = visible
+        onVisibilityChange?(visible)
+    }
 }
 
 @MainActor
@@ -89,6 +140,14 @@ final class QTStageVisualizerRenderer: NSObject, MTKViewDelegate {
 
     func attach(to view: MTKView) {
         self.view = view
+        (view as? QTStageVisualizerMTKView)?.onVisibilityChange = { [weak self] visible in
+            guard let self, let view = self.view else { return }
+            if visible {
+                if self.animate { view.isPaused = false } else { view.draw() }
+            } else {
+                view.isPaused = true
+            }
+        }
         guard let device = view.device else { return }
         queue = device.makeCommandQueue()
         do {
@@ -122,8 +181,9 @@ final class QTStageVisualizerRenderer: NSObject, MTKViewDelegate {
         guard let view else { return }
         view.preferredFramesPerSecond = policy.visualizerFPS
         if animate {
-            // Runs until the bars settle (a frame or two when nothing changed), then pauses itself.
-            view.isPaused = false
+            // Runs until the bars settle (a frame or two when nothing changed), then pauses itself; stays paused
+            // while the window is out of sight.
+            view.isPaused = (view as? QTStageVisualizerMTKView)?.isWindowVisible == false
         } else {
             // Still frame: a calm, representative spectrum (or the resting shape while paused).
             bands = isPlaying ? Self.synthetic(t: 2.2, playing: true) : Self.resting()
@@ -155,7 +215,7 @@ final class QTStageVisualizerRenderer: NSObject, MTKViewDelegate {
         var uniforms = [
             SIMD4<Float>(Float(size.width), Float(size.height), Float(bands.count), scale),
             colors.base, colors.tip, colors.glow,
-            SIMD4<Float>(energy, 0, 0, 0),
+            SIMD4<Float>(energy, Float(QTStageVisualizerView.heightFraction), 0, 0),
         ]
         encoder.setRenderPipelineState(pipeline)
         encoder.setFragmentBytes(&uniforms, length: MemoryLayout<SIMD4<Float>>.stride * uniforms.count, index: 0)
@@ -266,12 +326,15 @@ final class QTStageVisualizerRenderer: NSObject, MTKViewDelegate {
     }
 
     // u[0] = (width px, height px, band count, backing scale), u[1] = base rgba, u[2] = tip rgba, u[3] = glow rgba,
-    // u[4].x = energy (0 paused … 1 playing). bands[i] = bar height as a fraction of the height.
+    // u[4].x = energy (0 paused … 1 playing), u[4].y = the view's share of the Stage height (it covers only the
+    // bottom part; heights and glows are laid out against the full Stage height). bands[i] = bar height as a
+    // fraction of the Stage height.
     fragment float4 qt_stage_vis_fragment(QTVisOut in [[stage_in]], constant float4 *u [[buffer(0)]],
                                           constant float *bands [[buffer(1)]]) {
-        float W = u[0].x, H = u[0].y, count = u[0].z, scale = u[0].w;
+        float W = u[0].x, Hv = u[0].y, count = u[0].z, scale = u[0].w;
         float energy = u[4].x;
-        float2 px = float2(in.uv.x * W, in.uv.y * H);   // y up from the bottom edge
+        float H = Hv / max(u[4].y, 0.01);                // full Stage height in px
+        float2 px = float2(in.uv.x * W, in.uv.y * Hv);  // y up from the bottom edge
         float slot = W / count;
         float half_w = max(slot * 0.28, 1.0 * scale);
         int n = int(count);

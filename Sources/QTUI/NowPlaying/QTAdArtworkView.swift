@@ -21,7 +21,7 @@ public struct QTAdArtworkView: View {
     }
 
     public var body: some View {
-        TimelineView(.periodic(from: .now, by: player.isPlaying ? 0.5 : 3600)) { _ in
+        QTTickingView(every: .milliseconds(500), isRunning: player.isPlaying) {
             ZStack {
                 QTArtworkView(track: track, cornerRadius: 0)
                     .scaleEffect(1.25)

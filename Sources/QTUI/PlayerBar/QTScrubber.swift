@@ -26,7 +26,7 @@ public struct QTScrubber: View {
     public var body: some View {
         let ad = player.ad
         // Re-render 4×/s while time moves (playing or ad countdown); otherwise only on state changes.
-        TimelineView(.periodic(from: .now, by: player.timeline.rate > 0 || (ad != nil && player.isPlaying) ? 0.25 : 3600)) { _ in
+        QTTickingView(every: .milliseconds(250), isRunning: player.timeline.rate > 0 || (ad != nil && player.isPlaying)) {
             QTScrubberContent(overArt: overArt, identifier: identifier, ad: ad, time: player.timeline.currentTime,
                               duration: player.duration) { player.seek(to: $0) }
         }

@@ -291,7 +291,7 @@ struct QTCurrentLyricLine: View {
     var body: some View {
         // Lyric + translation from the shared resolution (`QTAppModel.resolvedLyrics`): same lane as every surface.
         let resolved = player.ad == nil ? model.resolvedLyrics : .none
-        TimelineView(.periodic(from: .now, by: player.timeline.rate > 0 ? 0.2 : 3600)) { _ in
+        QTTickingView(every: .milliseconds(200), isRunning: player.timeline.rate > 0) {
             let doc = resolved.document
             let shown = Self.display(in: doc, at: player.timeline.currentTime)
             let line = shown.flatMap { s in doc?.lines[s.index] }

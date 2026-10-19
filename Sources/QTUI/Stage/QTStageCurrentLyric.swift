@@ -26,7 +26,11 @@ struct QTStageCurrentLyric: View {
         let resolved = model?.resolvedLyrics ?? QTResolvedLyrics(document: document, translations: nil,
                                                                  translationLanguage: nil, translationStatus: .off)
         let matches = resolved.document == document
-        TimelineView(.animation(minimumInterval: 1 / 20, paused: time.rate == 0)) { _ in
+        // Redraws only when the picture changes — the next word lights up or the next line starts — not at a
+        // fixed rate (a whole-window SwiftUI update each time).
+        let doc = matches ? resolved.document : nil
+        QTTickingView(isRunning: time.rate != 0, restartOn: QTStageCurrentLyricClock(time: time, offset: doc?.offset, lines: doc?.lines.count),
+                      nextChange: { Self.secondsToNextChange(in: doc, time: time) }) {
             let now = time.currentTime
             let current = matches ? resolved.currentLine(atPlaybackTime: now) : nil
             let index = current?.index
@@ -62,6 +66,21 @@ struct QTStageCurrentLyric: View {
         .foregroundStyle(QTTheme.Colors.onArt)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("qt.stage.currentLyric")
+    }
+
+    /// Playback seconds until the next word starts or the next line begins (nil: nothing left to change).
+    static func secondsToNextChange(in document: QTLyricsDocument?, time: QTPlaybackTimeline) -> TimeInterval? {
+        guard let document, time.rate > 0 else { return nil }
+        let now = document.lyricTime(forPlaybackTime: time.currentTime)
+        let index = document.lineIndex(atPlaybackTime: time.currentTime)
+        var next: TimeInterval?
+        let following = (index ?? -1) + 1
+        if document.lines.indices.contains(following) { next = document.lines[following].start }
+        if let index, let words = document.lines[index].words,
+           let word = words.first(where: { $0.start > now }) {
+            next = min(next ?? .infinity, word.start)
+        }
+        return next.map { max(0, $0 - now) / time.rate }
     }
 
     /// Sung words full white, the rest dimmed (`--ly-on` / `--ly-off`).
@@ -118,4 +137,11 @@ private struct QTStageLyricLineMotion: ViewModifier {
             .offset(y: y)
             .opacity(opacity)
     }
+}
+
+/// What re-plans the current line's clock: a seek or play/pause (new timeline), a lyric offset nudge, new lyrics.
+private struct QTStageCurrentLyricClock: Hashable {
+    var time: QTPlaybackTimeline
+    var offset: TimeInterval?
+    var lines: Int?
 }
