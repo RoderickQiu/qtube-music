@@ -50,6 +50,20 @@ The web-engine visualizer now draws the real spectrum (web-audio tap), so its We
 
 Every budget still passes (web visualizer 12.0 % total against 15 %).
 
+## After the R5 integration (main, all R5 branches merged)
+
+Same method, default debug app, no other QTube instances, signed-out mock catalog, web engine (anonymous, muted),
+30 s each (2026-10-19). Every run was recorded `"valid": true` (playing, on the engine asked for).
+
+| Scenario (playing unless noted) | App | WebContent |
+|---|---:|---:|
+| Idle (window, paused) | 0.8 | – |
+| **Web engine** · window | 2.5 | 2.1 |
+| **Web engine** · Blur Stage | 1.8 | 2.0 |
+| **Web engine** · Visualizer Stage (real spectrum) | 8.1 | 4.1 |
+
+Every budget still passes (web window 4.6 %, Blur Stage 3.8 %, visualizer 12.1 % against 15 %).
+
 ## Causes found (Time Profiler + SwiftUI instrument) and fixes
 
 1. **`TimelineView(.periodic)` drove the whole window at the display's frame rate.** The SwiftUI instrument showed
