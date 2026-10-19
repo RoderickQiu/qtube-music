@@ -1,5 +1,46 @@
 {
   "sourceLanguage" : "en",
-  "strings" : {},
+  "strings" : {
+    "Ad · %@" : {
+      "localizations" : {
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "广告 · %@" } }
+      }
+    },
+    "Autoplay · from “%@”" : {
+      "localizations" : {
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "自动播放 · 来自“%@”" } }
+      }
+    },
+    "Clear Up Next" : {
+      "localizations" : {
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "清空接下来播放" } }
+      }
+    },
+    "Queue · %@" : {
+      "localizations" : {
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "播放队列 · %@" } }
+      }
+    },
+    "Remove from Queue" : {
+      "localizations" : {
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "从播放队列中移除" } }
+      }
+    },
+    "Repeat One" : {
+      "localizations" : {
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "单曲循环" } }
+      }
+    },
+    "Save Queue as Playlist" : {
+      "localizations" : {
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "将播放队列存为歌单" } }
+      }
+    },
+    "Saved “%@”" : {
+      "localizations" : {
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "已保存“%@”" } }
+      }
+    }
+  },
   "version" : "1.0"
 }

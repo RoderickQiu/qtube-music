@@ -104,9 +104,14 @@ public final class QTPlayerModel {
     public func moveInQueue(fromOffsets: IndexSet, toOffset: Int, in section: QTQueueSection) {
         playback.move(fromOffsets: fromOffsets, toOffset: toOffset, in: section)
     }
+    /// Moves one item between sections ("Play Next" on an Autoplay row, drag from Autoplay into Up Next).
+    public func moveInQueue(itemID: UUID, to section: QTQueueSection, at index: Int) {
+        playback.move(itemID: itemID, to: section, at: index)
+    }
+    /// The Autoplay switch in the queue ("Autoplay · from …").
+    public func setAutoplayEnabled(_ enabled: Bool) { playback.setAutoplayEnabled(enabled) }
     public func clearUpNext() -> QTQueueUndoToken { playback.clearUpNext() }
     public func undoClearUpNext(_ token: QTQueueUndoToken) { playback.undoClearUpNext(token) }
-    public func setAutoplayEnabled(_ enabled: Bool) { playback.setAutoplayEnabled(enabled) }
 
     /// Jumps to a queue item (double-click in the queue list).
     public func jump(to item: QTQueueItem) async { await playback.jump(to: item) }

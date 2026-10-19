@@ -96,6 +96,7 @@ public final class QTAppModel {
         let paused = launch.paused ?? true
         await player.play(liked, startingAt: index, source: QTQueueSource(kind: .playlist, id: catalog.liked.id, title: catalog.liked.title),
                           startTime: launch.time ?? 31.5, autoplay: !paused, mode: isVideoMode ? .video : .song)
+        QTPlayerLaunch.apply(launch, catalog: catalog, to: player)
         if launch.forceAd, let sim = player.engine as? QTSimulatedPlaybackEngine {
             sim.playAd()
             if paused { sim.pause() }

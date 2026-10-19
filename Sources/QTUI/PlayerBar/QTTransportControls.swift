@@ -12,8 +12,9 @@ public enum QTTransportStyle: Hashable, Sendable {
     case compact
 }
 
-/// Shuffle / previous / play-pause / next / repeat. Shuffle and repeat are native toggle buttons, so "on" is a
-/// filled background, not a subtle colour shift (draft §9). During an ad: previous disabled, next = Skip when allowed.
+/// Shuffle / previous / play-pause / next / repeat. Shuffle and repeat are native toggle buttons in the
+/// accessory-bar style, so "on" is a filled bezel, not a subtle colour shift (draft §9). Repeat cycles
+/// off → all → one. During an ad: previous is disabled and next skips the ad once YouTube allows it.
 public struct QTTransportControls: View {
     private let style: QTTransportStyle
     @Environment(QTPlayerModel.self) private var player
@@ -26,68 +27,126 @@ public struct QTTransportControls: View {
         switch style {
         case .playerBar: 15
         case .stage: 22
-        case .compact: 17
+        case .compact: 16
+        }
+    }
+
+    private var playGlyph: CGFloat {
+        switch style {
+        case .playerBar: 22
+        case .stage: 34
+        case .compact: 22
+        }
+    }
+
+    private var spacing: CGFloat {
+        switch style {
+        case .playerBar: 14
+        case .stage: 30
+        case .compact: 18
         }
     }
 
     public var body: some View {
-        @Bindable var player = player
-        HStack(spacing: style == .stage ? 34 : 18) {
-            if style != .compact {
-                Toggle(isOn: $player.isShuffleOn) {
-                    Label(QTLoc.tr("Shuffle"), systemImage: QTIcon.shuffle.systemName)
-                }
-                .toggleStyle(.button)
-                .help(QTLoc.tr("Shuffle"))
-                .accessibilityIdentifier("qt.transport.shuffle")
-            }
-            Button {
-                Task { await player.previous() }
-            } label: {
-                Label(QTLoc.tr("Previous"), systemImage: QTIcon.prev.systemName)
-            }
-            .disabled(player.ad != nil)
-            .help("\(QTLoc.tr("Previous"))  ⌘←")
-            .accessibilityIdentifier("qt.transport.previous")
-
-            Button {
-                player.togglePlayPause()
-            } label: {
-                Label(QTLoc.tr(player.isPlaying ? "Pause" : "Play"),
-                      systemImage: player.isPlaying ? QTIcon.pause.systemName : QTIcon.play.systemName)
-                    .font(.system(size: glyph * 1.25))
-                    .frame(width: glyph * 1.9, height: glyph * 1.9)
-                    .contentTransition(.symbolEffect(.replace))
-            }
-            .help(QTLoc.tr(player.isPlaying ? "Pause" : "Play"))
-            .accessibilityIdentifier("qt.transport.playPause")
-
-            Button {
-                if let ad = player.ad {
-                    if ad.canSkip { player.skipAd() }
-                } else {
-                    Task { await player.next() }
-                }
-            } label: {
-                Label(QTLoc.tr("Next"), systemImage: QTIcon.next.systemName)
-            }
-            .disabled(player.ad.map { !$0.canSkip } ?? false)
-            .help("\(QTLoc.tr("Next"))  ⌘→")
-            .accessibilityIdentifier("qt.transport.next")
-
-            if style != .compact {
-                Toggle(isOn: Binding(get: { player.repeatMode != .off },
-                                     set: { player.repeatMode = $0 ? .all : .off })) {
-                    Label(QTLoc.tr("Repeat"), systemImage: player.repeatMode == .one ? QTIcon.repeatOne.systemName : QTIcon.repeat.systemName)
-                }
-                .toggleStyle(.button)
-                .help(QTLoc.tr("Repeat"))
-                .accessibilityIdentifier("qt.transport.repeat")
-            }
+        HStack(spacing: spacing) {
+            if style != .compact { shuffle }
+            previous
+            playPause
+            next
+            if style != .compact { repeatToggle }
         }
         .labelStyle(.iconOnly)
-        .buttonStyle(.borderless)
-        .font(.system(size: glyph))
         .foregroundStyle(style == .stage ? QTTheme.Colors.onArt : QTTheme.Colors.label)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("qt.transport.\(style)")
+    }
+
+    // MARK: Pieces
+
+    private var shuffle: some View {
+        @Bindable var player = player
+        return Toggle(isOn: $player.isShuffleOn) {
+            Label(QTLoc.tr("Shuffle"), systemImage: QTIcon.shuffle.systemName)
+                .font(.system(size: glyph - 2, weight: .semibold))
+                .frame(width: glyph + 10, height: glyph + 6)
+        }
+        .toggleStyle(.button)
+        .buttonStyle(.accessoryBar)
+        .help(QTLoc.tr("Shuffle"))
+        .accessibilityValue(QTLoc.tr(player.isShuffleOn ? "On" : "Off"))
+        .accessibilityIdentifier("qt.transport.shuffle")
+    }
+
+    private var repeatToggle: some View {
+        Toggle(isOn: Binding(get: { player.repeatMode != .off }, set: { _ in cycleRepeat() })) {
+            Label(QTLoc.tr("Repeat"), systemImage: player.repeatMode == .one ? QTIcon.repeatOne.systemName : QTIcon.repeat.systemName)
+                .font(.system(size: glyph - 2, weight: .semibold))
+                .frame(width: glyph + 10, height: glyph + 6)
+                .contentTransition(.symbolEffect(.replace))
+        }
+        .toggleStyle(.button)
+        .buttonStyle(.accessoryBar)
+        .help(QTLoc.tr(player.repeatMode == .one ? "Repeat One" : "Repeat", table: .player))
+        .accessibilityValue(QTLoc.tr(player.repeatMode == .off ? "Off" : "On"))
+        .accessibilityIdentifier("qt.transport.repeat")
+    }
+
+    private var previous: some View {
+        Button {
+            Task { await player.previous() }
+        } label: {
+            Label(QTLoc.tr("Previous"), systemImage: QTIcon.prev.systemName)
+                .font(.system(size: glyph + 2))
+                .frame(width: glyph + 14, height: glyph + 10)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .disabled(player.ad != nil)
+        .help("\(QTLoc.tr("Previous"))  ⌘←")
+        .accessibilityIdentifier("qt.transport.previous")
+    }
+
+    private var playPause: some View {
+        Button {
+            player.togglePlayPause()
+        } label: {
+            Label(QTLoc.tr(player.isPlaying ? "Pause" : "Play"),
+                  systemImage: player.isPlaying ? QTIcon.pause.systemName : QTIcon.play.systemName)
+                .font(.system(size: playGlyph))
+                .frame(width: playGlyph + 12, height: playGlyph + 10)
+                .contentShape(Rectangle())
+                .contentTransition(.symbolEffect(.replace.downUp))
+        }
+        .buttonStyle(.borderless)
+        .help("\(QTLoc.tr(player.isPlaying ? "Pause" : "Play"))  Space")
+        .accessibilityIdentifier("qt.transport.playPause")
+    }
+
+    private var next: some View {
+        let ad = player.ad
+        return Button {
+            if let ad {
+                if ad.canSkip { player.skipAd() }
+            } else {
+                Task { await player.next() }
+            }
+        } label: {
+            Label(QTLoc.tr(ad != nil ? "Skip" : "Next"), systemImage: QTIcon.next.systemName)
+                .font(.system(size: glyph + 2))
+                .frame(width: glyph + 14, height: glyph + 10)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .disabled(ad.map { !$0.canSkip } ?? false)
+        .help(ad != nil ? QTLoc.tr("Skip") : "\(QTLoc.tr("Next"))  ⌘→")
+        .accessibilityIdentifier("qt.transport.next")
+    }
+
+    private func cycleRepeat() {
+        switch player.repeatMode {
+        case .off: player.repeatMode = .all
+        case .all: player.repeatMode = .one
+        case .one: player.repeatMode = .off
+        }
     }
 }

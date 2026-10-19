@@ -54,13 +54,20 @@ public struct QTMainWindowView: View {
                         .help("\(QTLoc.tr("Forward"))  ⌘]")
                         .accessibilityIdentifier("qt.window.forward")
                     }
-                    ToolbarItem(placement: .primaryAction) {
-                        Button {
-                            model.isPanelShown.toggle()
-                        } label: {
-                            Label(QTLoc.tr(model.isPanelShown ? "Hide panel" : "Show panel"), systemImage: QTIcon.sidebar.systemName)
+                    // While the panel is shown it closes from its own header (QTPanelHeader); the toolbar only
+                    // offers the way back.
+                    if !model.isPanelShown {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button {
+                                withAnimation(QTTheme.Motion.animation(QTTheme.Motion.spring, reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)) {
+                                    model.isPanelShown = true
+                                }
+                            } label: {
+                                Label(QTLoc.tr("Show panel"), systemImage: QTIcon.sidebar.systemName)
+                            }
+                            .help("\(QTLoc.tr("Show panel"))  ⌥⌘N")
+                            .accessibilityIdentifier("qt.window.showPanel")
                         }
-                        .help("\(QTLoc.tr(model.isPanelShown ? "Hide panel" : "Show panel"))  ⌥⌘N")
                     }
                 }
                 .navigationTitle("")

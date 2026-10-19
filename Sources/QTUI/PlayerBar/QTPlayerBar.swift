@@ -2,7 +2,7 @@ import QTCore
 import QTPlayback
 import SwiftUI
 
-// Owner: builder "player". Stub layout from the prototype (.playerbar): now playing | transport + scrubber | tools.
+// Owner: builder "player". Prototype `.playerbar`: now playing (320) | transport + scrubber | tools (320).
 
 /// The always-visible bottom bar. Owns playback controls (the panel never duplicates them).
 public struct QTPlayerBar: View {
@@ -13,121 +13,259 @@ public struct QTPlayerBar: View {
 
     public var body: some View {
         HStack(spacing: QTTheme.Spacing.l) {
-            nowPlaying
-                .frame(width: QTTheme.Metrics.playerBarSideWidth, alignment: .leading)
-            VStack(spacing: 6) {
+            // Sides are 320 pt on wide windows and give way first on narrow ones; the centre keeps room for
+            // the transport and a usable scrubber.
+            QTPlayerBarNowPlaying()
+                .frame(minWidth: 180, maxWidth: QTTheme.Metrics.playerBarSideWidth, alignment: .leading)
+            VStack(spacing: 2) {
                 QTTransportControls(style: .playerBar)
                 QTScrubber()
                     .frame(maxWidth: QTTheme.Metrics.scrubberMaxWidth)
             }
-            .frame(maxWidth: .infinity)
-            tools
-                .frame(width: QTTheme.Metrics.playerBarSideWidth, alignment: .trailing)
+            .frame(minWidth: 300, maxWidth: .infinity)
+            ViewThatFits(in: .horizontal) {
+                QTPlayerBarTools(showsVolumeSlider: true)
+                QTPlayerBarTools(showsVolumeSlider: false)
+            }
+            .frame(minWidth: 180, maxWidth: QTTheme.Metrics.playerBarSideWidth, alignment: .trailing)
         }
         .padding(.horizontal, 28)
         .frame(height: QTTheme.Metrics.playerBarHeight)
         .background(.bar)
         .overlay(alignment: .top) { Divider() }
-        .accessibilityIdentifier("qt.playerBar")
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("qt.player.bar")
+        // Song⇄Video is app state (`isVideoMode`, also toggled by ⇧⌘V and the Stage); keep the loaded rendition
+        // in step with it, including when the next track starts.
+        .onChange(of: model.isVideoMode) { syncMode() }
+        .onChange(of: player.nowPlaying?.videoId) { syncMode() }
     }
 
-    private var nowPlaying: some View {
-        HStack(spacing: 14) {
-            QTArtworkView(track: player.nowPlaying, cornerRadius: QTTheme.Radius.control)
-                .frame(width: QTTheme.Metrics.playerBarArtwork, height: QTTheme.Metrics.playerBarArtwork)
-                .onTapGesture { model.surface = .stage }
-                .help("\(QTLoc.tr("Open Stage"))  ⇧⌘F")
-            VStack(alignment: .leading, spacing: 2) {
-                if player.ad != nil {
-                    Text(QTLoc.tr("Advertisement")).font(QTTheme.Typography.rowTitle).lineLimit(1)
-                    Text(QTLoc.tr("Then: %@", player.nowPlaying?.title ?? "")).font(QTTheme.Typography.secondary)
-                        .foregroundStyle(.secondary).lineLimit(1)
-                } else {
-                    Text(player.nowPlaying?.title ?? "").font(QTTheme.Typography.rowTitle).lineLimit(1)
-                    Text(player.nowPlaying?.artistLine ?? "").font(QTTheme.Typography.secondary)
-                        .foregroundStyle(.secondary).lineLimit(1)
-                }
-            }
-            if let track = player.nowPlaying {
-                Button {
-                    player.toggleLike(track)
-                } label: {
-                    Label(QTLoc.tr("Like"), systemImage: player.isLiked(track) ? QTIcon.heartFill.systemName : QTIcon.heart.systemName)
-                        .labelStyle(.iconOnly)
-                        .foregroundStyle(player.isLiked(track) ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-                }
-                .buttonStyle(.borderless)
-                .help("\(QTLoc.tr("Like"))  ⌘L")
-            }
-        }
-    }
-
-    private var tools: some View {
-        @Bindable var model = model
-        return HStack(spacing: 10) {
-            Button { model.panelTab = .nowPlaying; model.isPanelShown = true } label: {
-                Label(QTLoc.tr("Lyrics"), systemImage: QTIcon.lyrics.systemName)
-            }
-            .help(QTLoc.tr("Lyrics"))
-            Button { model.panelTab = .queue; model.isPanelShown = true } label: {
-                Label(QTLoc.tr("Queue"), systemImage: QTIcon.list.systemName)
-            }
-            .help(QTLoc.tr("Queue"))
-            Button {} label: { Label(QTLoc.tr("AirPlay"), systemImage: QTIcon.airplay.systemName) }
-                .help(QTLoc.tr("AirPlay"))
-            Image(systemName: QTIcon.volume.systemName)
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
-            Slider(value: Binding(get: { player.state.volume }, set: { player.setVolume($0) }), in: 0...1)
-                .controlSize(.small)
-                .frame(width: 84)
-                .accessibilityLabel(QTLoc.tr("Volume"))
-            Button { model.surface = model.surface == .mini ? .window : .mini } label: {
-                Label(QTLoc.tr("Mini player"), systemImage: QTIcon.mini.systemName)
-            }
-            .help("\(QTLoc.tr("Mini player"))  ⇧⌘M")
-            Button { model.surface = .stage } label: {
-                Label(QTLoc.tr("Stage"), systemImage: QTIcon.expand.systemName)
-            }
-            .help("\(QTLoc.tr("Stage"))  ⇧⌘F")
-        }
-        .labelStyle(.iconOnly)
-        .buttonStyle(.borderless)
-        .foregroundStyle(.secondary)
+    private func syncMode() {
+        let wanted: QTPlaybackMode = model.isVideoMode && player.nowPlaying?.hasVideo == true ? .video : .song
+        guard wanted != player.mode else { return }
+        Task { await player.setMode(wanted) }
     }
 }
 
-/// Elapsed · progress · remaining. Disabled (and shows the ad countdown) while an ad plays.
-public struct QTScrubber: View {
+// MARK: - Now playing (left)
+
+struct QTPlayerBarNowPlaying: View {
+    @Environment(QTAppModel.self) private var model
+    @Environment(QTPlayerModel.self) private var player
+
+    var body: some View {
+        let ad = player.ad
+        HStack(spacing: 14) {
+            Button {
+                model.surface = .stage
+            } label: {
+                QTArtworkView(track: player.nowPlaying, cornerRadius: QTTheme.Radius.control)
+                    .frame(width: QTTheme.Metrics.playerBarArtwork, height: QTTheme.Metrics.playerBarArtwork)
+                    .brightness(ad != nil ? -0.25 : 0)
+                    .shadow(color: .black.opacity(0.18), radius: 3, y: 1)
+            }
+            .buttonStyle(.plain)
+            .help("\(QTLoc.tr("Open Stage"))  ⇧⌘F")
+            .accessibilityLabel(QTLoc.tr("Open Stage"))
+            .accessibilityIdentifier("qt.player.bar.artwork")
+
+            VStack(alignment: .leading, spacing: 2) {
+                if ad != nil {
+                    Text(QTLoc.tr("Advertisement"))
+                        .font(QTTheme.Typography.rowTitle)
+                    Text(QTLoc.tr("Then: %@", player.nowPlaying?.title ?? ""))
+                        .font(QTTheme.Typography.secondary)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text(player.nowPlaying?.title ?? "")
+                        .font(QTTheme.Typography.rowTitle)
+                    Text(player.nowPlaying?.artistLine ?? "")
+                        .font(QTTheme.Typography.secondary)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .layoutPriority(-1)
+            .accessibilityElement(children: .combine)
+
+            if let ad {
+                QTAdSkipControl(ad: ad)
+            } else if let track = player.nowPlaying {
+                QTLikeButton(track: track)
+            }
+        }
+    }
+}
+
+/// ♥ for a track: accent when liked, quiet otherwise.
+struct QTLikeButton: View {
+    let track: QTTrack
+    @Environment(QTPlayerModel.self) private var player
+
+    var body: some View {
+        let liked = player.isLiked(track)
+        Button {
+            player.toggleLike(track)
+        } label: {
+            Label(QTLoc.tr(liked ? "Remove from Liked Songs" : "Like"),
+                  systemImage: liked ? QTIcon.heartFill.systemName : QTIcon.heart.systemName)
+                .labelStyle(.iconOnly)
+                .font(.system(size: 15))
+                .foregroundStyle(liked ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                .frame(width: 26, height: 26)
+                .contentShape(Rectangle())
+                .contentTransition(.symbolEffect(.replace))
+        }
+        .buttonStyle(.borderless)
+        .help("\(QTLoc.tr("Like"))  ⌘L")
+        .accessibilityIdentifier("qt.player.bar.like")
+    }
+}
+
+/// "Skip" once YouTube allows it, else a quiet "Skip in 4" countdown. No fake controls.
+public struct QTAdSkipControl: View {
+    private let ad: QTAdState
     private let overArt: Bool
     @Environment(QTPlayerModel.self) private var player
-    @State private var scrubbing: Double?
 
-    public init(overArt: Bool = false) {
+    public init(ad: QTAdState, overArt: Bool = false) {
+        self.ad = ad
         self.overArt = overArt
     }
 
     public var body: some View {
-        TimelineView(.periodic(from: .now, by: player.timeline.rate > 0 || player.ad != nil ? 0.25 : 3600)) { _ in
-            let duration = max(player.duration, 1)
-            let now = scrubbing ?? player.timeline.currentTime
-            HStack(spacing: QTTheme.Spacing.xs) {
-                Text(player.ad != nil ? QTLoc.tr("Ad") : QTFormat.duration(now))
-                    .frame(width: 44, alignment: .leading)
-                Slider(value: Binding(get: { player.ad?.progress ?? (now / duration) },
-                                      set: { scrubbing = $0 * duration }),
-                       in: 0...1) { editing in
-                    if !editing, let s = scrubbing { player.seek(to: s); scrubbing = nil }
-                }
-                .controlSize(.mini)
-                .disabled(player.ad != nil)
-                .accessibilityLabel(QTLoc.tr("Time"))
-                Text(player.ad.map { QTFormat.duration($0.remaining.rounded(.up)) } ?? QTFormat.remaining(duration - now))
-                    .frame(width: 44, alignment: .trailing)
+        Group {
+            if ad.canSkip {
+                Button(QTLoc.tr("Skip")) { player.skipAd() }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.small)
+                    .accessibilityIdentifier("qt.player.ad.skip")
+            } else if let wait = ad.skippableIn {
+                Text(QTLoc.tr("Skip in %lld", Int(wait.rounded(.up))))
+                    .font(QTTheme.Typography.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(overArt ? QTTheme.Colors.onArtSecondary : QTTheme.Colors.tertiaryLabel)
+                    .fixedSize()
+                    .accessibilityIdentifier("qt.player.ad.wait")
             }
-            .font(QTTheme.Typography.caption)
-            .monospacedDigit()
-            .foregroundStyle(overArt ? QTTheme.Colors.onArtSecondary : QTTheme.Colors.tertiaryLabel)
         }
+        .environment(\.colorScheme, overArt ? .dark : colorScheme)
+    }
+
+    @Environment(\.colorScheme) private var colorScheme
+}
+
+// MARK: - Tools (right)
+
+struct QTPlayerBarTools: View {
+    var showsVolumeSlider = true
+    @Environment(QTAppModel.self) private var model
+    @Environment(QTPlayerModel.self) private var player
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        HStack(spacing: 6) {
+            panelToggle(.nowPlaying, title: QTLoc.tr("Lyrics"), icon: .lyrics, id: "lyrics")
+            panelToggle(.queue, title: QTLoc.tr("Queue"), icon: .list, id: "queue")
+            QTAirPlayButton()
+                .frame(width: 28, height: 28)
+            QTVolumeControl(showsSlider: showsVolumeSlider)
+                .padding(.horizontal, 4)
+            toolButton(QTLoc.tr("Mini player"), icon: .mini, shortcut: "⇧⌘M", id: "mini") {
+                model.surface = model.surface == .mini ? .window : .mini
+            }
+            toolButton(QTLoc.tr("Stage"), icon: .expand, shortcut: "⇧⌘F", id: "stage") {
+                model.surface = .stage
+            }
+        }
+        .labelStyle(.iconOnly)
+    }
+
+    /// Lyrics / Queue: on (filled) while the panel shows that tab, like Music.app's lyrics and queue buttons.
+    private func panelToggle(_ tab: QTPanelTab, title: String, icon: QTIcon, id: String) -> some View {
+        Toggle(isOn: Binding(
+            get: { model.isPanelShown && model.panelTab == tab },
+            set: { on in
+                withAnimation(QTTheme.Motion.animation(QTTheme.Motion.spring, reduceMotion: reduceMotion)) {
+                    if on {
+                        model.panelTab = tab
+                        model.isPanelShown = true
+                    } else {
+                        model.isPanelShown = false
+                    }
+                }
+            })) {
+            Label(title, systemImage: icon.systemName)
+                .font(.system(size: 14))
+                .frame(width: 22, height: 20)
+        }
+        .toggleStyle(.button)
+        .buttonStyle(.accessoryBar)
+        .help(title)
+        .accessibilityIdentifier("qt.player.bar.\(id)")
+    }
+
+    private func toolButton(_ title: String, icon: QTIcon, shortcut: String, id: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: icon.systemName)
+                .font(.system(size: 14))
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .foregroundStyle(.secondary)
+        .help("\(title)  \(shortcut)")
+        .accessibilityIdentifier("qt.player.bar.\(id)")
+    }
+}
+
+/// Speaker (click = mute) + native slider. The glyph's waves follow the level (SF Symbols variable value).
+/// On narrow windows the slider moves into a popover opened from the speaker.
+struct QTVolumeControl: View {
+    var showsSlider = true
+    @Environment(QTPlayerModel.self) private var player
+    @State private var isPopoverShown = false
+
+    var body: some View {
+        let state = player.state
+        let level = state.isMuted ? 0 : state.volume
+        HStack(spacing: 6) {
+            Button {
+                if showsSlider { player.engine.setMuted(!state.isMuted) } else { isPopoverShown.toggle() }
+            } label: {
+                Image(systemName: level == 0 ? QTIcon.volumeMuted.systemName : "speaker.wave.3.fill", variableValue: level)
+                    .symbolRenderingMode(.hierarchical)
+                    .font(.system(size: 13))
+                    .frame(width: 20, height: 20)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .help(QTLoc.tr("Volume"))
+            .accessibilityLabel(QTLoc.tr("Volume"))
+            .accessibilityIdentifier("qt.player.bar.mute")
+            .popover(isPresented: $isPopoverShown, arrowEdge: .top) {
+                slider(level: level, isMuted: state.isMuted)
+                    .frame(width: 140)
+                    .padding(QTTheme.Spacing.s)
+            }
+            if showsSlider {
+                slider(level: level, isMuted: state.isMuted)
+                    .frame(width: 80)
+            }
+        }
+    }
+
+    private func slider(level: Double, isMuted: Bool) -> some View {
+        Slider(value: Binding(get: { level }, set: { v in
+            if isMuted { player.engine.setMuted(false) }
+            player.setVolume(v)
+        }), in: 0...1)
+            .controlSize(.mini)
+            .accessibilityLabel(QTLoc.tr("Volume"))
+            .accessibilityIdentifier("qt.player.bar.volume")
     }
 }

@@ -97,7 +97,8 @@ fi
 rm -f "$READY"
 
 FRONT_AFTER="$(qt_frontmost_bundle)"
-if [[ -n "$FRONT_BEFORE" && "$FRONT_AFTER" != "$FRONT_BEFORE" ]]; then
+# Only hand focus back if *we* took it; if the user switched apps themselves, leave them where they are.
+if [[ -n "$FRONT_BEFORE" && "$FRONT_AFTER" != "$FRONT_BEFORE" && "$FRONT_AFTER" == com.roderickqiu.qtube* ]]; then
   echo "warning: frontmost changed ($FRONT_BEFORE → $FRONT_AFTER); restoring" >&2
   osascript -e "tell application id \"$FRONT_BEFORE\" to activate" >/dev/null 2>&1 || true
 fi
