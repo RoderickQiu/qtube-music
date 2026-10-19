@@ -100,10 +100,31 @@ public final class QTChineseConverter: @unchecked Sendable {
         case (.simplified, .taiwan): [.simplify, .twStandard]
         case (.simplified, .hongKong): [.simplify, .hkStandard]
         }
-        let made = try? ChineseConverter(options: options)
+        let made = Self.dictionariesPresent ? try? ChineseConverter(options: options) : nil
         converters[key] = .some(made)
         return made
     }
+
+    /// Whether SwiftyOpenCC's resource bundle (its dictionaries) can be found. `ChineseConverter(options:)` reaches it
+    /// through SwiftPM's generated `Bundle.module`, which calls `fatalError` when the bundle is missing — a broken or
+    /// hand-trimmed app bundle would crash on the first Chinese lyric instead of falling back to ICU. Same candidates,
+    /// in the same order, as the generated accessor.
+    static let dictionariesPresent: Bool = {
+        let name = "SwiftyOpenCC_OpenCC.bundle"
+        var candidates: [URL?] = []
+        #if DEBUG
+        if let override = ProcessInfo.processInfo.environment["PACKAGE_RESOURCE_BUNDLE_PATH"]
+            ?? ProcessInfo.processInfo.environment["PACKAGE_RESOURCE_BUNDLE_URL"] {
+            candidates.append(URL(fileURLWithPath: override))
+        }
+        #endif
+        // OpenCC is linked statically into the same image as this module, so `Bundle(for:)` matches its finder.
+        candidates += [Bundle.main.resourceURL, Bundle(for: QTChineseConverter.self).resourceURL, Bundle.main.bundleURL]
+        return candidates.contains { url in
+            guard let url else { return false }
+            return Bundle(url: url.appendingPathComponent(name)) != nil
+        }
+    }()
 }
 
 /// Shows Chinese lyrics in the script of the translation target: Traditional lyrics with 简体中文 as the target come

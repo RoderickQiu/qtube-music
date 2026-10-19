@@ -23,8 +23,7 @@ from pathlib import Path
 # Mirrors design/prototype/player.jsx and window.jsx.
 NO_MV = {"ne3372368359", "ne3392546056"}  # Hi-Res audio uploads, not music videos
 UNAVAILABLE = {"ne570019977": "regionLocked"}  # greyed row, like a region-locked track
-USER_PLAYLISTS = ["Sugar", "你喜欢的歌曲重新上架", "2025 Sel 1", "rodrii的2024年度歌单", "2024 Sel 1",
-                  "@rodrii的十年精选辑", "rodrii的2022年度歌单"]
+USER_PLAYLISTS = ["Sugar", "Back in Rotation", "2025 Sel 1", "2024 年度歌单", "2024 Sel 1", "十年精选", "2022 年度歌单"]
 MOODS = ["Relax", "Energize", "Focus", "Commute", "Romance", "Sleep", "Feel good"]
 SOURCES = {
     "netease": {"id": "netease", "name": "NetEase", "isUnofficial": True},
@@ -160,7 +159,7 @@ def main() -> int:
     for i, name in enumerate(USER_PLAYLISTS):
         rng = random.Random(name)  # deterministic per playlist
         picked = rng.sample(ids, rng.randint(5, 10))
-        playlists.append({"id": f"pl-{i + 1}", "title": {"verbatim": name}, "kind": "user", "owner": "rodrii",
+        playlists.append({"id": f"pl-{i + 1}", "title": {"verbatim": name}, "kind": "user", "owner": "you",
                           "artwork": cover_of[picked[0]], "trackIDs": picked})
 
     catalog = {

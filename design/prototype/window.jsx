@@ -1,6 +1,6 @@
 // Main window: source-list sidebar, Liked Songs table, docked Now Playing panel, player bar.
 
-const USER_PLAYLISTS = ["Sugar", "你喜欢的歌曲重新上架", "2025 Sel 1", "rodrii的2024年度歌单", "2024 Sel 1", "@rodrii的十年精选辑", "rodrii的2022年度歌单"];
+const USER_PLAYLISTS = ["Sugar", "Back in Rotation", "2025 Sel 1", "2024 年度歌单", "2024 Sel 1", "十年精选", "2022 年度歌单"];
 
 const foldKey = (s) => s.normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/[đĐ]/g, "d").toLowerCase();
 const letterOf = (s) => { const c = foldKey(s)[0]?.toUpperCase(); return c && c >= "A" && c <= "Z" ? c : "#"; };

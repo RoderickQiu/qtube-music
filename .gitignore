@@ -12,3 +12,7 @@ DerivedData/
 
 # Generated mock catalog (copyrighted covers, MV stills, lyrics) — Scripts/make-mock-catalog.py
 Generated/
+
+# Local tooling
+.claude/worktrees/
+HANDOFF.md

@@ -251,17 +251,38 @@ public final class QTNativePlayerCache: @unchecked Sendable {
     }
 }
 
+private final class QTNativeSolverBundleFinder {}
+
 /// The vendored yt-dlp EJS solver (Resources/EJS, pinned by `Scripts/update-ejs.sh`).
 public enum QTNativeSolverSource {
+    /// QTPlayback's resource bundle, looked up the way SwiftPM's generated `Bundle.module` does — but nil instead of
+    /// its `fatalError` when the bundle is missing, so a broken app bundle makes the native engine fall back to the
+    /// web engine (a solver error) rather than crash.
+    static let resources: Bundle? = {
+        let name = "QTubeMusic_QTPlayback.bundle"
+        var candidates: [URL?] = []
+        #if DEBUG
+        if let override = ProcessInfo.processInfo.environment["PACKAGE_RESOURCE_BUNDLE_PATH"]
+            ?? ProcessInfo.processInfo.environment["PACKAGE_RESOURCE_BUNDLE_URL"] {
+            candidates.append(URL(fileURLWithPath: override))
+        }
+        #endif
+        candidates += [Bundle.main.resourceURL, Bundle(for: QTNativeSolverBundleFinder.self).resourceURL, Bundle.main.bundleURL]
+        for url in candidates.compactMap({ $0 }) {
+            if let bundle = Bundle(url: url.appendingPathComponent(name)) { return bundle }
+        }
+        return nil
+    }()
+
     public static let version: String = {
-        guard let url = Bundle.module.url(forResource: "VERSION", withExtension: nil, subdirectory: "EJS"),
+        guard let url = resources?.url(forResource: "VERSION", withExtension: nil, subdirectory: "EJS"),
               let text = try? String(contentsOf: url, encoding: .utf8) else { return "unknown" }
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }()
 
     static func load() throws -> (lib: String, core: String) {
         func read(_ name: String) throws -> String {
-            guard let url = Bundle.module.url(forResource: name, withExtension: "js", subdirectory: "EJS") else {
+            guard let url = resources?.url(forResource: name, withExtension: "js", subdirectory: "EJS") else {
                 throw QTNativeStreamError.cipherUnsolved("solver \(name).js missing from the app bundle")
             }
             return try String(contentsOf: url, encoding: .utf8)

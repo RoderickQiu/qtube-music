@@ -6,7 +6,9 @@
 #   Scripts/build-app.sh --print-path → just print the app path for the current QT_VARIANT
 #
 # Env: QT_VARIANT (letters, digits, '-'), QT_CONFIG=debug|release (default debug),
-#      QT_SCRATCH (SwiftPM scratch path, default .build/<variant or "default">).
+#      QT_SCRATCH (SwiftPM scratch path, default .build/<variant or "default">),
+#      QT_ARCHS ("arm64 x86_64" for a universal binary; default: the host architecture only).
+# The marketing version comes from VERSION at the repo root; the build number is the commit count.
 # Works from a git worktree: git-ignored inputs (mock catalog) come from the main checkout.
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
@@ -22,9 +24,17 @@ SCRATCH="${QT_SCRATCH:-$QT_REPO/.build/${QT_VARIANT:-default}}"
 NAME="$(qt_variant_name)"
 BUNDLE_ID="$(qt_bundle_id)"
 
+ARCH_FLAGS=()
+for a in ${QT_ARCHS:-}; do
+  [[ "$a" == arm64 || "$a" == x86_64 ]] || { echo "error: QT_ARCHS takes arm64 and/or x86_64, got '$a'" >&2; exit 2; }
+  ARCH_FLAGS+=(--arch "$a")
+done
+VERSION="$(tr -d '[:space:]' < "$QT_REPO/VERSION" 2>/dev/null || true)"
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "error: VERSION must hold a version like 0.1.0" >&2; exit 2; }
+
 cd "$QT_REPO"
-swift build -c "$CONFIG" --scratch-path "$SCRATCH" --product QTubeMusic >&2
-BIN="$(swift build -c "$CONFIG" --scratch-path "$SCRATCH" --show-bin-path)"
+swift build -c "$CONFIG" --scratch-path "$SCRATCH" ${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"} --product QTubeMusic >&2
+BIN="$(swift build -c "$CONFIG" --scratch-path "$SCRATCH" ${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"} --show-bin-path)"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
@@ -76,9 +86,12 @@ intents_metadata() {
   xcv="$(xcodebuild -version 2>/dev/null | awk '/Build version/{print $3}')"
   printf '%s' '["AppIntent","EntityQuery","AppEntity","TransientEntity","AppEnum","AppShortcutProviding","AppShortcutsProvider","AnyResolverProviding","AppIntentsPackage","DynamicOptionsProvider","EntityStringQuery","EntityPropertyQuery","IntentValueQuery","_IntentValueRepresentable","_AssistantIntentsProvider","_GenerativeFunctionExtractable"]' > "$work/protocols.json"
   ls "$QT_REPO"/Sources/QTubeMusicApp/*.swift > "$work/sources.txt"
+  # C modules of dependencies (SwiftyOpenCC's copencc) aren't in the bin folder; QTLyrics imports them.
+  local cmods=() m
+  while IFS= read -r m; do cmods+=(-I "$(dirname "$m")"); done < <(find "$SCRATCH/checkouts" -path "*/include/module.modulemap" 2>/dev/null)
   # shellcheck disable=SC2046
   xcrun swiftc -typecheck -parse-as-library -swift-version 6 -module-name QTubeMusicApp -target "arm64-apple-macos${MIN_OS:-15.0}" \
-    -sdk "$sdk" -I "$BIN" -F "$BIN" -F "$BIN/PackageFrameworks" -wmo $(cat "$work/sources.txt") \
+    -sdk "$sdk" -I "$BIN" ${cmods[@]+"${cmods[@]}"} -F "$BIN" -F "$BIN/PackageFrameworks" -wmo $(cat "$work/sources.txt") \
     -emit-const-values-path "$work/QTubeMusicApp.swiftconstvalues" \
     -Xfrontend -const-gather-protocols-file -Xfrontend "$work/protocols.json" >/dev/null 2>&1 || { rm -rf "$work"; return 1; }
   echo "$work/QTubeMusicApp.swiftconstvalues" > "$work/consts.txt"
@@ -155,7 +168,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleName</key><string>$NAME</string>
   <key>CFBundleDisplayName</key><string>$NAME</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.1.0</string>
+  <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>$BUILD_NUMBER</string>
   <key>CFBundleDevelopmentRegion</key><string>en</string>
   <key>CFBundleLocalizations</key><array><string>en</string><string>zh-Hans</string></array>
@@ -165,7 +178,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>NSHighResolutionCapable</key><true/>
   <key>NSSupportsAutomaticTermination</key><false/>
   <key>NSSupportsSuddenTermination</key><false/>
-  <key>NSHumanReadableCopyright</key><string>QTube Music</string>
+  <key>NSHumanReadableCopyright</key><string>© 2026 Tianrun Qiu</string>
   <key>NSAppleScriptEnabled</key><true/>
   <key>OSAScriptingDefinition</key><string>QTubeMusic.sdef</string>
   <!-- Sparkle: dormant until there is a Developer ID (no SUFeedURL, no SUPublicEDKey → never checks, and would
