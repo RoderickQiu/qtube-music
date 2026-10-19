@@ -55,3 +55,48 @@ struct QTStageAirPlayButton: NSViewRepresentable {
 
     func updateNSView(_ nsView: AVRoutePickerView, context: Context) {}
 }
+
+/// The Stage's play/pause: a filled white disc with a dark glyph, so the primary action keeps its weight over
+/// any background (bright covers, music video). Grows a touch on hover, presses in with a spring; Increase
+/// Contrast adds a hairline ring.
+struct QTStagePlayButtonStyle: ButtonStyle {
+    /// Optical centring for the play triangle (its centroid sits left of its bounding box).
+    var glyphOffset: CGFloat = 0
+
+    func makeBody(configuration: Configuration) -> some View {
+        QTStagePlayButtonBody(configuration: configuration, glyphOffset: glyphOffset)
+    }
+}
+
+private struct QTStagePlayButtonBody: View {
+    let configuration: ButtonStyleConfiguration
+    let glyphOffset: CGFloat
+    @State private var hovering = false
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private let diameter: CGFloat = 60
+
+    var body: some View {
+        configuration.label
+            .labelStyle(.iconOnly)
+            .foregroundStyle(Color.black.opacity(0.86))
+            .offset(x: glyphOffset)
+            .frame(width: diameter, height: diameter)
+            .background {
+                Circle()
+                    .fill(Color.white.opacity(configuration.isPressed ? 0.82 : 1))
+                    .shadow(color: .black.opacity(0.28), radius: hovering ? 14 : 10, y: hovering ? 6 : 4)
+                    .overlay {
+                        if contrast == .increased { Circle().strokeBorder(Color.black.opacity(0.5), lineWidth: 1) }
+                    }
+            }
+            .contentShape(Circle())
+            .scaleEffect(reduceMotion ? 1 : configuration.isPressed ? 0.94 : hovering ? 1.04 : 1)
+            .opacity(isEnabled ? 1 : 0.4)
+            .onHover { hovering = $0 && isEnabled }
+            .animation(reduceMotion ? nil : .spring(response: 0.28, dampingFraction: 0.7), value: configuration.isPressed)
+            .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.8), value: hovering)
+    }
+}

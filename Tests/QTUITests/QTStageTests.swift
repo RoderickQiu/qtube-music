@@ -50,10 +50,10 @@ import Testing
         #expect(resolve(layout: .lyricsOnly, background: .vinyl).artSlot == .none)
     }
 
-    @Test func adShowsBlurredDimmedArtAndTheAdCard() {
+    @Test func adShowsBlurredArtAndTheAdCard() {
         for bg in QTStageBackground.allCases {
             let a = resolve(background: bg, isAd: true)
-            #expect(a.background == .blur && a.isDimmedForAd && a.artSlot == .ad, "\(bg)")
+            #expect(a.background == .blur && a.isAd && a.artSlot == .ad, "\(bg)")
         }
     }
 
@@ -71,9 +71,27 @@ import Testing
     }
 
     @Test func syntheticSpectrumRestsWhenPaused() {
+        // Paused: a still, clearly visible spectrum silhouette (it must still read as a visualizer), lower than play.
         let paused = QTStageVisualizerRenderer.synthetic(t: 3, playing: false)
-        #expect(paused.count == QTStageVisualizerRenderer.bandCount && paused.allSatisfy { $0 < 0.02 })
+        #expect(paused.count == QTStageVisualizerRenderer.bandCount)
+        #expect(paused == QTStageVisualizerRenderer.synthetic(t: 9, playing: false))
+        #expect(paused.allSatisfy { $0 > 0.01 && $0 < 0.1 } && paused.contains { $0 > 0.05 })
         let playing = QTStageVisualizerRenderer.synthetic(t: 3, playing: true)
-        #expect(playing.contains { $0 > 0.05 } && playing.allSatisfy { $0 >= 0 && $0 < 0.6 })
+        #expect(playing.contains { $0 > 0.12 } && playing.allSatisfy { $0 >= 0 && $0 < 0.6 })
+        #expect(zip(playing, paused).allSatisfy { $0 >= $1 * 0.6 - 1e-6 })
+    }
+
+    @Test func spectrumIsMirroredAroundTheCentre() {
+        for bands in [QTStageVisualizerRenderer.restingShape, QTStageVisualizerRenderer.synthetic(t: 4.2, playing: true)] {
+            let n = bands.count
+            #expect((0..<n / 2).allSatisfy { abs(bands[$0] - bands[n - 1 - $0]) < 1e-5 })
+        }
+    }
+
+    @MainActor @Test func videoScrimsRampSmoothly() {
+        let down = QTStageVideoScrims.ramp(to: 0.9, steps: 10, reversed: false)
+        #expect(down.first?.location == 0 && down.last?.location == 1)
+        let up = QTStageVideoScrims.ramp(to: 0.6, steps: 8, reversed: true)
+        #expect(up.count == 9)
     }
 }

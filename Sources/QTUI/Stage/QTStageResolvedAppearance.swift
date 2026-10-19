@@ -27,8 +27,8 @@ public struct QTStageResolvedAppearance: Equatable, Sendable {
     /// The music-video presentation (video background + synced-lyric overlay) replaces the layout.
     public var isVideo: Bool
     public var artSlot: ArtSlot
-    /// Background is the song's art blurred and dimmed for an ad.
-    public var isDimmedForAd: Bool
+    /// An ad is playing: the art slot holds the ad card, lyrics step away and the background stops drifting.
+    public var isAd: Bool
     /// Selected background swatch in the Appearance popover (`video` while the video shows).
     public var selectedSwatch: QTStageBackground
 
@@ -57,7 +57,7 @@ public struct QTStageResolvedAppearance: Equatable, Sendable {
         self.background = bg
         self.isVideo = isVideo
         self.artSlot = art
-        self.isDimmedForAd = isAd
+        self.isAd = isAd
         self.selectedSwatch = isVideo ? .video : (background == .video ? .blur : background)
     }
 

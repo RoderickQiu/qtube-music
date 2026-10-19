@@ -13,8 +13,6 @@ actor QTStageImageProcessor {
     enum Look: String, Sendable {
         /// `.st-bg.blur .img` — blur(90px) saturate(1.5) brightness(.62).
         case blurredArt
-        /// Ad: art blurred and dimmed further.
-        case blurredArtDimmed
         /// `.st-bg.cover .img` — blur(5px) saturate(1.15): never a raw upscaled cover.
         case coverSoft
         /// `.st-bg.cover .frost` — blur(34px) saturate(1.35) brightness(.62).
@@ -27,7 +25,7 @@ actor QTStageImageProcessor {
         /// Source size to decode (longest side, px).
         var sourcePixels: Int {
             switch self {
-            case .blurredArt, .blurredArtDimmed: 160
+            case .blurredArt: 160
             case .adCard: 320
             case .coverFrost: 480
             case .coverSoft: 1400
@@ -38,7 +36,7 @@ actor QTStageImageProcessor {
         /// Blur radius as a fraction of the source width.
         var blurFraction: Double {
             switch self {
-            case .blurredArt, .blurredArtDimmed: 90.0 / 1440 * 1.6
+            case .blurredArt: 90.0 / 1440 * 1.6
             case .coverSoft: 5.0 / 1440
             case .coverFrost: 34.0 / 1440 * 1.3
             case .videoStill: 0
@@ -48,7 +46,7 @@ actor QTStageImageProcessor {
 
         var saturation: Double {
             switch self {
-            case .blurredArt, .blurredArtDimmed: 1.5
+            case .blurredArt: 1.5
             case .coverSoft: 1.15
             case .coverFrost: 1.35
             case .videoStill: 1.05
@@ -59,7 +57,6 @@ actor QTStageImageProcessor {
         var brightness: Double {
             switch self {
             case .blurredArt: 0.62
-            case .blurredArtDimmed: 0.4
             case .coverSoft: 1
             case .coverFrost: 0.62
             case .videoStill: 0.72

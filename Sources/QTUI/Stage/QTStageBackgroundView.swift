@@ -56,7 +56,7 @@ struct QTStageBackgroundView: View {
             case .blur, .vinyl, .visualizer:
                 blurredArt
                 if appearance.background == .visualizer {
-                    QTStageVisualizerView(accent: accent, isPlaying: isPlaying, policy: policy)
+                    QTStageVisualizerView(palette: track?.palette, accent: accent, isPlaying: isPlaying, policy: policy)
                         .accessibilityIdentifier("qt.stage.visualizer")
                 }
             case .cover:
@@ -73,11 +73,12 @@ struct QTStageBackgroundView: View {
     // MARK: Blurred art (default; also under vinyl and the visualizer)
 
     private var blurredArt: some View {
-        let look: QTStageImageProcessor.Look = appearance.isDimmedForAd ? .blurredArtDimmed : .blurredArt
-        return QTStageProcessedImage(images: track?.artwork ?? [], look: look) { image in
+        // During an ad the background stays the song's own blurred art (the art slot carries the ad card); only
+        // the drift stops, so nothing on screen pretends the song is playing.
+        QTStageProcessedImage(images: track?.artwork ?? [], look: .blurredArt) { image in
             ZStack {
                 QTStageLayerImage(image: image, isRunning: isPlaying, baseScale: 1.15, overscan: 120)
-                if policy.allowsAmbientDrift && !appearance.isDimmedForAd {
+                if policy.allowsAmbientDrift && !appearance.isAd {
                     QTStageLayerImage(image: image, motion: .drift, isRunning: isPlaying, baseScale: 1.15,
                                       overscan: 120, opacity: 0.3)
                 }
@@ -116,9 +117,9 @@ struct QTStageBackgroundView: View {
     }
 }
 
-/// The music video surface. M1 shows the MV still with a slow Ken Burns; the playback builder can hand in a
-/// live video layer later (AVPlayerLayer / the web engine's video) through `QTStageVideoLayerProvider` without
-/// touching the Stage layout.
+/// The music video surface. M1 shows the MV still with a slow Ken Burns; from M5 the playback layer hands in a
+/// live video (an `AVPlayerLayer` for the native engine, or the web engine's video view) through
+/// `QTStageVideoSurfaceProvider`, without touching the Stage layout. The scrims stay on top either way.
 struct QTStageVideoSurface: View {
     let track: QTTrack?
     let isPlaying: Bool
@@ -131,59 +132,113 @@ struct QTStageVideoSurface: View {
 
     var body: some View {
         ZStack {
-            if let provider = QTStageVideoLayerProvider.current, let layer = provider(track) {
-                QTStageHostedLayer(layer: layer)
+            if let live = QTStageVideoSurfaceProvider.shared.surface(for: track) {
+                QTStageHostedVideo(surface: live)
             } else {
                 QTStageProcessedImage(images: stillImages, look: .videoStill) { image in
                     QTStageLayerImage(image: image, motion: policy.allowsAmbientDrift ? .kenBurns : .none,
                                       isRunning: isPlaying, overscan: 16)
                 }
             }
-            // `.st-bg .shade`: legible chrome on top, lyrics overlay on the bottom.
-            LinearGradient(stops: [
-                .init(color: .black.opacity(0.55), location: 0),
-                .init(color: .clear, location: 0.24),
-                .init(color: .clear, location: 0.4),
-                .init(color: .black.opacity(0.7), location: 0.7),
-                .init(color: .black.opacity(0.9), location: 1),
-            ], startPoint: .top, endPoint: .bottom)
+            QTStageVideoScrims()
         }
     }
 }
 
-/// Hook for a live video layer (M5). Set once at startup by the playback layer; nil in M1.
+/// Top and bottom scrims over the music video so the chrome, scrubber, transport and lyric overlay stay legible on
+/// any frame (bright sets, burned-in titles). Smoothstep ramps, so there is no visible band edge; the middle of
+/// the frame stays untouched.
+struct QTStageVideoScrims: View {
+    var body: some View {
+        GeometryReader { geo in
+            let h = geo.size.height
+            VStack(spacing: 0) {
+                LinearGradient(stops: Self.ramp(to: 0.6, steps: 8, reversed: true), startPoint: .top, endPoint: .bottom)
+                    .frame(height: h * 0.24)
+                Spacer(minLength: 0)
+                LinearGradient(stops: Self.ramp(to: 0.92, steps: 10, reversed: false), startPoint: .top, endPoint: .bottom)
+                    .frame(height: h * 0.5)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    /// Clear → black at `opacity` along a smoothstep curve (or black → clear when `reversed`).
+    static func ramp(to opacity: Double, steps: Int, reversed: Bool) -> [Gradient.Stop] {
+        (0...steps).map { i in
+            let t = Double(i) / Double(steps)
+            let x = reversed ? 1 - t : t
+            let e = x * x * (3 - 2 * x)
+            return .init(color: .black.opacity(opacity * e), location: t)
+        }
+    }
+}
+
+/// A live music-video surface handed in by the playback layer.
+public enum QTStageVideoSurfaceKind {
+    /// A layer to host and resize to fill, e.g. `AVPlayerLayer` (native engine, M5).
+    case layer(CALayer)
+    /// A view to host, e.g. the web engine's video element container. It's moved into the Stage while shown.
+    case view(NSView)
+}
+
+/// Hook for live video on the Stage (M5). The playback layer sets `source` once at startup; while it returns nil
+/// (M1, or a track without video), the Stage shows the music-video still with a slow Ken Burns.
 @MainActor
-public enum QTStageVideoLayerProvider {
-    /// Returns a CALayer (e.g. `AVPlayerLayer`) showing the given track's video, or nil to fall back to the still.
-    public static var current: ((QTTrack?) -> CALayer?)?
+public final class QTStageVideoSurfaceProvider {
+    public static let shared = QTStageVideoSurfaceProvider()
+
+    /// Returns the live video for `track`, or nil to fall back to the still.
+    public var source: ((QTTrack?) -> QTStageVideoSurfaceKind?)?
+
+    private init() {}
+
+    func surface(for track: QTTrack?) -> QTStageVideoSurfaceKind? { source?(track) }
 }
 
-/// Hosts an externally owned CALayer, resized to fill.
-struct QTStageHostedLayer: NSViewRepresentable {
-    let layer: CALayer
+/// Hosts an externally owned video layer or view, resized to fill, never taking clicks.
+struct QTStageHostedVideo: NSViewRepresentable {
+    let surface: QTStageVideoSurfaceKind
 
-    func makeNSView(context: Context) -> NSView {
-        let view = QTStageHostedLayerNSView()
-        view.wantsLayer = true
-        view.layer?.addSublayer(layer)
-        return view
+    func makeNSView(context: Context) -> QTStageHostedVideoNSView { QTStageHostedVideoNSView() }
+
+    func updateNSView(_ nsView: QTStageHostedVideoNSView, context: Context) { nsView.host(surface) }
+}
+
+final class QTStageHostedVideoNSView: NSView {
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.black.cgColor
+        layer?.masksToBounds = true
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {
-        if layer.superlayer !== nsView.layer {
-            nsView.layer?.sublayers?.forEach { $0.removeFromSuperlayer() }
-            nsView.layer?.addSublayer(layer)
-            nsView.needsLayout = true
+    @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
+
+    func host(_ surface: QTStageVideoSurfaceKind) {
+        switch surface {
+        case .layer(let video):
+            subviews.forEach { $0.removeFromSuperview() }
+            if video.superlayer !== layer {
+                layer?.sublayers?.forEach { $0.removeFromSuperlayer() }
+                layer?.addSublayer(video)
+            }
+        case .view(let video):
+            if video.superview !== self {
+                subviews.forEach { $0.removeFromSuperview() }
+                addSubview(video)
+            }
         }
+        needsLayout = true
     }
-}
 
-final class QTStageHostedLayerNSView: NSView {
     override func layout() {
         super.layout()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        layer?.sublayers?.forEach { $0.frame = bounds }
+        subviews.forEach { $0.frame = bounds }
+        if subviews.isEmpty { layer?.sublayers?.forEach { $0.frame = bounds } }
         CATransaction.commit()
     }
 

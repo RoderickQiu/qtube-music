@@ -16,35 +16,60 @@ struct QTStageVinylView: View {
     @State private var label: CGImage?
 
     var body: some View {
+        let lifted = !isPlaying
+        let pivot = UnitPoint(x: 112.0 / 150, y: 34.0 / 300)
         ZStack {
+            // Ambient shadow (wide) + contact shadow (tight), like a record lying on a platter.
             Circle()
                 .fill(Color.black)
                 .frame(width: size, height: size)
-                .shadow(color: .black.opacity(0.6), radius: 35, y: 30)
+                .shadow(color: .black.opacity(0.55), radius: 36, y: 30)
+                .shadow(color: .black.opacity(0.35), radius: 4, y: 2)
             QTStageVinylDisc(label: label, spinning: isPlaying && policy.allowsSpin, displayScale: displayScale)
                 .frame(width: size, height: size)
-            Circle()
-                .fill(Color(white: 0.05))
-                .frame(width: size * 0.024, height: size * 0.024)
-            // `.record::after`: conic sheen that doesn't rotate with the record.
+            // `.record::after`: a sheen that stays still while the record turns, like a real reflection. Only the
+            // grooves catch it, not the paper label.
             Circle()
                 .fill(AngularGradient(stops: [
                     .init(color: .clear, location: 0),
-                    .init(color: .white.opacity(0.07), location: 0.08),
-                    .init(color: .clear, location: 0.18),
+                    .init(color: .white.opacity(0.1), location: 0.07),
+                    .init(color: .white.opacity(0.025), location: 0.14),
+                    .init(color: .clear, location: 0.2),
                     .init(color: .clear, location: 0.5),
-                    .init(color: .white.opacity(0.05), location: 0.58),
-                    .init(color: .clear, location: 0.68),
+                    .init(color: .white.opacity(0.075), location: 0.57),
+                    .init(color: .white.opacity(0.02), location: 0.64),
+                    .init(color: .clear, location: 0.7),
                     .init(color: .clear, location: 1),
                 ], center: .center, angle: .degrees(30 - 90)))
+                .mask {
+                    Circle().fill(RadialGradient(stops: [
+                        .init(color: .clear, location: 0.37), .init(color: .black, location: 0.43),
+                        .init(color: .black, location: 0.97), .init(color: .clear, location: 1),
+                    ], center: .center, startRadius: 0, endRadius: size / 2))
+                }
                 .frame(width: size, height: size)
                 .allowsHitTesting(false)
+            // Rim catching the top-left key light.
+            Circle()
+                .strokeBorder(LinearGradient(colors: [.white.opacity(0.18), .clear, .clear, .white.opacity(0.05)],
+                                             startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1)
+                .frame(width: size, height: size)
+            // Polished steel spindle.
+            Circle()
+                .fill(RadialGradient(colors: [Color(white: 0.96), Color(white: 0.56), Color(white: 0.28)],
+                                     center: UnitPoint(x: 0.35, y: 0.3), startRadius: 0, endRadius: size * 0.018))
+                .frame(width: size * 0.028, height: size * 0.028)
+                .shadow(color: .black.opacity(0.55), radius: 1.5, y: 1)
+            // The arm lifts before it swings away: its shadow grows softer and falls further on pause.
             QTStageTonearm()
                 .frame(width: size * 150 / 460, height: size * 300 / 460)
-                .rotationEffect(.degrees(isPlaying ? 0 : -26), anchor: UnitPoint(x: 112.0 / 150, y: 34.0 / 300))
-                .animation(policy.reduceMotion ? nil : .spring(response: 0.9, dampingFraction: 0.72), value: isPlaying)
+                .shadow(color: .black.opacity(lifted ? 0.26 : 0.45), radius: lifted ? 14 : 5,
+                        x: lifted ? -10 : -3, y: lifted ? 18 : 7)
+                .scaleEffect(lifted && !policy.reduceMotion ? 1.012 : 1, anchor: pivot)
+                .rotationEffect(.degrees(lifted ? -26 : 0), anchor: pivot)
+                .animation(policy.reduceMotion ? .easeInOut(duration: 0.2) : .spring(response: 0.9, dampingFraction: 0.72),
+                           value: isPlaying)
                 .offset(x: size / 2 + size * (64 - 75) / 460, y: -size / 2 + size * (-40 + 150) / 460)
-                .shadow(color: .black.opacity(0.35), radius: 8, x: -4, y: 10)
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)
@@ -53,32 +78,6 @@ struct QTStageVinylView: View {
             let hold = QTReadiness.shared.hold("stage vinyl label")
             label = await QTImageLoader.shared.image(at: url, maxPixel: Int(size * 0.4 * displayScale))
             QTReadiness.shared.release(hold)
-        }
-    }
-}
-
-/// The tonearm from the prototype's SVG (viewBox 150 × 300): pivot, arm tube, headshell.
-struct QTStageTonearm: View {
-    var body: some View {
-        Canvas { ctx, size in
-            let s = size.width / 150
-            ctx.scaleBy(x: s, y: s)
-            var arm = Path()
-            arm.move(to: CGPoint(x: 112, y: 34))
-            arm.addLine(to: CGPoint(x: 118, y: 190))
-            arm.addQuadCurve(to: CGPoint(x: 92, y: 252), control: CGPoint(x: 120, y: 228))
-            ctx.stroke(arm, with: .linearGradient(Gradient(colors: [Color(white: 0.93), Color(white: 0.78)]),
-                                                 startPoint: CGPoint(x: 112, y: 34), endPoint: CGPoint(x: 92, y: 252)),
-                       style: StrokeStyle(lineWidth: 7, lineCap: .round))
-            var head = ctx
-            head.translateBy(x: 87, y: 255)
-            head.rotate(by: .degrees(-38))
-            head.fill(Path(roundedRect: CGRect(x: -17, y: -11, width: 34, height: 22), cornerRadius: 4),
-                      with: .color(Color(white: 0.81)))
-            ctx.fill(Path(ellipseIn: CGRect(x: 90, y: 12, width: 44, height: 44)),
-                     with: .radialGradient(Gradient(colors: [Color(white: 0.9), Color(white: 0.72)]),
-                                           center: CGPoint(x: 106, y: 28), startRadius: 0, endRadius: 26))
-            ctx.fill(Path(ellipseIn: CGRect(x: 103, y: 25, width: 18, height: 18)), with: .color(Color(white: 0.6)))
         }
     }
 }

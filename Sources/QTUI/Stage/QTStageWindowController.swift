@@ -101,6 +101,12 @@ public final class QTStageCoordinator {
         window.title = Self.captureTitle
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
+        // An empty unified toolbar gives the title bar its 52 pt height, so the traffic lights sit centred on the
+        // Stage's top-bar row (same as the in-window Stage, see `QTStageTitlebar`).
+        let toolbar = NSToolbar(identifier: "qt.stage.detachedToolbar")
+        toolbar.allowsUserCustomization = false
+        window.toolbar = toolbar
+        window.toolbarStyle = .unified
         window.isMovableByWindowBackground = false
         window.isReleasedWhenClosed = false
         window.isRestorable = false

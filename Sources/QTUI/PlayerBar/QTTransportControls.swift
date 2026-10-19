@@ -34,7 +34,7 @@ public struct QTTransportControls: View {
     private var playGlyph: CGFloat {
         switch style {
         case .playerBar: 32
-        case .stage: 52
+        case .stage: 24
         case .compact: 22
         }
     }
@@ -106,31 +106,42 @@ public struct QTTransportControls: View {
         .accessibilityIdentifier("qt.transport.previous")
     }
 
-    /// Player bar and Stage: the primary control is a filled disc (SF `play.circle.fill`, palette-rendered: label-
-    /// coloured disc, window-coloured glyph; white disc, dark glyph on the Stage), like Music's mini player and the
-    /// prototype's `.tp.play`. The compact surfaces keep a plain glyph.
+    /// Player bar: the primary control is a filled disc (SF `play.circle.fill`, palette-rendered: label-coloured
+    /// disc, window-coloured glyph), like Music's mini player and the prototype's `.tp.play`. Stage: a white 60 pt
+    /// disc drawn by `QTStagePlayButtonStyle` (Stage/) so it holds its weight over busy backgrounds. The compact
+    /// surfaces keep a plain glyph.
+    @ViewBuilder
     private var playPause: some View {
+        if style == .stage {
+            playPauseButton.buttonStyle(QTStagePlayButtonStyle(glyphOffset: player.isPlaying ? 0 : 2))
+        } else {
+            playPauseButton.buttonStyle(.borderless)
+        }
+    }
+
+    private var playPauseButton: some View {
         let title = QTLoc.tr(player.isPlaying ? "Pause" : "Play")
         return Button {
             player.togglePlayPause()
         } label: {
             Group {
-                if style == .compact {
-                    Label(title, systemImage: player.isPlaying ? QTIcon.pause.systemName : QTIcon.play.systemName)
-                        .font(.system(size: playGlyph))
-                } else {
+                if style == .playerBar {
                     Label(title, systemImage: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
                         .symbolRenderingMode(.palette)
-                        .foregroundStyle(style == .stage ? Color.black.opacity(0.88) : QTTheme.Colors.windowBackground,
-                                         style == .stage ? Color.white : QTTheme.Colors.label)
+                        .foregroundStyle(QTTheme.Colors.windowBackground, QTTheme.Colors.label)
                         .font(.system(size: playGlyph, weight: .regular))
+                        .frame(width: playGlyph + 6, height: playGlyph + 4)
+                        .contentShape(Circle())
+                } else {
+                    // Stage: plain glyph inside QTStagePlayButtonStyle's disc; compact: plain glyph.
+                    Label(title, systemImage: player.isPlaying ? QTIcon.pause.systemName : QTIcon.play.systemName)
+                        .font(.system(size: playGlyph))
+                        .frame(width: playGlyph + 12, height: playGlyph + 10)
+                        .contentShape(Rectangle())
                 }
             }
-            .frame(width: playGlyph + (style == .compact ? 12 : 6), height: playGlyph + (style == .compact ? 10 : 4))
-            .contentShape(style == .compact ? AnyShape(Rectangle()) : AnyShape(Circle()))
             .contentTransition(.symbolEffect(.replace.downUp))
         }
-        .buttonStyle(.borderless)
         .help("\(QTLoc.tr(player.isPlaying ? "Pause" : "Play"))  Space")
         .accessibilityIdentifier("qt.transport.playPause")
     }

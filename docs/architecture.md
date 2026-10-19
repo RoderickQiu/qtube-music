@@ -80,7 +80,8 @@ Views:
   the provider shipped. Surfaces that show a translation without a `QTLyricsView` add `.qtHostsLyricsTranslation()` so
   on-device translation runs for them too.
 - `QTQueueList(style: .panel | .stageDrawer)`.
-- `QTTransportControls(style: .playerBar | .stage | .compact)`; `QTScrubber(overArt:)`.
+- `QTTransportControls(style: .playerBar | .stage | .compact)` (`.stage` draws play/pause as a filled disc via
+  `QTStagePlayButtonStyle`, Stage/); `QTScrubber(overArt:)`.
 - `QTSongVideoToggle(isVideo:hasVideo:)` — segmented Picker.
 - `QTToastOverlay()`, `QTIcon` (prototype icon name → SF Symbol; test checks every symbol exists).
 - `QTNowPlayingIndicator.symbolName/image(isPlaying:)` + `QTNowPlayingGlyph(isPlaying:)` (Shared/) — the one marker for
@@ -94,7 +95,13 @@ Coordinators (one per process, `@MainActor`):
   `goBack`/`goForward` (history 64), per-page list state, `requestSearchFocus()` / `requestFilterFocus()`. Navigate
   through it so moves enter history; setting `model.sidebarSelection` still works.
 - `QTStageCoordinator.shared` (Stage/) — `toggleStage(model:)` (⇧⌘F; closes a detached Stage), `showDetached(on:model:activate:)`,
-  `returnToMainWindow(model:)`, `isDetached`.
+  `returnToMainWindow(model:)`, `isDetached`, `otherScreens(than:)`. The Stage offers the display moves in its
+  right-click menu (no ⋯ button).
+- `QTStageVideoSurfaceProvider.shared.source` (Stage/) — M5 hook for live music video on the Stage: return
+  `.layer(AVPlayerLayer)` or `.view(NSView)` for a track (nil → the MV still with Ken Burns). Scrims stay on top.
+- In-window Stage keeps the traffic lights: Shell's `.toolbar(.hidden, for: .windowToolbar)` hides the whole title
+  bar, so `QTStageTitlebar` (Stage/) swaps in an empty unified toolbar and re-shows the title bar while the Stage
+  is up, and hands the window's own toolbar back when it closes.
 - `QTDesktopCoordinator.shared` (Desktop/) — mini player, desktop lyrics (hidden while the Stage is up, inline or
   detached), menu bar title, Dock menu, `showMainWindow()` (user-initiated only).
 - `QTLyricsTiming.nudge(model, by:)` (Lyrics/) — offset change + toast; `QTLyricsVersionStore.shared`.
@@ -210,7 +217,7 @@ Builders add their own as `qt.<area>.<name>` (e.g. `qt.stage.chrome hidden`, `qt
 | window | `qt.window.search <text>` · `qt.window.page album:<title>\|artist:<name>\|mood:<id>` (e.g. `mood:genre:Pop`, `mood:mood-relax`) · `qt.window.scroll <pt>` (Explore / artist / mood pages) · `qt.library.filter <text>` · `qt.library.scroll <pt>` (300 pins the compact header) · `qt.library.sort title\|album\|artist\|time\|added[:desc]` · `qt.library.select 1,3` · `qt.home.scroll <pt>` |
 | player | `qt.player.upNext demo\|id,id` · `qt.player.autoplay NO` · `qt.player.shuffle YES` · `qt.player.repeat off\|all\|one` · `qt.player.adElapsed <s>` (with `qt.ad`: run the ad `<s>` s then pause; 2 = "Skip in 3", 6 = skippable) · DEBUG `qt.player.keyAppearance YES` (best-effort key-window rendering in background captures; check the shot and retake) |
 | lyrics-ui | `qt.lyrics.scrolled` · `qt.lyrics.options` · `qt.lyrics.demoVersions` · `qt.lyrics.translationState same\|translating\|download\|unavailable\|onDevice\|appleIntelligence` · `qt.lyrics.lab` · `qt.lyrics.debug` |
-| stage | `qt.stage.chrome hidden` · `qt.stage.queue YES` · `qt.stage.popover appearance` · `qt.stage.window YES` (detached window) · `qt.stage.reduceMotion YES` · `qt.stage.visualizerOnBattery YES` · `qt.stage.closeAfter <s>` |
+| stage | `qt.stage.chrome hidden` · `qt.stage.queue YES` · `qt.stage.popover appearance` · `qt.stage.window YES` (detached window) · `qt.stage.reduceMotion YES` · `qt.stage.visualizerOnBattery YES` · `qt.stage.closeAfter <s>` · `qt.stage.noAd YES` (free account without the simulated pre-roll, e.g. the visualizer fallback) |
 | desktop | `qt.desktop.miniMode compact\|art` · `qt.desktop.miniLyric` · `qt.desktop.miniHover` · `qt.desktop.lyricsUnlocked` · `qt.desktop.menuBarScroll` · `qt.desktop.lyricsSize <pt>` · `qt.settingsTab general\|playback\|lyrics\|account\|advanced`; DEBUG: `qt.desktop.switchLanguage`, `qt.desktop.popUpMenu <index>`, `qt.desktop.showShortcuts` |
 
 Env-gated test suites: `QT_LIVE=1` (live anonymous InnerTube / lyrics / playback), `QT_RECORD=1` (re-record

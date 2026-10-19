@@ -8,14 +8,17 @@ import SwiftUI
 /// - Layouts: Standard (art left, lyrics right), Lyrics only (centred lyrics, art as background), Art only
 ///   (automatic when a track has no lyrics).
 /// - Backgrounds: blurred art, full-bleed frosted cover, vinyl, music video, Metal visualizer (Premium).
-/// - Chrome: icon-only top bar (close, lyrics options, appearance, Song | Video, ⋯) and a bottom row (progress,
-///   transport, ♥, queue, AirPlay, volume). Fades out after 3 s without mouse movement while playing.
-/// - Queue drawer from the right; Esc closes the drawer, then the Stage. Real full screen; can move to its own
-///   window on another display (`QTStageCoordinator`).
+/// - Chrome: icon-only top bar (close, lyrics options, appearance, Song | Video) centred on the window's traffic
+///   lights, which stay put on a transparent title bar (`QTStageTitlebar`); a bottom row (progress, transport with
+///   a filled play disc, ♥, queue, AirPlay). Fades out after 3 s without mouse movement while playing.
+/// - Queue drawer from the right; art and lyrics reflow beside it. Esc closes the drawer, then the Stage.
+/// - Right-click (or VoiceOver action): show the Stage on another display / back in the main window, full screen.
+///   Double-click empty space: full screen.
+/// - During an ad the lyrics step away entirely; the art slot holds the ad card.
 ///
 /// Launch arguments (session-only): `qt.stage.chrome hidden`, `qt.stage.queue YES`, `qt.stage.popover appearance`,
 /// `qt.stage.window YES` (open the Stage in its own window on the launch display), `qt.stage.visualizerOnBattery YES`,
-/// `qt.stage.reduceMotion YES` (simulate Reduce Motion).
+/// `qt.stage.reduceMotion YES` (simulate Reduce Motion), `qt.stage.noAd YES` (free account without the pre-roll).
 public struct QTStageView: View {
     private let presentation: QTStagePresentation
 
@@ -34,6 +37,9 @@ public struct QTStageView: View {
     @State private var hasTrafficLights = false
     @State private var stageEnteredFullScreen = false
     @State private var appeared = false
+    @State private var titlebar = QTStageTitlebar()
+    /// Centre of the window's traffic lights from the top (nil in full screen / without a title bar).
+    @State private var trafficLightsMidY: CGFloat?
     private let power = QTStagePowerMonitor.shared
     private let coordinator = QTStageCoordinator.shared
 
@@ -82,13 +88,14 @@ public struct QTStageView: View {
                     .id(appearance.background)
                     .transition(.opacity)
 
-                // Double-click empty space: full screen, like a video player.
+                // Double-click empty space: full screen, like a video player. Right-click: where the Stage shows.
                 Color.clear
                     .contentShape(Rectangle())
                     .onTapGesture(count: 2) { toggleFullScreen() }
+                    .contextMenu { stageMenu }
                     .accessibilityHidden(true)
 
-                content(appearance, size: geo.size)
+                content(appearance, size: geo.size, trailingReserve: drawerReserve)
                     .scaleEffect(appeared || reduceMotion ? 1 : 1.015)
                     .opacity(appeared ? 1 : 0)
 
@@ -135,8 +142,7 @@ public struct QTStageView: View {
         .background(QTStageWindowReader { window in
             hostWindow.window = window
             isFullScreen = window?.styleMask.contains(.fullScreen) ?? false
-            hasTrafficLights = window.map(Self.showsTrafficLights) ?? false
-            applyTitlebarVisibility(animated: false)
+            installTitlebar()
         })
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { note in
             guard (note.object as? NSWindow) === hostWindow.window else { return }
@@ -146,7 +152,7 @@ public struct QTStageView: View {
             guard (note.object as? NSWindow) === hostWindow.window else { return }
             isFullScreen = false
             stageEnteredFullScreen = false
-            applyTitlebarVisibility(animated: false)
+            installTitlebar()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSMenu.didBeginTrackingNotification)) { _ in menuTracking = true }
         .onReceive(NotificationCenter.default.publisher(for: NSMenu.didEndTrackingNotification)) { _ in
@@ -163,15 +169,18 @@ public struct QTStageView: View {
         .onDisappear(perform: didDisappear)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(QTLoc.tr("Stage"))
+        .accessibilityAction(named: Text(QTLoc.tr(isFullScreen ? "Exit Full Screen" : "Enter Full Screen", table: .stage))) {
+            toggleFullScreen()
+        }
         .accessibilityIdentifier(presentation == .inline ? "qt.stage" : "qt.stage.detached")
     }
 
     // MARK: Content (layouts)
 
     @ViewBuilder
-    private func content(_ a: QTStageResolvedAppearance, size: CGSize) -> some View {
+    private func content(_ a: QTStageResolvedAppearance, size: CGSize, trailingReserve: CGFloat) -> some View {
         let inset = QTTheme.Metrics.stageInset
-        let area = CGSize(width: max(size.width - inset * 2, 0), height: max(size.height - inset - 128, 0))
+        let area = CGSize(width: max(size.width - inset * 2 - trailingReserve, 0), height: max(size.height - inset - 128, 0))
         Group {
             if a.isVideo {
                 videoContent(a, area: area)
@@ -186,7 +195,13 @@ public struct QTStageView: View {
         .frame(width: area.width, height: area.height)
         .padding(.top, inset)
         .padding(.bottom, 128)
-        .padding(.horizontal, inset)
+        .padding(.leading, inset)
+        .padding(.trailing, inset + trailingReserve)
+    }
+
+    /// Width the open Queue drawer takes from the content, so art and lyrics reflow beside it instead of under it.
+    private var drawerReserve: CGFloat {
+        isQueueOpen ? QTTheme.Metrics.stageQueueWidth + QTTheme.Spacing.l - QTTheme.Metrics.stageInset + 40 : 0
     }
 
     private func standardLayout(_ a: QTStageResolvedAppearance, area: CGSize) -> some View {
@@ -207,8 +222,12 @@ public struct QTStageView: View {
                     meta(alignment: .leading)
                         .padding(.top, -4)
                 }
-                lyrics(centered: false)
-                    .padding(.top, metaUnder ? 0 : 84)
+                // Lyrics pause for an ad: they step away entirely rather than sitting there, ghosted and still.
+                if !a.isAd {
+                    lyrics(centered: false)
+                        .padding(.top, metaUnder ? 0 : 84)
+                        .transition(.opacity)
+                }
             }
             .frame(width: lyricsWidth, height: area.height, alignment: .topLeading)
         }
@@ -285,8 +304,6 @@ public struct QTStageView: View {
     private func lyrics(centered: Bool) -> some View {
         QTLyricsView(document: player.lyrics, time: player.timeline, style: .stage(centered: centered),
                      showsTranslation: showsTranslation) { player.seek(to: $0) }
-            .opacity(player.ad == nil ? 1 : 0.45)
-            .allowsHitTesting(player.ad == nil)
             .mask {
                 LinearGradient(stops: [
                     .init(color: .clear, location: 0),
@@ -353,12 +370,12 @@ public struct QTStageView: View {
             QTSongVideoToggle(isVideo: songVideoBinding, hasVideo: player.nowPlaying?.hasVideo ?? false)
                 .controlSize(.regular)
                 .padding(.leading, 10)
-                .padding(.trailing, 4)
-            moreMenu
         }
+        .frame(height: 32)
         .padding(.leading, topBarLeading)
-        .padding(.trailing, QTTheme.Spacing.l)
-        .frame(height: QTTheme.Metrics.stageTopBarHeight)
+        .padding(.trailing, QTTheme.Spacing.l + 4)
+        .padding(.top, topBarRowTop)
+        .frame(height: QTTheme.Metrics.stageTopBarHeight, alignment: .top)
         .background(alignment: .top) {
             // Faint top scrim so glyphs stay legible on bright art.
             LinearGradient(colors: [.black.opacity(0.18), .clear], startPoint: .top, endPoint: .bottom)
@@ -367,32 +384,30 @@ public struct QTStageView: View {
         }
     }
 
-    private var moreMenu: some View {
-        Menu {
-            let screens = coordinator.otherScreens(than: hostWindow.window)
-            ForEach(screens, id: \.self) { screen in
-                Button(QTLoc.tr("Show Stage on %@", table: .stage, screen.localizedName)) {
-                    showStage(on: screen)
-                }
+    /// The row's top edge: centred on the traffic lights in a window, otherwise centred in the top bar.
+    private var topBarRowTop: CGFloat {
+        if hasTrafficLights, !isFullScreen, let mid = trafficLightsMidY { return max(mid - 16, 4) }
+        return QTTheme.Metrics.stageTopBarHeight / 2 - 16
+    }
+
+    /// Right-click menu on the Stage: move it to another display, back into the main window, or full screen.
+    @ViewBuilder
+    private var stageMenu: some View {
+        let screens = coordinator.otherScreens(than: hostWindow.window)
+        ForEach(screens, id: \.self) { screen in
+            Button(QTLoc.tr("Show Stage on %@", table: .stage, screen.localizedName)) {
+                showStage(on: screen)
             }
-            if presentation == .detached {
-                Button(QTLoc.tr("Show Stage in Main Window", table: .stage)) {
-                    coordinator.returnToMainWindow(model: model)
-                }
-            }
-            if !screens.isEmpty || presentation == .detached { Divider() }
-            Button(QTLoc.tr(isFullScreen ? "Exit Full Screen" : "Enter Full Screen", table: .stage)) {
-                toggleFullScreen()
-            }
-        } label: {
-            Label(QTLoc.tr("More"), systemImage: QTIcon.more.systemName)
         }
-        .menuStyle(.button)
-        .buttonStyle(QTStageChromeButtonStyle())
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .help(QTLoc.tr("More"))
-        .accessibilityIdentifier("qt.stage.more")
+        if presentation == .detached {
+            Button(QTLoc.tr("Show Stage in Main Window", table: .stage)) {
+                coordinator.returnToMainWindow(model: model)
+            }
+        }
+        if !screens.isEmpty || presentation == .detached { Divider() }
+        Button(QTLoc.tr(isFullScreen ? "Exit Full Screen" : "Enter Full Screen", table: .stage)) {
+            toggleFullScreen()
+        }
     }
 
     private var bottomBar: some View {
@@ -438,20 +453,6 @@ public struct QTStageView: View {
             .accessibilityIdentifier("qt.stage.queue")
             QTStageAirPlayButton()
                 .frame(width: 32, height: 32)
-            HStack(spacing: 6) {
-                Image(systemName: player.state.volume == 0 ? QTIcon.volumeMuted.systemName : QTIcon.volume.systemName)
-                    .font(.system(size: 13))
-                    .foregroundStyle(QTTheme.Colors.onArtSecondary)
-                    .frame(width: 18)
-                    .accessibilityHidden(true)
-                Slider(value: Binding(get: { player.state.volume }, set: { player.setVolume($0) }), in: 0...1)
-                    .controlSize(.small)
-                    .tint(.white.opacity(0.85))
-                    .frame(width: 84)
-                    .accessibilityLabel(QTLoc.tr("Volume"))
-                    .accessibilityIdentifier("qt.stage.volume")
-            }
-            .padding(.leading, 4)
         }
     }
 
@@ -574,6 +575,19 @@ public struct QTStageView: View {
         hideTask?.cancel()
         chromeVisible = true
         applyTitlebarVisibility(animated: false)
+        if presentation == .inline { titlebar.uninstall() }
+    }
+
+    /// Inline: keep the window's traffic lights over the Stage (see `QTStageTitlebar`). Runs after SwiftUI has
+    /// applied the main window's toolbar visibility for this update.
+    private func installTitlebar() {
+        DispatchQueue.main.async {
+            guard let window = hostWindow.window else { hasTrafficLights = false; return }
+            if presentation == .inline, model.surface == .stage { titlebar.install(in: window) }
+            hasTrafficLights = Self.showsTrafficLights(window)
+            trafficLightsMidY = QTStageTitlebar.trafficLightsMidY(in: window)
+            applyTitlebarVisibility(animated: false)
+        }
     }
 
     /// Applies the `qt.stage.*` launch arguments once per process (to whichever Stage shows first).
@@ -598,6 +612,7 @@ public struct QTStageView: View {
             DispatchQueue.main.async { applyTitlebarVisibility(animated: false) }
         }
         if launch.bool("qt.stage.queue") == true { isQueueOpen = true }
+        if launch.bool("qt.stage.noAd") == true { dismissLaunchAd() }
         if let seconds = launch.double("qt.stage.closeAfter") {
             // Debug: verifies the window underneath comes back in its own appearance after the Stage closes.
             let hold = QTReadiness.shared.hold("stage closeAfter")
@@ -616,6 +631,25 @@ public struct QTStageView: View {
                 try? await Task.sleep(for: .milliseconds(400))
                 QTReadiness.shared.release(hold)
             }
+        }
+    }
+}
+
+extension QTStageView {
+    /// `qt.stage.noAd YES`: a free account without the pre-roll (the simulated engine plays one on every load), so
+    /// free-account states such as the visualizer fallback can be seen on their own.
+    fileprivate func dismissLaunchAd() {
+        let hold = QTReadiness.shared.hold("stage noAd")
+        Task { @MainActor in
+            for _ in 0..<40 where player.ad == nil { try? await Task.sleep(for: .milliseconds(50)) }
+            if let sim = player.engine as? QTSimulatedPlaybackEngine, sim.state.ad != nil {
+                let account = sim.account
+                sim.account = .premium   // ends the ad
+                sim.account = account
+                player.seek(to: model.launch.time ?? 31.5)
+            }
+            try? await Task.sleep(for: .milliseconds(200))
+            QTReadiness.shared.release(hold)
         }
     }
 }

@@ -47,7 +47,7 @@ public enum QTIcon: String, CaseIterable, Sendable {
         case .check: "checkmark"
         case .layers: "square.3.layers.3d"
         case .close: "xmark"
-        case .sparkle: "paintpalette"
+        case .sparkle: "sparkle"
         case .pin: "pin"
         }
     }
