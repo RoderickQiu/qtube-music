@@ -20,6 +20,8 @@ struct QTTrackTable: NSViewRepresentable {
     var reduceMotion: Bool
     var emptyText: String?
     var showsAlphabet: Bool
+    /// Interface language the cells were drawn in; a runtime switch redraws every cached cell (badges, tooltips).
+    var language: QTResolvedInterfaceLanguage = QTLoc.language
 
     func makeCoordinator() -> QTTrackTableCoordinator { QTTrackTableCoordinator() }
 
@@ -141,7 +143,9 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
         let t = page.tableView
         let newIDs = new.rows.map(\.videoId)
         let rowsChanged = newIDs != rows.map(\.videoId)
-        if rowsChanged || first {
+        let languageChanged = old.map { $0.language != new.language } ?? false
+        if languageChanged { page.tableView.tableColumn(withIdentifier: Column.heart.id)?.headerToolTip = QTLoc.tr("Liked Songs") }
+        if rowsChanged || first || languageChanged {
             rows = new.rows
             t.reloadData()
             restoreSelection(new.state.selection)
@@ -461,12 +465,12 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
     }
 
     @objc private func menuGoToAlbum() {
-        guard let album = menuTargets.first?.album?.title else { return }
+        guard let album = menuTargets.first?.album else { return }
         QTNavigator.shared.go(.album(album))
     }
 
     @objc private func menuGoToArtist() {
-        guard let artist = menuTargets.first?.artists.first?.name else { return }
+        guard let artist = menuTargets.first?.artists.first else { return }
         QTNavigator.shared.go(.artist(artist))
     }
 

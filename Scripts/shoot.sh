@@ -68,7 +68,7 @@ PID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["pid"])' 
 
 title_for() {
   case "$1" in
-    main) echo "QTube Music" ;;
+    main) echo "" ;;  # titled after the page it shows (Liked Songs, an album…): found through the ready file
     mini) echo "QTube Music Mini Player" ;;
     desktopLyrics) echo "QTube Music Desktop Lyrics" ;;
     menuBarPopover) echo "QTube Music Menu Bar" ;;

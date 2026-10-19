@@ -1,3 +1,4 @@
+import AppKit
 import QTCore
 import SwiftUI
 
@@ -136,10 +137,11 @@ struct QTLibraryHeader: View {
                     .padding(.top, 4)
                     .padding(.bottom, 6)
                     .help(collection.title)
-                if collection.kind == .album, let artist = collection.tracks.first?.artists.first?.name {
+                if collection.kind == .album, let ref = collection.tracks.first?.artists.first {
+                    let artist = ref.name
                     // The album's artist opens the artist page (Music.app's linked subtitle).
                     Button {
-                        QTNavigator.shared.go(.artist(artist))
+                        QTNavigator.shared.go(.artist(ref))
                     } label: {
                         Text(verbatim: collection.tracks.first?.artistLine ?? artist)
                             .font(.title3.weight(.medium))
@@ -201,24 +203,69 @@ struct QTLibraryActions: View {
             .help(QTLoc.tr("Shuffle"))
             .accessibilityIdentifier("qt.library.shuffle")
 
-            Menu {
-                Button(QTLoc.tr("Play Next")) { QTTrackActions.playNext(playable) }
-                Button(QTLoc.tr("Add to Queue")) { QTTrackActions.addToQueue(playable) }
-                Divider()
-                Button(QTLoc.tr("Copy Link")) { QTTrackActions.copyLinks(playable) }
+            // A real button that pops a native NSMenu under itself: a SwiftUI Menu restyled as a glass button
+            // drew fine but had no Accessibility element, so VoiceOver / Voice Control couldn't reach these items.
+            Button {
+                anchor.popUp(Self.moreMenu(playable))
             } label: {
-                Label(QTLoc.tr("More"), systemImage: QTIcon.more.systemName)
+                Label {
+                    Text(QTLoc.tr("More"))
+                } icon: {
+                    // Same height as Play / Shuffle beside it.
+                    Image(systemName: QTIcon.more.systemName).frame(width: 20, height: 20)
+                }
             }
-            .menuStyle(.button)
-            .menuIndicator(.hidden)
             .qtGlassButton(.secondary, iconOnly: true)
-            .fixedSize()
+            .background(QTMenuAnchorView(anchor: anchor))
             .help(QTLoc.tr("More"))
+            .accessibilityLabel(QTLoc.tr("More"))
+            .accessibilityAddTraits(.isButton)
             .accessibilityIdentifier("qt.library.more")
         }
         .controlSize(.large)
         .disabled(playable.isEmpty)
     }
+
+    @State private var anchor = QTMenuAnchor()
+
+    static func moreMenu(_ playable: [QTTrack]) -> NSMenu {
+        let menu = NSMenu()
+        menu.addItem(QTClosureMenuItem(QTLoc.tr("Play Next")) { QTTrackActions.playNext(playable) })
+        menu.addItem(QTClosureMenuItem(QTLoc.tr("Add to Queue")) { QTTrackActions.addToQueue(playable) })
+        menu.addItem(.separator())
+        menu.addItem(QTClosureMenuItem(QTLoc.tr("Copy Link")) { QTTrackActions.copyLinks(playable) })
+        return menu
+    }
+}
+
+/// Where a SwiftUI button pops an AppKit menu: a zero-content view behind the button that knows its frame.
+@MainActor
+final class QTMenuAnchor {
+    fileprivate weak var view: NSView?
+
+    /// Pops `menu` just below the anchored control, left-aligned with it (like a pull-down button).
+    func popUp(_ menu: NSMenu) {
+        guard let view else { return }
+        let y: CGFloat = view.isFlipped ? view.bounds.maxY + 4 : view.bounds.minY - 4
+        menu.popUp(positioning: nil, at: NSPoint(x: view.bounds.minX, y: y), in: view)
+    }
+}
+
+struct QTMenuAnchorView: NSViewRepresentable {
+    let anchor: QTMenuAnchor
+
+    func makeNSView(context: Context) -> NSView {
+        let v = QTMenuAnchorNSView()
+        anchor.view = v
+        return v
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) { anchor.view = nsView }
+}
+
+private final class QTMenuAnchorNSView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func isAccessibilityElement() -> Bool { false }
 }
 
 /// Pinned compact bar: tiny tile, title, Play, Shuffle, filter (`.lib-compact`).

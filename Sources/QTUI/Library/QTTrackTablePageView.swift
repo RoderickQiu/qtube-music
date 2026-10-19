@@ -18,7 +18,17 @@ final class QTTrackTablePageView: NSView {
     private let pinnedSeparator = NSBox()
     let emptyLabel = NSTextField(labelWithString: "")
     var headerHost: NSView? { didSet { oldValue?.removeFromSuperview(); if let headerHost { documentView.addSubview(headerHost, positioned: .below, relativeTo: tableView) } } }
-    var compactHost: NSView? { didSet { oldValue?.removeFromSuperview(); if let compactHost { compactHost.alphaValue = 0; floatingLayer.addSubview(compactHost, positioned: .above, relativeTo: pinnedBackground) } } }
+    /// Hidden (not just transparent) while unpinned: NSView hit testing and Accessibility ignore alpha, so a
+    /// zero-alpha bar would still take clicks, Tab focus and VoiceOver in the blank space above the big header.
+    var compactHost: NSView? {
+        didSet {
+            oldValue?.removeFromSuperview()
+            guard let compactHost else { return }
+            compactHost.alphaValue = isPinned ? 1 : 0
+            compactHost.isHidden = !isPinned
+            floatingLayer.addSubview(compactHost, positioned: .above, relativeTo: pinnedBackground)
+        }
+    }
     var alphabetHost: NSView? { didSet { oldValue?.removeFromSuperview(); if let alphabetHost { documentView.addSubview(alphabetHost) } } }
 
     static let columnHeaderHeight: CGFloat = 30
@@ -219,14 +229,26 @@ final class QTTrackTablePageView: NSView {
 
     private func setPinnedChrome(visible: Bool) {
         let views = [pinnedBackground, compactHost].compactMap { $0 }
+        // The compact bar's controls must not exist for clicks, Tab or VoiceOver while it's faded out.
+        if visible { compactHost?.isHidden = false }
         if reduceMotion {
             views.forEach { $0.alphaValue = visible ? 1 : 0 }
+            if !visible { compactHost?.isHidden = true }
             return
+        }
+        if !visible, let host = compactHost, host.window?.firstResponder.flatMap({ ($0 as? NSView)?.isDescendant(of: host) }) == true {
+            // Focus leaves with the bar (the big header's filter takes over as the focus target).
+            host.window?.makeFirstResponder(nil)
         }
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.22
             ctx.timingFunction = QTTheme.Motion.caTimingFunction
             views.forEach { $0.animator().alphaValue = visible ? 1 : 0 }
+        } completionHandler: { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, !self.isPinned else { return }
+                self.compactHost?.isHidden = true
+            }
         }
     }
 
@@ -330,7 +352,14 @@ final class QTPassthroughView: NSView {
     }
     override func hitTest(_ point: NSPoint) -> NSView? {
         let hit = super.hitTest(point)
-        return hit === self ? nil : hit
+        guard hit !== self else { return nil }
+        // A subview faded out (alpha 0) is not there for the pointer either.
+        var v = hit
+        while let view = v, view !== self {
+            if view.alphaValue < 0.01 { return nil }
+            v = view.superview
+        }
+        return hit
     }
 }
 

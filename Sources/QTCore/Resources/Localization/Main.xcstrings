@@ -343,6 +343,16 @@
         }
       }
     },
+    "Overview" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "概览"
+          }
+        }
+      }
+    },
     "Pop" : {
       "localizations" : {
         "zh-Hans" : {

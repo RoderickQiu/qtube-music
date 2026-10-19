@@ -162,18 +162,38 @@ import Testing
         #expect(artist.relatedArtists.map(\.name) == ["Hoàng Thùy Linh"])
         #expect(service.albumNow("LINK")?.album.tracks?.map(\.videoId) == ["a"])
         #expect(service.albumNow("nope") == nil)
+        // The artist page's rows, in display order, like the live parser's `shelves`.
+        #expect(artist.shelves.map(\.id) == ["artist.albums", "artist.singles", "artist.videos", "artist.related"])
+        // Pages answer through the shared request API too (no loading state for the demo catalog).
+        #expect(service.cached(.artist("李健"))?.artist == artist)
+        #expect(service.cached(.album("LINK"))?.album?.album.title == "LINK")
+        #expect(service.cached(.album("nope")) == nil)
     }
 
     @Test func exploreHasEverySection() {
-        let e = QTMockBrowseService(catalog: Self.catalog).exploreNow()
-        #expect(e.newReleases.count == 3)
-        #expect(e.topSongs.count == 3)
-        #expect(e.videos.count == 2)
-        #expect(e.moodGroups.count == 2)
-        #expect(e.moodGroups[0].moods.map(\.id) == ["mood-relax"])
-        #expect(e.moodGroups[1].moods.count == QTMockBrowseService.genres.count)
+        let service = QTMockBrowseService(catalog: Self.catalog)
+        let e = service.exploreNow()
+        #expect(e.shelves.map(\.id) == ["explore.new", "explore.charts", "explore.videos"])
+        #expect(e.shelves[0].items.count == 3)
+        #expect(e.shelves[1].items.count == 3)
+        #expect(e.shelves[2].items.count == 2)
+        #expect(service.exploreSectionNow(.charts).map(\.id) == ["explore.charts"])
+        #expect(service.exploreSectionNow(.newReleases).first?.id == "explore.new")
+        let moods = service.moodsNow()
+        #expect(moods.groups.count == 2)
+        #expect(moods.groups[0].moods.map(\.id) == ["mood-relax"])
+        #expect(moods.groups[1].moods.count == QTMockBrowseService.genres.count)
         // Stable chart order across runs.
-        #expect(e.topSongs == QTMockBrowseService(catalog: Self.catalog).exploreNow().topSongs)
+        #expect(e.shelves[1] == QTMockBrowseService(catalog: Self.catalog).exploreNow().shelves[1])
+    }
+
+    @Test func destinationsAddressByIDWhenKnown() {
+        #expect(QTDestination.album(QTAlbumRef(id: "MPREb_x", title: "LINK")) == .album("MPREb_x"))
+        #expect(QTDestination.album(QTAlbumRef(title: "LINK")) == .album("LINK"))
+        #expect(QTDestination.artist(QTArtistRef(id: "UCabc", name: "李健")) == .artist("UCabc"))
+        #expect(QTDestination.artist(QTArtistRef(name: "李健")) == .artist("李健"))
+        #expect(QTWindowTitle.isBrowseID("MPREb_abcdefghij"))
+        #expect(!QTWindowTitle.isBrowseID("Ultraviolet"))
     }
 
     @Test func moodDestinationHasItsOwnState() {

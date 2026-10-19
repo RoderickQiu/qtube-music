@@ -259,7 +259,7 @@ struct QTHomeCard: View {
         let size = QTTheme.Metrics.card
         let tracks = a.tracks ?? []
         return Button {
-            QTNavigator.shared.go(.album(a.title))
+            QTNavigator.shared.go(.album(a.id))
         } label: {
             VStack(alignment: .leading, spacing: 4) {
                 artwork(QTArtworkView(a.artwork, cornerRadius: 0, placeholder: .album), width: size, height: size,
@@ -303,7 +303,7 @@ struct QTHomeCard: View {
         let size = QTTheme.Metrics.card
         let anim = QTTheme.Motion.animation(.timingCurve(0.2, 0.8, 0.2, 1, duration: 0.4), reduceMotion: reduceMotion)
         return Button {
-            QTNavigator.shared.go(.artist(a.name))
+            QTNavigator.shared.go(.artist(a.id))
         } label: {
             VStack(spacing: 4) {
                 QTArtworkView(a.artwork, cornerRadius: 0, placeholder: .mic)
@@ -383,10 +383,13 @@ struct QTQuickPicks: View {
     /// `GridItem(.flexible(minimum:))`: a grid minimum becomes the content column's minimum width, and with the
     /// inspector open that feeds AppKit's split-view constraints into an update-constraints loop (crash) on the
     /// macOS 26+ design.
+    /// Never more columns than songs: a lone song (a one-song artist) gets the whole row, so a long title such as
+    /// "Chúng Ta Của Hiện Tại" isn't cut to a third of the width beside empty space.
     private var columnCount: Int {
-        guard width > 0 else { return columns }
+        let wanted = min(columns, max(1, tracks.count))
+        guard width > 0 else { return wanted }
         let available = width - QTTheme.Spacing.gutter * 2 + Self.columnSpacing
-        return min(columns, max(1, Int(available / (Self.minColumnWidth + Self.columnSpacing))))
+        return min(wanted, max(1, Int(available / (Self.minColumnWidth + Self.columnSpacing))))
     }
 
     var body: some View {
@@ -495,11 +498,11 @@ struct QTTrackContextMenu: View {
         } else {
             Button(QTLoc.tr("No Music Video")) {}.disabled(true)
         }
-        if let album = track.album?.title {
-            Button(QTLoc.tr("Go to Album · %@", album)) { QTNavigator.shared.go(.album(album)) }
+        if let album = track.album {
+            Button(QTLoc.tr("Go to Album · %@", album.title)) { QTNavigator.shared.go(.album(album)) }
         }
-        if let artist = track.artists.first?.name {
-            Button(QTLoc.tr("Go to Artist · %@", artist)) { QTNavigator.shared.go(.artist(artist)) }
+        if let artist = track.artists.first {
+            Button(QTLoc.tr("Go to Artist · %@", artist.name)) { QTNavigator.shared.go(.artist(artist)) }
         }
         Divider()
         Menu(QTLoc.tr("Add to Playlist")) {

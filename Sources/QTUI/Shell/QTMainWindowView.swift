@@ -73,7 +73,10 @@ public struct QTMainWindowView: View {
                         }
                     }
                 }
-                .navigationTitle("")
+                // A real window title (VoiceOver, Mission Control, the Window menu), hidden in the toolbar like
+                // Music.app's.
+                .navigationTitle(Text(verbatim: QTWindowTitle.title(for: navigator.current, model: model)))
+                .toolbar(removing: .title)
                 .searchable(text: $model.searchText, placement: .toolbar, prompt: Text(QTLoc.tr("Search music")))
                 .searchFocused($isSearchFocused)
             }
@@ -91,8 +94,12 @@ public struct QTMainWindowView: View {
         .onChange(of: navigator.searchFocusRequest) { isSearchFocused = true }
         .background(QTWindowAccessor { window in
             window.identifier = QTWindowID.main.identifier
-            QTWindowPlacement.place(window, size: model.launch.windowSize ?? QTTheme.Metrics.defaultWindow,
-                                    screenName: model.launch.effectiveScreenName)
+            // The user's own size and position win (AppKit restores the autosaved frame); only dev/screenshot
+            // launches (`-qt.screen`, `-qt.window`) and a first launch are placed.
+            if QTWindowPlacement.shouldPlaceMainWindow(window, launch: model.launch) {
+                QTWindowPlacement.place(window, size: model.launch.windowSize ?? QTTheme.Metrics.defaultWindow,
+                                        screenName: model.launch.effectiveScreenName)
+            }
             QTWindowKeyMonitor.shared.install(model: model)
         })
         .task {
@@ -114,9 +121,8 @@ struct QTContentRouter: View {
         let query = model.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         let live = QTLiveCatalogStore.shared
         Group {
-            if !query.isEmpty, live.isLive {
-                QTLiveSearchView(query: query)
-            } else if !query.isEmpty {
+            if !query.isEmpty, live.mode == .mock || live.mode == .live {
+                // One search page for the demo catalog and YouTube Music (QTBrowse.service).
                 QTSearchResultsView(query: query)
             } else if live.handles(navigator.current) {
                 // data-live: YouTube Music pages, signed-out and loading states.
@@ -158,13 +164,43 @@ struct QTContentRouter: View {
             }
         case .section(.explore):
             QTExploreView()
-        case .album(let title):
-            QTLibraryView(collection: .album(title, catalog: catalog), destination: d)
-        case .artist(let name):
-            QTArtistPageView(name: name)
+        // Browse pages: the same views the live library uses (QTBrowsePages.swift).
+        case .album(let key):
+            QTAlbumPageView(key: key)
+        case .artist(let key):
+            QTArtistPageView(key: key)
         case .mood(let chip):
             QTMoodPageView(chip: chip)
         }
+    }
+}
+
+/// The main window's title: what the content column shows (the toolbar hides it; Accessibility, Mission Control
+/// and the Window menu read it).
+@MainActor
+enum QTWindowTitle {
+    static func title(for destination: QTDestination, model: QTAppModel) -> String {
+        let query = model.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !query.isEmpty { return QTLoc.tr("Results for “%@”", table: .main, query) }
+        let navigator = QTNavigator.shared
+        switch destination {
+        case .section(.playlist(let id)):
+            return (model.catalog.playlists.first { $0.id == id } ?? QTLiveCatalogStore.shared.playlist(id))?.title.resolved
+                ?? QTSidebarView.title(for: .playlist(id))
+        case .section(let item):
+            return QTSidebarView.title(for: item)
+        case .mood(let chip):
+            return chip.title.resolved
+        case .album(let key):
+            return navigator.pageTitle(for: destination) ?? (isBrowseID(key) ? QTLoc.tr("Album") : key)
+        case .artist(let key):
+            return navigator.pageTitle(for: destination) ?? (isBrowseID(key) ? QTLoc.tr("Artist", table: .main) : key)
+        }
+    }
+
+    /// `MPREb_…`, `UC…` and friends: ids, not names to show.
+    static func isBrowseID(_ key: String) -> Bool {
+        (key.hasPrefix("MPRE") || key.hasPrefix("UC") || key.hasPrefix("MPLA")) && !key.contains(" ") && key.count >= 12
     }
 }
 

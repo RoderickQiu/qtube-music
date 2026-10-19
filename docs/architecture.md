@@ -71,11 +71,14 @@ Everything is wired (integration of M1 polish + M2–M4):
 **Live data (data-live).** `QTLiveCatalogStore.shared` (attached in `QTAppModel.bootstrap`) owns the client and
 `QTAuthController`, a `QTCatalogMode` (`mock` / `restoring` / `signedOut` / `live`) and per-page `QTLivePhase`s.
 `QTContentRouter` hands destinations to `QTLivePage` (AppModel/Live/) when `handles(_:)` says so: live Home (mood
-chips filter the feed), Explore (segmented Overview / New releases / Charts / Moods & genres), Liked and playlists
-(first page at once, continuation pages stream in), library Songs / Albums / Artists, album pages (QTLibraryView),
-artist pages (hero, Songs, then the server's rows incl. **Videos**), grouped search (top result + songs, then
-Videos / Albums / Artists / Playlists rows; music only). Album/artist destinations accept browse ids or (mock-era)
-titles/names, resolved through seen tracks or a search. Every page has a skeleton (`QTLiveSkeleton`, the page's
+chips filter the feed), Liked and playlists (first page at once, continuation pages stream in), library Songs /
+Albums / Artists. **Browse pages are one shared set** (window, Shell/QTBrowsePages.swift + QTSearchResultsView.swift)
+for the demo and the live library: Explore (segmented Overview / New releases / Charts / Moods & genres), mood
+pages, album pages (QTLibraryView), artist pages (hero or portrait, Songs, then the page's rows incl. **Videos**),
+grouped search (top result + songs, then Videos / Albums / Artists / Playlists rows; music only). They read
+`QTBrowse.service` — `QTLiveBrowseService` (Shell/) forwards to this store's loaders/caches/phases when live.
+Album/artist destinations carry browse ids when known (`QTDestination.album(QTAlbumRef)` / `.artist(QTArtistRef)`
+pick `id ?? title/name`); names are resolved through seen tracks or a search. Every page has a skeleton (`QTLiveSkeleton`, the page's
 real layout, quiet pulse) and a failure state (`QTLiveFailureView`: offline / signed out / unavailable + one
 action). Album, artist and playlist cards prefetch their page on hover. `hl` follows the interface language
 (pages reload on change); `gl` and Premium come from the signed-in web client's `ytcfg` (`INNERTUBE_CONTEXT_GL`,
@@ -100,7 +103,7 @@ through pipes. `QTDevSession` (DEBUG executable) imports CDP cookie JSON from st
 | `Stage/` | stage | `QTStageView` (layouts × backgrounds, chrome, drawer) |
 | `Desktop/`, `Commands/`, `Settings/`, `Sources/QTubeMusicApp`, `Assets/AppIcon.icns` | desktop | mini player, desktop lyrics, menu bar, `QTDesktopCoordinator`, menus, Settings, app icon |
 | `Theme/`, `Shared/`, `AppModel/` | shared | builders may **add**; don't rename, repurpose or break existing API |
-| `AppModel/QTLiveCatalogStore.swift`, `AppModel/Live/` | data-live | live catalog wiring, signed-out / skeleton / failure states, live Home, Explore, search, album and artist pages, live mood page |
+| `AppModel/QTLiveCatalogStore.swift`, `AppModel/Live/` | data-live | live catalog wiring, signed-out / skeleton / failure states, live Home, live library pages (browse pages are window's shared set) |
 
 Edit only your folders and your String Catalog table. Need a change in someone else's area or in a shared
 signature? Add a defaulted parameter or a new type in your own folder, and say so in your report.
@@ -145,7 +148,10 @@ Views:
   the current track in tables and lists: speaker only while playing, pause glyph while paused.
 - `QTAdTint.color(overArt:increasedContrast:)` (PlayerBar/) — the amber ad colour (scrubber fill + "Ad" label).
 - Window plumbing: `QTWindowID` (identifiers + capture titles), `QTWindowAccessor`, `QTWindowPlacement`,
-  `QTReadiness` (`hold`/`release` around anything async the first frame needs).
+  `QTReadiness` (`hold`/`release` around anything async the first frame needs). The main window keeps the user's
+  autosaved frame; `QTWindowPlacement.shouldPlaceMainWindow` places it only for `-qt.screen` / `-qt.window` launches
+  or when no autosaved frame exists. Its NSWindow title is the current page (`QTWindowTitle`, hidden in the
+  toolbar) — scripts find the main window through the ready file's identifier, not by title.
 
 Coordinators (one per process, `@MainActor`):
 - `QTNavigator.shared` (Shell/) — content-column navigation: `go(.section(…) | .album(…) | .artist(…))`,
@@ -193,10 +199,15 @@ Core:
   `lineIndex(atPlaybackTime:)`, `playbackTime(forLine:)`, `withOffset(nudgedBy:)`.
 - `QTCatalogService` (home, liked, playlists, playlist, track). `QTMockCatalog` implements it for M1;
   InnerTube implements it in M3.
-- `QTBrowseService` (Shell/, window): `explore() -> QTExploreContent` (new releases, top songs, videos, mood groups),
-  `mood(_:) -> [QTShelf]`, `search(_:) -> QTSearchResults`, `album(_:) -> QTAlbumPage?`, `artist(_:) -> QTArtistPage?`
-  — the `QTInnerTubeClient` page types. `QTBrowse.service` is `QTMockBrowseService` (derived from the mock catalog)
-  until the data layer assigns an InnerTube-backed service; pages reload on interface-language change.
+- `QTBrowseService` (Shell/, window, `@MainActor`): `cached(_ QTBrowseRequest) -> QTBrowseResponse?` and
+  `load(_:force:) async throws -> QTBrowseResponse?` for `.explore` (`QTExploreContent`: Overview shelves + server
+  section names), `.exploreSection(.newReleases|.charts)` (shelves), `.moods` (`QTMoodsPage`), `.mood(chip)`,
+  `.search(q)`, `.album(key)`, `.artist(key)` — the `QTInnerTubeClient` page types; typed helpers `album(_:)`,
+  `artist(_:)`, `search(_:)`. `QTBrowse.service` = `QTLiveBrowseService` (store-backed) when the live library is
+  up, else `QTMockBrowseService` (demo catalog, synchronous). Pages load through `QTBrowseLoader` (cached first
+  frame, skeleton, one failure state with Try Again, previous page kept while the next loads; reloads on
+  interface-language or source change); `QTBrowseActions.playAlbum/playArtist/playPlaylist` fetch a page first
+  when needed.
 - Window controls: page buttons use `.qtGlassButton(.primary | .secondary, iconOnly:)` (Theme/QTGlass.swift);
   `QTPillButtonStyle` (capsule; primary = artwork accent fill) is its macOS 15 / Reduce Transparency fallback.
   `QTChipToggleStyle` (mood/genre chips, built on `qtGlassButton`), `QTChipFlow` (wrapping layout) — Shell/QTWindowButtonStyles.swift.
@@ -308,7 +319,7 @@ Builders add their own as `qt.<area>.<name>` (e.g. `qt.stage.chrome hidden`, `qt
 
 | Area | Keys |
 |---|---|
-| window | `qt.window.search <text>` · `qt.window.page album:<title>\|artist:<name>\|mood:<id>` (e.g. `mood:genre:Pop`, `mood:mood-relax`) · `qt.window.scroll <pt>` (Explore / artist / mood pages) · `qt.library.filter <text>` · `qt.library.scroll <pt>` (300 pins the compact header) · `qt.library.sort title\|album\|artist\|time\|added[:desc]` · `qt.library.select 1,3` · `qt.home.scroll <pt>` |
+| window | `qt.window.search <text>` · `qt.window.page album:<id\|title>\|artist:<id\|name>\|mood:<id>` (e.g. `mood:genre:Pop`, `mood:mood-relax`) · `qt.window.scroll <pt>` (Explore / artist / mood pages) · `qt.library.filter <text>` · `qt.library.scroll <pt>` (300 pins the compact header) · `qt.library.sort title\|album\|artist\|time\|added[:desc]` · `qt.library.select 1,3` · `qt.home.scroll <pt>` |
 | player | `qt.player.upNext demo\|id,id` · `qt.player.autoplay NO` · `qt.player.shuffle YES` · `qt.player.repeat off\|all\|one` · `qt.player.adElapsed <s>` (with `qt.ad`: run the ad `<s>` s then pause; 2 = "Skip in 3", 6 = skippable) · DEBUG `qt.player.keyAppearance YES` (best-effort key-window rendering in background captures; check the shot and retake) |
 | lyrics-ui | `qt.lyrics.scrolled` · `qt.lyrics.options` · `qt.lyrics.demoVersions` · `qt.lyrics.translationState same\|translating\|download\|unavailable\|onDevice\|appleIntelligence` · `qt.lyrics.lab` · `qt.lyrics.debug` |
 | stage | `qt.stage.chrome hidden` · `qt.stage.queue YES` · `qt.stage.popover appearance` · `qt.stage.window YES` (detached window) · `qt.stage.reduceMotion YES` · `qt.stage.visualizerOnBattery YES` · `qt.stage.closeAfter <s>` · `qt.stage.noAd YES` (free account without the simulated pre-roll, e.g. the visualizer fallback) |

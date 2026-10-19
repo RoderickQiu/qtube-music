@@ -150,7 +150,8 @@ class Run:
     def shot(self, name):
         if not self.args.shots or name in self.shots_taken:
             return
-        wid = sh(WINDOW_TOOL, "--pid", str(self.pid), "--title", "QTube Music", "--wait", "3")
+        # The main window is titled after its page; without --title the tool takes the largest window (main).
+        wid = sh(WINDOW_TOOL, "--pid", str(self.pid), "--wait", "3")
         if not wid:
             self.log(f"no window for shot {name}")
             return

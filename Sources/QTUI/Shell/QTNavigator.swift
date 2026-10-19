@@ -7,9 +7,9 @@ import QTCore
 /// not a history entry — like Music.app.
 public enum QTDestination: Hashable, Sendable {
     case section(QTSidebarItem)
-    /// Album page, by album title (mock catalog albums have no ids yet).
+    /// Album page by browse id (`MPREb_…`) when known, else by title (the demo catalog has no ids).
     case album(String)
-    /// Artist page, by artist name.
+    /// Artist page by channel id (`UC…`) when known, else by name.
     case artist(String)
     /// A mood or genre page from Explore.
     case mood(QTMoodChip)
@@ -18,6 +18,11 @@ public enum QTDestination: Hashable, Sendable {
         if case .section(let item) = self { return item }
         return nil
     }
+
+    /// The album page of a track's album: by id when YouTube Music links one, else by title.
+    public static func album(_ ref: QTAlbumRef) -> QTDestination { .album(ref.id ?? ref.title) }
+    /// The artist page of a credited artist: by channel id when linked, else by name.
+    public static func artist(_ ref: QTArtistRef) -> QTDestination { .artist(ref.id ?? ref.name) }
 
     /// Stable key for per-page state (scroll position, filter, sort).
     public var stateKey: String {
@@ -46,6 +51,9 @@ public final class QTNavigator {
     public private(set) var filterFocusRequest = 0
     /// Incremented by ⌘K; the toolbar search field takes focus.
     public private(set) var searchFocusRequest = 0
+
+    /// Names pages report once loaded (an album/artist addressed by id has no name until then): window title.
+    public private(set) var pageTitles: [String: String] = [:]
 
     @ObservationIgnored private var listStates: [String: QTTrackListState] = [:]
     @ObservationIgnored private var scrollOffsets: [String: CGFloat] = [:]
@@ -103,6 +111,14 @@ public final class QTNavigator {
     }
 
     public func requestFilterFocus() { filterFocusRequest += 1 }
+
+    /// A page tells the navigator its display name (album title, artist name) once it has it.
+    public func notePageTitle(_ title: String, for destination: QTDestination) {
+        guard !title.isEmpty, pageTitles[destination.stateKey] != title else { return }
+        pageTitles[destination.stateKey] = title
+    }
+
+    public func pageTitle(for destination: QTDestination) -> String? { pageTitles[destination.stateKey] }
     public func requestSearchFocus() { searchFocusRequest += 1 }
 
     // MARK: Per-page state

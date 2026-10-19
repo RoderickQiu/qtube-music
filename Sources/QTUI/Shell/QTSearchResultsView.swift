@@ -3,23 +3,24 @@ import QTInnerTube
 import SwiftUI
 
 // Owner: builder "window". Results for the toolbar search field (⌘K), grouped like Music.app: Top result next to
-// Songs, then Music videos, Albums, Artists, Playlists — music only. Results update on every keystroke (the mock
-// answers synchronously; a network service is debounced and keeps the previous results on screen). Matching
-// folds diacritics and Traditional/Simplified Chinese, so "ha phom", "Hạ Phỏm" and 出牌 find the same song.
+// Songs, then Music videos, Albums, Artists, Playlists — music only (YouTube Music's parser drops podcasts,
+// episodes and profiles). One view for the demo catalog and the live library (`QTBrowse.service`): the demo
+// answers on every keystroke; YouTube Music is debounced and keeps the previous results on screen with a small
+// spinner. Demo matching folds diacritics and Traditional/Simplified Chinese ("ha phom", "Hạ Phỏm", 出牌).
 
 struct QTSearchResultsView: View {
     let query: String
 
     var body: some View {
-        QTBrowseLoader(key: "search:\(query)", debounce: .milliseconds(180), mock: { $0.searchNow(query) },
-                       load: { [query] in try await $0.search(query) }) { results in
-            if let results {
-                if results.topResult == nil && results.items.isEmpty {
-                    ContentUnavailableView(QTLoc.tr("No results for “%@”", table: .main, query), systemImage: QTIcon.search.systemName)
-                        .accessibilityIdentifier("qt.search.empty")
-                } else {
-                    QTSearchResultsContent(query: query, results: results)
-                }
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        QTBrowseLoader(.search(q), debounce: .milliseconds(250), extract: \.search) {
+            QTLiveSkeleton(layout: .search, title: QTLoc.tr("Results for “%@”", table: .main, q))
+        } content: { results, isUpdating in
+            if results.topResult == nil && results.items.isEmpty && !isUpdating {
+                ContentUnavailableView(QTLoc.tr("No results for “%@”", table: .main, q), systemImage: QTIcon.search.systemName)
+                    .accessibilityIdentifier("qt.search.empty")
+            } else {
+                QTSearchResultsContent(query: q, results: results, isUpdating: isUpdating)
             }
         }
     }
@@ -28,27 +29,32 @@ struct QTSearchResultsView: View {
 struct QTSearchResultsContent: View {
     let query: String
     let results: QTSearchResults
-    @Environment(QTAppModel.self) private var model
+    var isUpdating = false
 
     private var source: QTQueueSource { QTQueueSource(kind: .search, title: .verbatim(query)) }
 
     var body: some View {
-        let songs = results.songs
+        let topID = results.topResult?.id
         ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 0) {
-                Text(QTLoc.tr("Results for “%@”", table: .main, query))
-                    .font(QTTheme.Typography.pageTitle)
-                    .lineLimit(1)
-                    .padding(.top, 40)
-                    .padding(.horizontal, QTTheme.Spacing.gutter)
-                    .accessibilityAddTraits(.isHeader)
-                    .accessibilityIdentifier("qt.search.header")
-                topRow(songs: songs)
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text(QTLoc.tr("Results for “%@”", table: .main, query))
+                        .font(QTTheme.Typography.pageTitle)
+                        .lineLimit(1)
+                        .accessibilityAddTraits(.isHeader)
+                        .accessibilityIdentifier("qt.search.header")
+                    if isUpdating {
+                        ProgressView().controlSize(.small)
+                    }
+                }
+                .padding(.top, 40)
+                .padding(.horizontal, QTTheme.Spacing.gutter)
+                topRow
                     .padding(.top, 28)
-                shelf("search.videos", QTLoc.tr("Music videos"), .videos, results.videos.map { .video($0) })
-                shelf("search.albums", QTLoc.tr("Albums"), .cards, results.albums.map { .album($0) })
-                shelf("search.artists", QTLoc.tr("Artists"), .cards, results.artists.map { .artist($0) })
-                shelf("search.playlists", QTLoc.tr("Playlists"), .cards, results.playlists.map { .playlist($0) })
+                shelf("search.videos", QTLoc.tr("Music videos"), .videos, results.videos.map { .video($0) }, except: topID)
+                shelf("search.albums", QTLoc.tr("Albums"), .cards, results.albums.map { .album($0) }, except: topID)
+                shelf("search.artists", QTLoc.tr("Artists"), .cards, results.artists.map { .artist($0) }, except: topID)
+                shelf("search.playlists", QTLoc.tr("Playlists"), .cards, results.playlists.map { .playlist($0) }, except: topID)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.bottom, 48)
@@ -56,12 +62,18 @@ struct QTSearchResultsContent: View {
         .accessibilityIdentifier("qt.search.results")
     }
 
+    private var topSong: QTTrack? { if case .track(let t) = results.topResult { t } else { nil } }
+
+    /// Songs in result order; a song that is the top result leads the list, so the list plays on from it.
+    private var songs: [QTTrack] {
+        let top = topSong
+        return (top.map { [$0] } ?? []) + results.songs.filter { $0.videoId != top?.videoId }
+    }
+
     /// Top result card beside the first songs (Music.app / YouTube Music layout).
     @ViewBuilder
-    private func topRow(songs: [QTTrack]) -> some View {
-        // When the top result is a song it leads the Songs list too, so the list plays in order from it.
-        let topSong: QTTrack? = if case .track(let t) = results.topResult { t } else { nil }
-        let list = (topSong.map { [$0] } ?? []) + songs
+    private var topRow: some View {
+        let list = songs
         HStack(alignment: .top, spacing: 28) {
             if let top = results.topResult {
                 VStack(alignment: .leading, spacing: 14) {
@@ -71,7 +83,7 @@ struct QTSearchResultsContent: View {
                 .frame(width: 320, alignment: .leading)
             }
             // A lone song that is already the top result isn't repeated beside it.
-            if !songs.isEmpty {
+            if list.count > (topSong == nil ? 0 : 1) {
                 VStack(alignment: .leading, spacing: 14) {
                     QTSectionTitle(text: QTLoc.tr("Songs"))
                     VStack(spacing: 2) {
@@ -89,7 +101,8 @@ struct QTSearchResultsContent: View {
     }
 
     @ViewBuilder
-    private func shelf(_ id: String, _ title: String, _ style: QTShelfStyle, _ items: [QTShelfItem]) -> some View {
+    private func shelf(_ id: String, _ title: String, _ style: QTShelfStyle, _ items: [QTShelfItem], except topID: String?) -> some View {
+        let items = items.filter { $0.id != topID }
         if !items.isEmpty {
             QTHomeShelf(shelf: QTShelf(id: id, title: .verbatim(title), style: style, items: items), source: source)
                 .padding(.top, QTTheme.Spacing.shelfSpacing)
@@ -97,20 +110,19 @@ struct QTSearchResultsContent: View {
     }
 }
 
-/// The highlighted result: big artwork, name, kind · artist, and one primary action.
+/// The highlighted result: big artwork, name, kind · artist, Play, and Go to Album/Artist. Double-click opens it.
 struct QTSearchTopResult: View {
     let item: QTShelfItem
     let songs: [QTTrack]
     let source: QTQueueSource
-    @Environment(QTAppModel.self) private var model
-    @Environment(QTPlayerModel.self) private var player
     @State private var isHovered = false
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: QTTheme.Radius.floating, style: .continuous)
         VStack(alignment: .leading, spacing: 0) {
             artwork
-                .frame(width: 104, height: 104)
+                .frame(width: 104, height: isVideo ? 58.5 : 104)
+                .frame(height: 104, alignment: .center)
                 .clipShape(isArtist ? AnyShape(Circle()) : AnyShape(RoundedRectangle(cornerRadius: QTTheme.Radius.artwork, style: .continuous)))
                 .shadow(color: .black.opacity(0.22), radius: 10, y: 6)
                 .accessibilityHidden(true)
@@ -128,6 +140,7 @@ struct QTSearchTopResult: View {
                     Label(QTLoc.tr("Play"), systemImage: QTIcon.play.systemName)
                 }
                 .qtGlassButton(.primary)
+                .disabled(!isPlayable)
                 .accessibilityIdentifier("qt.search.top.play")
                 if isArtist || isAlbum {
                     Button(action: open) {
@@ -136,6 +149,7 @@ struct QTSearchTopResult: View {
                     }
                     .qtGlassButton(.secondary, iconOnly: true)
                     .help(QTLoc.tr(isArtist ? "Go to Artist · %@" : "Go to Album · %@", title))
+                    .accessibilityIdentifier("qt.search.top.open")
                 }
             }
             .controlSize(.regular)
@@ -145,7 +159,10 @@ struct QTSearchTopResult: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(shape.fill(isHovered ? AnyShapeStyle(.fill.tertiary) : AnyShapeStyle(.fill.quaternary)))
         .contentShape(shape)
-        .onHover { isHovered = $0 }
+        .onHover { hovering in
+            isHovered = hovering
+            if hovering { QTLiveCatalogStore.shared.prefetch(item) }
+        }
         .onTapGesture(count: 2) { open() }
         .contextMenu { if case .track(let t) = item { QTTrackContextMenu(track: t) } }
         .accessibilityElement(children: .contain)
@@ -154,6 +171,14 @@ struct QTSearchTopResult: View {
 
     private var isArtist: Bool { if case .artist = item { true } else { false } }
     private var isAlbum: Bool { if case .album = item { true } else { false } }
+    private var isVideo: Bool { if case .video = item { true } else { false } }
+
+    private var isPlayable: Bool {
+        switch item {
+        case .track(let t), .video(let t): t.availability.isPlayable
+        case .album, .artist, .playlist: true
+        }
+    }
 
     @ViewBuilder private var artwork: some View {
         switch item {
@@ -180,32 +205,27 @@ struct QTSearchTopResult: View {
         case .video(let t): QTLoc.tr("%@ · %@", table: .main, QTLoc.tr("Video"), t.artistLine)
         case .album(let a): QTHomeCard.albumSubtitle(a)
         case .artist: QTLoc.tr("Artist", table: .main)
-        case .playlist: QTLoc.tr("Playlist")
-        }
-    }
-
-    private func tracks() -> [QTTrack] {
-        switch item {
-        case .track: songs
-        case .video(let t): [t]
-        case .album(let a): a.tracks ?? model.catalog.tracks.filter { $0.album?.title == a.title }
-        case .artist(let a): model.catalog.tracks.filter { $0.artists.contains { $0.name == a.name } }
-        case .playlist(let p): p.tracks ?? []
+        case .playlist(let p): [QTLoc.tr("Playlist"), p.owner].compactMap { $0 }.joined(separator: " · ")
         }
     }
 
     private func play() {
-        let ts = tracks().filter(\.availability.isPlayable)
-        guard !ts.isEmpty else { return }
-        if case .video = item { QTTrackActions.play(ts, at: 0, source: source, video: true); return }
-        QTTrackActions.play(ts, at: 0, source: source)
+        switch item {
+        case .track:
+            QTTrackActions.play(songs, at: songs.firstIndex(where: \.availability.isPlayable) ?? 0, source: source)
+        case .video(let t):
+            QTTrackActions.play([t], at: 0, source: source, video: true)
+        case .album(let a): QTBrowseActions.playAlbum(a)
+        case .artist(let a): QTBrowseActions.playArtist(a)
+        case .playlist(let p): QTBrowseActions.playPlaylist(p)
+        }
     }
 
     private func open() {
         switch item {
         case .track, .video: play()
-        case .album(let a): QTNavigator.shared.go(.album(a.title))
-        case .artist(let a): QTNavigator.shared.go(.artist(a.name))
+        case .album(let a): QTNavigator.shared.go(.album(a.id))
+        case .artist(let a): QTNavigator.shared.go(.artist(a.id))
         case .playlist(let p): QTNavigator.shared.go(.section(p.kind == .liked ? .liked : .playlist(p.id)))
         }
     }

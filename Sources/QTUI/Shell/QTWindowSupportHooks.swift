@@ -82,8 +82,9 @@ enum QTWindowLaunchHooks {
         case "album": return .album(value)
         case "artist": return .artist(value)
         case "mood":
-            let explore = QTMockBrowseService(catalog: model.catalog).exploreNow()
-            return explore.moodGroups.flatMap(\.moods).first { $0.id == value }.map { .mood($0) }
+            // Demo moods/genres by id; any other id is a YouTube Music mood browse id (live library).
+            let moods = QTMockBrowseService(catalog: model.catalog).moodsNow().groups.flatMap(\.moods) + model.catalog.home.moods
+            return .mood(moods.first { $0.id == value } ?? QTMoodChip(id: value, title: .verbatim(value)))
         default: return nil
         }
     }
@@ -98,5 +99,20 @@ enum QTWindowLaunchHooks {
         case .artist(let n): return QTTrackCollection.artist(n, catalog: c).tracks
         default: return []
         }
+    }
+}
+
+extension QTWindowPlacement {
+    /// Whether the app places the main window on this launch: for explicit dev/screenshot placement
+    /// (`-qt.screen`, `-qt.window`), and on a first launch (no autosaved frame yet). Otherwise the frame AppKit
+    /// restored — the user's own size and position — stays (draft §8).
+    static func shouldPlaceMainWindow(_ window: NSWindow, launch: QTLaunchOptions, defaults: UserDefaults = .standard) -> Bool {
+        if launch.screen != nil || launch.windowSize != nil { return true }
+        return !hasAutosavedFrame(window, defaults: defaults)
+    }
+
+    static func hasAutosavedFrame(_ window: NSWindow?, defaults: UserDefaults = .standard) -> Bool {
+        let names = Set([window?.frameAutosaveName ?? "", QTWindowID.main.rawValue].filter { !$0.isEmpty })
+        return names.contains { defaults.string(forKey: "NSWindow Frame \($0)") != nil }
     }
 }

@@ -4,7 +4,8 @@ import SwiftUI
 
 // Owner: builder "data-live". Content pages backed by YouTube Music. Track lists reuse the window builder's
 // QTLibraryView (native NSTableView, sticky compact header) and Home's shelves reuse QTHomeShelf; these views add
-// loading, failure and signed-out states, mood filtering, Explore, library grids and album pages.
+// loading, failure and signed-out states, Home mood filtering and library grids. Explore, mood, album, artist and
+// search pages are the window's shared browse pages (Shell/), fed by `QTLiveBrowseService`.
 
 /// Live replacement for a content-column destination (see `QTLiveCatalogStore.handles(_:)`).
 struct QTLivePage: View {
@@ -41,16 +42,18 @@ struct QTLivePage: View {
     @ViewBuilder private var page: some View {
         switch destination {
         case .section(.home): QTLiveHomeView()
-        case .section(.explore): QTLiveExploreView()
+        // Browse pages are the window's one set (Shell/QTBrowsePages.swift), reading the store through
+        // QTLiveBrowseService.
+        case .section(.explore): QTExploreView()
         case .section(.liked): QTLiveCollectionPage(playlistID: "LM", destination: destination)
         case .section(.playlist(let id)): QTLiveCollectionPage(playlistID: id, destination: destination)
         case .section(.songs): QTLiveSongsPage(destination: destination)
         case .section(.albums): QTLiveLibraryAlbumsPage()
         case .section(.artists): QTLiveLibraryArtistsPage()
         case .section(.history): EmptyView() // not handled (local history)
-        case .album(let key): QTLiveAlbumPage(key: key, destination: destination)
-        case .artist(let key): QTLiveArtistView(key: key)
-        case .mood(let chip): QTLiveMoodPage(mood: chip)
+        case .album(let key): QTAlbumPageView(key: key)
+        case .artist(let key): QTArtistPageView(key: key)
+        case .mood(let chip): QTMoodPageView(chip: chip)
         }
     }
 }
@@ -138,156 +141,6 @@ struct QTLiveHomeView: View {
     }
 }
 
-// MARK: - Explore
-
-struct QTLiveExploreView: View {
-    @State private var section: QTLiveExploreSection = .overview
-
-    var body: some View {
-        let store = QTLiveCatalogStore.shared
-        QTLivePhaseView(phase: store.explorePhase, skeleton: QTLiveSkeleton(layout: .shelves, title: QTLoc.tr("Explore")),
-                        retry: { Task { await store.loadExplore(force: true) } }) {
-            ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: 0) {
-                    header(store)
-                    sectionContent(store)
-                }
-                .padding(.bottom, 48)
-            }
-            .accessibilityIdentifier("qt.live.explore")
-        }
-        .task { await store.loadExplore() }
-        .task(id: section) { await store.loadExploreSection(section) }
-    }
-
-    private func header(_ store: QTLiveCatalogStore) -> some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text(QTLoc.tr("Explore"))
-                .font(QTTheme.Typography.pageTitle)
-                .accessibilityAddTraits(.isHeader)
-            Picker(QTLoc.tr("Explore"), selection: $section) {
-                ForEach(QTLiveExploreSection.allCases, id: \.self) { s in
-                    Text(verbatim: title(s, store)).tag(s)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
-            .controlSize(.large)
-            .accessibilityIdentifier("qt.live.explore.sections")
-        }
-        .padding(.top, 40)
-        .padding(.horizontal, QTTheme.Spacing.gutter)
-    }
-
-    /// Server-localized names of Explore's own destinations where YouTube Music sends them.
-    private func title(_ s: QTLiveExploreSection, _ store: QTLiveCatalogStore) -> String {
-        let d = store.explore?.destinations ?? []
-        func server(_ id: String) -> String? { d.first { QTBrowseTarget(moodChipID: $0.id).browseId == id }?.title.resolved }
-        switch s {
-        case .overview: return QTLoc.tr("Overview", table: .live)
-        case .newReleases: return server("FEmusic_new_releases") ?? QTLoc.tr("New Releases", table: .live)
-        case .charts: return server("FEmusic_charts") ?? QTLoc.tr("Charts", table: .live)
-        case .moods: return server("FEmusic_moods_and_genres") ?? QTLoc.tr("Moods & Genres", table: .live)
-        }
-    }
-
-    @ViewBuilder private func sectionContent(_ store: QTLiveCatalogStore) -> some View {
-        switch section {
-        case .overview:
-            shelves(store.explore?.shelves ?? [])
-        case .moods:
-            phased(store.exploreSectionPhases[.moods] ?? .loading, retry: { Task { await store.loadExploreSection(.moods, force: true) } }) {
-                moodsGrid(store.moodsPage)
-            }
-        default:
-            phased(store.exploreSectionPhases[section] ?? .loading,
-                   retry: { Task { await store.loadExploreSection(section, force: true) } }) {
-                shelves(store.exploreSections[section] ?? [])
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func phased<C: View>(_ phase: QTLivePhase, retry: @escaping () -> Void, @ViewBuilder _ content: () -> C) -> some View {
-        switch phase {
-        case .loaded: content()
-        case .failed(let f): QTLiveFailureView(failure: f, retry: retry).frame(height: 360)
-        default: QTLiveSkeleton(layout: .shelves).frame(height: 760).padding(.top, -110)
-        }
-    }
-
-    private func shelves(_ list: [QTShelf]) -> some View {
-        ForEach(list) { shelf in
-            QTHomeShelf(shelf: shelf)
-                .padding(.top, QTTheme.Spacing.shelfSpacing)
-        }
-    }
-
-    private func moodsGrid(_ page: QTMoodsPage?) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(page?.groups ?? []) { group in
-                VStack(alignment: .leading, spacing: 14) {
-                    Text(verbatim: group.title)
-                        .font(QTTheme.Typography.shelfTitle)
-                        .accessibilityAddTraits(.isHeader)
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 150, maximum: 220), spacing: 10, alignment: .leading)],
-                              alignment: .leading, spacing: 10) {
-                        ForEach(group.moods) { mood in
-                            Button {
-                                // A real destination, so Back / Forward and the per-page state work.
-                                QTNavigator.shared.go(.mood(mood))
-                            } label: {
-                                Text(mood.title.resolved)
-                                    .lineLimit(1)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.large)
-                            .accessibilityIdentifier("qt.live.explore.mood.\(mood.id)")
-                        }
-                    }
-                }
-                .padding(.top, QTTheme.Spacing.shelfSpacing)
-            }
-        }
-        .padding(.horizontal, QTTheme.Spacing.gutter)
-    }
-}
-
-/// A mood or genre page (`QTDestination.mood`) from YouTube Music's own mood browse page.
-struct QTLiveMoodPage: View {
-    let mood: QTMoodChip
-
-    var body: some View {
-        let store = QTLiveCatalogStore.shared
-        let key = "moodpage:\(mood.id)"
-        ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: 0) {
-                Text(mood.title.resolved)
-                    .font(QTTheme.Typography.pageTitle)
-                    .accessibilityAddTraits(.isHeader)
-                    .padding(.horizontal, QTTheme.Spacing.gutter)
-                    .padding(.top, 40)
-                switch store.moodPhases[key] ?? .loading {
-                case .loaded:
-                    ForEach(store.moodFeeds[key]?.shelves ?? []) { shelf in
-                        QTHomeShelf(shelf: shelf)
-                            .padding(.top, QTTheme.Spacing.shelfSpacing)
-                    }
-                case .failed(let f):
-                    QTLiveFailureView(failure: f, retry: { Task { await store.loadMoodPage(mood) } }).frame(height: 360)
-                default:
-                    QTLiveSkeleton(layout: .shelves).frame(height: 760).padding(.top, -110)
-                }
-            }
-            .padding(.bottom, 48)
-        }
-        .task(id: mood.id) { await store.loadMoodPage(mood) }
-        .accessibilityIdentifier("qt.live.mood")
-    }
-}
-
 // MARK: - Track lists
 
 /// Liked Songs or a playlist: the first page shows as soon as it arrives, later pages stream in.
@@ -326,25 +179,6 @@ struct QTLiveSongsPage: View {
         .task { await store.loadLibrarySongs() }
     }
 }
-
-struct QTLiveAlbumPage: View {
-    let key: String
-    let destination: QTDestination
-
-    var body: some View {
-        let store = QTLiveCatalogStore.shared
-        QTLivePhaseView(phase: store.albumPhases[key] ?? .idle, skeleton: QTLiveSkeleton(layout: .trackList),
-                        retry: { Task { await store.loadAlbum(key, force: true) } }) {
-            if let page = store.albumPages[key] {
-                QTLibraryView(collection: QTTrackCollection(id: "album:\(key)", kind: .album, title: page.album.title,
-                                                            artwork: page.album.artwork, tracks: page.album.tracks ?? []),
-                              destination: destination)
-            }
-        }
-        .task(id: key) { await store.loadAlbum(key) }
-    }
-}
-
 // MARK: - Library grids
 
 struct QTLiveLibraryAlbumsPage: View {
