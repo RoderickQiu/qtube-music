@@ -131,13 +131,24 @@ import Testing
     // MARK: Settings › Playback
 
     @Test func playbackEffectsFollowTheEngineNotTheAccount() {
-        // Premium account on the web engine (today's live playback): explained, not offered.
-        let web = QTPlaybackSettings.unsupportedNote(capabilities: .web, account: .premium)
-        #expect(web == QTLoc.tr("YouTube’s player, which plays your music for now, doesn’t support these.", table: .desktop))
-        #expect(QTPlaybackSettings.unsupportedNote(capabilities: .web, account: .free)
+        func note(_ caps: QTPlaybackCapabilities, _ account: QTAccountKind, eligible: Bool = true, optedIn: Bool = false,
+                  fallback: String? = nil) -> String? {
+            QTPlaybackSettings.unsupportedNote(capabilities: caps, account: account, eligible: eligible, optedIn: optedIn,
+                                               fallbackReason: fallback)
+        }
+        // Premium on the web engine, not opted in: says what would turn them on.
+        #expect(note(.web, .premium)
+            == QTLoc.tr("YouTube’s player doesn’t support these. Turn on the native engine to use them.", table: .desktop))
+        #expect(note(.web, .free)
             == QTLoc.tr("Free accounts play through YouTube’s own player, which doesn’t support these.", table: .desktop))
-        // An engine with gapless + crossfade + EQ (the native engine, M5): no note.
-        #expect(QTPlaybackSettings.unsupportedNote(capabilities: .premium, account: .premium) == nil)
+        // Signed out (or demo data): the opt-in needs a Premium session.
+        #expect(note(.web, .premium, eligible: false)
+            == QTLoc.tr("Needs a signed-in YouTube Music Premium account.", table: .desktop))
+        // Opted in, but the native engine fell back for this session: the truth, not a promise.
+        #expect(note(.web, .premium, optedIn: true, fallback: "HTTP 403")
+            == QTLoc.tr("The native engine isn’t working right now, so YouTube’s player is playing. It doesn’t support these.", table: .desktop))
+        // The native engine plays (gapless + crossfade + EQ): no note.
+        #expect(note(.premium, .premium, optedIn: true) == nil)
     }
 
     // MARK: Menus

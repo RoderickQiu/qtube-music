@@ -335,7 +335,8 @@ import Testing
     @Test func engineSelectionFollowsTierAndData() {
         #expect(QTPlaybackEngineSelector.kind(tier: .free, usesMockData: false) == .web)
         #expect(QTPlaybackEngineSelector.kind(tier: .premium, usesMockData: false, nativeAvailable: false) == .web)
-        #expect(QTPlaybackEngineSelector.kind(tier: .premium, usesMockData: false, nativeAvailable: true) == .native)
+        #expect(QTPlaybackEngineSelector.kind(tier: .premium, usesMockData: false, nativeAvailable: true) == .web)
+        #expect(QTPlaybackEngineSelector.kind(tier: .premium, usesMockData: false, nativeOptIn: true, nativeAvailable: true) == .native)
         #expect(QTPlaybackEngineSelector.kind(tier: .free, usesMockData: true) == .simulated)
         #expect(QTPlaybackEngineSelector.capabilities(of: .web, tier: .premium) == .web)
         #expect(QTPlaybackEngineSelector.capabilities(of: .native, tier: .premium).contains(.gapless))

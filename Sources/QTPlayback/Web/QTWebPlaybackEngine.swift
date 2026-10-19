@@ -727,6 +727,22 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         QTWebKitTuning.setHiddenPageThrottling(false, on: prefs)
     }
 
+    /// Another engine took over (the native engine plays the song): stop, and freeze the page now rather than after
+    /// the paused delay, so the idle page costs nothing until the next load (which thaws it).
+    public func standDown() {
+        stop()
+        guard webView != nil, isPageReady, !isPageFrozen else { return }
+        let gen = generation
+        Task { @MainActor [weak self] in
+            guard let self, gen == self.generation, self.state.item == nil, self.pendingLoads.isEmpty else { return }
+            self.isPageFrozen = await self.command("freeze")
+            if self.isPageFrozen, let prefs = self.webView?.configuration.preferences {
+                QTWebKitTuning.setHiddenPageThrottling(true, on: prefs)
+                self.isThrottlingHiddenPage = true
+            }
+        }
+    }
+
     /// Commands thaw the page themselves; this only drops a pending freeze and the flag.
     func cancelFreeze() {
         freezeTask?.cancel()

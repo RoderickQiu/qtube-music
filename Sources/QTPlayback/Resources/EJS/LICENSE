@@ -1,0 +1,4 @@
+yt.solver.lib.js and yt.solver.core.js are yt-dlp's EJS challenge solver (https://github.com/yt-dlp/ejs), released
+into the public domain under the Unlicense (https://unlicense.org). yt.solver.lib.js bundles meriyah (ISC License,
+Copyright (c) 2019 and later, KFlash and others) and astring (MIT License); their full notices are kept in that
+file's header. Vendored unmodified by Scripts/update-ejs.sh; VERSION and CHECKSUMS record the release.

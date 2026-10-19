@@ -32,11 +32,15 @@ public struct QTPlaybackItem: Sendable, Hashable {
     public var mode: QTPlaybackMode
     /// Seconds; Song⇄Video switches pass the current position so playback keeps its place.
     public var startTime: TimeInterval
+    /// The queue entry this item plays (`QTQueueItem.id`). An engine that moves on to the prepared next item by itself
+    /// (gapless, crossfade) reports it with this id, and the queue advances to that entry.
+    public var queueID: UUID?
 
-    public init(track: QTTrack, mode: QTPlaybackMode = .song, startTime: TimeInterval = 0) {
+    public init(track: QTTrack, mode: QTPlaybackMode = .song, startTime: TimeInterval = 0, queueID: UUID? = nil) {
         self.track = track
         self.mode = mode
         self.startTime = startTime
+        self.queueID = queueID
     }
 }
 
@@ -173,6 +177,10 @@ public protocol QTPlaybackEngine: AnyObject {
     func stop()
     /// Spectrum magnitudes 0…1 for the visualizer, or nil without `.visualizerData`.
     func spectrum(bandCount: Int) -> [Float]?
+    /// What the queue will play next in order (nil: nothing, or the queue decides at the end — Repeat One, a
+    /// Repeat All wrap). Engines with gapless/crossfade prefetch it and may move on to it by themselves: they then
+    /// report a state whose item is this one (same `queueID`), and the queue advances without loading.
+    func prepareNext(_ item: QTPlaybackItem?)
 }
 
 public extension QTPlaybackEngine {
@@ -181,4 +189,11 @@ public extension QTPlaybackEngine {
     }
 
     func spectrum(bandCount: Int) -> [Float]? { nil }
+
+    func prepareNext(_ item: QTPlaybackItem?) {}
+
+    /// The web engine behind this engine: itself, or the one the native engine wraps (videos, the video surface).
+    var webEngine: QTWebPlaybackEngine? {
+        (self as? QTWebPlaybackEngine) ?? (self as? QTNativePlaybackEngine)?.web
+    }
 }

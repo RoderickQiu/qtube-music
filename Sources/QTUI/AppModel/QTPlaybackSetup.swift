@@ -19,6 +19,9 @@ import WebKit
 //   -qt.playback.readyWhen playing|ad|buffering|failed|toast   hold the ready file until playback gets there
 //   -qt.playback.loadDelay <s>         hold each load this long (slow-network look, for loading screenshots)
 //   -qt.playback.statusFile <path>     DEBUG: JSON status for scripts (see QTPlaybackDebugHooks)
+//   -qt.playback.native YES|NO         session override of Settings › Premium engine › Native engine (opt-in). The
+//                                      native engine itself comes in once the account is known to be Premium and
+//                                      signed in (QTNativeEngineCoordinator); real data only.
 
 /// Where the tracks being played come from.
 public enum QTPlaybackDataSource: String, Sendable, Hashable {
@@ -59,7 +62,6 @@ public struct QTPlaybackSetup: Sendable, Equatable {
         case "web": engine = .web
         default: engine = QTPlaybackEngineSelector.kind(tier: tier, usesMockData: source == .mock)
         }
-        if engine == .native, !QTNativePlaybackEngine.isAvailable { engine = .web }
         let scripted = launch.readyFile != nil || launch.string("qt.playback.statusFile") != nil
         var setup = QTPlaybackSetup(
             source: source, engine: engine,
@@ -140,25 +142,27 @@ public final class QTPlaybackServices {
         ) { _ in
             QTMainActorHop.onMainThread {
                 playback.flushNow()
-                (playback.engine as? QTWebPlaybackEngine)?.shutdown()
+                playback.engine.webEngine?.shutdown()
                 playback.nowPlaying?.clear()
             }
         }
         holdReadinessIfAsked(model.launch)
+        // Premium + opted in + signed in → the native engine (and back when any of that stops being true).
+        QTNativeEngineCoordinator.shared.install(model: model)
         #if DEBUG
         QTPlaybackDebugHooks.shared.install(model: model, setup: setup)
         #endif
     }
 
     private func hookEngine(_ engine: any QTPlaybackEngine) {
-        if let web = engine as? QTWebPlaybackEngine {
+        if let web = engine.webEngine {
             web.onNetworkChange = { [weak self] available in self?.networkChanged(available: available) }
         }
     }
 
     /// The user signed in or out: a signed-in player page has to be reloaded to pick the new identity up.
     public func sessionDidChange() {
-        (model?.player.playback.engine as? QTWebPlaybackEngine)?.sessionDidChange()
+        model?.player.playback.engine.webEngine?.sessionDidChange()
     }
 
     /// The catalog source changed mid-session (demo library ⇄ the user's library): the matching engine (simulated for
@@ -176,7 +180,8 @@ public final class QTPlaybackServices {
         let engine = next.makeEngine(tier: tier, sessionDataStore: QTLiveCatalogStore.shared.auth.webDataStore)
         hookEngine(engine)
         await playback.replaceEngine(engine)
-        (old as? QTWebPlaybackEngine)?.shutdown()
+        (old as? QTNativePlaybackEngine)?.shutdownNative()
+        old.webEngine?.shutdown()
         if let sim = engine as? QTSimulatedPlaybackEngine { sim.account = model.account == .free ? .free : .premium }
         if next.publishesNowPlaying, playback.nowPlaying == nil { playback.attachNowPlaying(QTNowPlayingController()) }
         playback.setStore(next.makeQueueStore())

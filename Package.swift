@@ -9,10 +9,10 @@ let package = Package(
     products: [
         .executable(name: "QTubeMusic", targets: ["QTubeMusicApp"]),
     ],
-    // Two third-party dependencies, both approved: Sparkle (updates — no feed / automatic checks off until Developer
-    // ID) and SwiftyOpenCC (OpenCC, Traditional ⇄ Simplified Chinese lyrics). QTLyrics has its own
-    // LRC/YRC/QRC/KRC/TTML parsers and decrypters (LyricsKit's are not public API). Ask the user before adding
-    // anything else.
+    // Two third-party packages, both approved: Sparkle (updates — no feed / automatic checks off until Developer ID)
+    // and SwiftyOpenCC (OpenCC, Traditional ⇄ Simplified Chinese lyrics). Plus vendored JS in QTPlayback/Resources/EJS
+    // (approved 2026-10-19 with the native Premium engine). QTLyrics has its own LRC/YRC/QRC/KRC/TTML parsers and
+    // decrypters (LyricsKit's are not public API). Ask the user before adding anything else.
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.0"),
         // 2.0.0-beta builds OpenCC from source (1.x links a system libopencc).
@@ -25,7 +25,9 @@ let package = Package(
         ),
         .target(name: "QTInnerTube", dependencies: ["QTCore"]),
         .target(name: "QTAuth", dependencies: ["QTInnerTube"]),
-        .target(name: "QTPlayback", dependencies: ["QTCore", "QTInnerTube"]),
+        // Resources/EJS: yt-dlp's EJS solver (Unlicense, vendored with the user's approval for the native Premium
+        // engine; Scripts/update-ejs.sh pins and checks it).
+        .target(name: "QTPlayback", dependencies: ["QTCore", "QTInnerTube"], resources: [.copy("Resources/EJS")]),
         .target(name: "QTLyrics", dependencies: ["QTCore", .product(name: "OpenCC", package: "SwiftyOpenCC")]),
         // Opt-in integrations (spec §10): Last.fm scrobbling, Discord Rich Presence. Off by default; nothing is sent
         // until the user turns one on in Settings › Integrations.

@@ -21,6 +21,9 @@ import QTPlayback
 //           · remote:play|pause|toggle|next|previous — through MPRemoteCommandCenter's own dispatch
 //             (QTNowPlayingController.debugSimulateSystemCommand), the path media keys and Control Center take.
 //           · stage-video: pip (⇧⌘P) · eval:<function body> (page diagnostics; result lands in the command log)
+//           · native-engine: native:on|off (session opt-in) · native:fail-solver (exercise the fallback)
+//             · effects:gapless:on|off · effects:crossfade:<s> · effects:eq:<preset> (session only)
+//             · spectrum (1.5 s of visualizer data → low/high band means in the command log) · upnext:<video id>
 // Status (`-qt.playback.statusFile <path>`, rewritten twice a second): engine state, queue position, ad, last
 // failure + toast, the Now Playing info this process published, page media volume (proof of silence).
 
@@ -84,12 +87,52 @@ final class QTPlaybackDebugHooks {
             model.isPanelShown = true
             model.panelTab = QTPanelTab(argument: arg) ?? .nowPlaying
         case "offline", "online":
-            (player.engine as? QTWebPlaybackEngine)?.networkChanged(available: name == "online")
+            player.engine.webEngine?.networkChanged(available: name == "online")
+        case "native":   // native-engine: session opt-in / forced solver failure (the fallback path)
+            switch arg {
+            case "on", "off": model.settings.override { $0.playbackEffects.nativeEngine = arg == "on" }
+            case "fail-solver":
+                if let native = player.engine as? QTNativePlaybackEngine { Task { await native.debugForceSolverFailure() } } else { ok = false }
+            default: ok = false
+            }
+        case "effects":   // native-engine: gapless:on|off · crossfade:<s> · eq:<preset> (session only)
+            let kv = arg.split(separator: ":", maxSplits: 1).map(String.init)
+            switch (kv.first ?? "", kv.count > 1 ? kv[1] : "") {
+            case ("gapless", let v): model.settings.override { $0.playbackEffects.gapless = v == "on" }
+            case ("crossfade", let v): model.settings.override { $0.playbackEffects.crossfadeSeconds = Double(v) ?? 0 }
+            case ("eq", let v):
+                if let preset = QTEqualizerPreset(rawValue: v) { model.settings.override { $0.playbackEffects.equalizer = preset } } else { ok = false }
+            default: ok = false
+            }
+        case "spectrum":   // native-engine: 1.5 s of visualizer data → mean of the low and high 8 of 32 bands
+            Task { @MainActor in
+                var low: [Float] = [], high: [Float] = []
+                let framesBefore = (player.engine as? QTNativePlaybackEngine)?.debugTapFrames ?? -1
+                defer {
+                    self.log.append(["at": ProcessInfo.processInfo.systemUptime, "command": "spectrum-frames",
+                                     "before": framesBefore, "after": (player.engine as? QTNativePlaybackEngine)?.debugTapFrames ?? -1])
+                }
+                for _ in 0..<30 {
+                    if let bands = player.engine.spectrum(bandCount: 32), bands.count == 32 {
+                        low.append(bands[0..<8].reduce(0, +) / 8)
+                        high.append(bands[24..<32].reduce(0, +) / 8)
+                    }
+                    try? await Task.sleep(for: .milliseconds(50))
+                }
+                let mean = { (xs: [Float]) in xs.isEmpty ? -1 : xs.reduce(0, +) / Float(xs.count) }
+                self.log.append(["at": ProcessInfo.processInfo.systemUptime, "command": "spectrum-result",
+                                 "samples": low.count, "low": mean(low), "high": mean(high)])
+            }
+        case "upnext":   // native-engine: queue a track id to play next (gapless/crossfade checks on a known pair)
+            if let track = (player.queue.autoplay + player.queue.upNext).first(where: { $0.track.videoId == arg })?.track
+                ?? model.catalog.tracks.first(where: { $0.videoId == arg }) {
+                player.playback.playNext([track])
+            } else { ok = false }
         case "remote":
             ok = player.playback.nowPlaying?.debugSimulateSystemCommand(arg) ?? false
         case "pip": QTVideoModeService.shared.togglePictureInPicture()   // stage-video: ⇧⌘P
         case "eval":   // stage-video: page diagnostics (function body; result lands in the command log)
-            if let web = player.engine as? QTWebPlaybackEngine {
+            if let web = player.engine.webEngine {
                 Task { @MainActor in
                     let result = await web.debugEvaluate(arg)
                     self.log.append(["at": ProcessInfo.processInfo.systemUptime, "command": "eval-result", "result": "\(result ?? "nil")"])
@@ -115,7 +158,8 @@ final class QTPlaybackDebugHooks {
             while !Task.isCancelled {
                 guard let self else { return }
                 let active = self.model.map { $0.player.isPlaying || $0.player.isBuffering } ?? false
-                if active, tick % 4 == 0, let web = self.model?.player.engine as? QTWebPlaybackEngine {
+                let nativePlays = (self.model?.player.engine as? QTNativePlaybackEngine)?.isNativeActive == true
+                if active, tick % 4 == 0, !nativePlays, let web = self.model?.player.engine.webEngine {
                     self.mediaInfo = await web.debugMediaInfo()
                     if let account = await web.debugPageAccount() { self.pageAccount = account }
                 }
@@ -152,6 +196,7 @@ final class QTPlaybackDebugHooks {
             "historyCount": queue.history.count,
             "upNextCount": queue.upNext.count,
             "autoplayCount": queue.autoplay.count,
+            "autoplayHead": queue.autoplay.prefix(5).map(\.track.videoId),
             "toast": model.toast?.message ?? "",
             "lastFailureMessage": QTPlaybackServices.shared.lastFailureMessage ?? "",
             "commands": log,
@@ -166,7 +211,21 @@ final class QTPlaybackDebugHooks {
         if let ad = state.ad {
             status["ad"] = ["duration": ad.duration, "remaining": ad.remaining, "skippableIn": ad.skippableIn ?? -1, "canSkip": ad.canSkip]
         }
-        if let web = player.engine as? QTWebPlaybackEngine {
+        if let native = player.engine as? QTNativePlaybackEngine {
+            let s = native.stats
+            let p = model.settings.settings.playbackEffects
+            status["native"] = [
+                "active": native.isNativeActive, "fallbackReason": native.fallbackReason ?? "",
+                "nativeLoads": s.nativeLoads, "webLoads": s.webLoads, "startSeconds": s.startSeconds,
+                "fetchSeconds": s.fetchSeconds, "gaplessSeams": s.gaplessSeams, "lastSeamPosition": s.lastSeamPosition ?? -1,
+                "crossfades": s.crossfades, "itemFallbacks": s.itemFallbacks, "handovers": s.handovers,
+                "itag": s.lastItag ?? 0, "position": native.debugNativePosition ?? -1, "tapFrames": native.debugTapFrames,
+                "effects": ["gapless": p.gapless, "crossfade": p.crossfadeSeconds, "eq": p.equalizer.rawValue] as [String: Any],
+            ] as [String: Any]
+        }
+        status["nativeOptIn"] = model.settings.settings.playbackEffects.nativeEngine
+        status["nativeEligible"] = QTNativeEngineCoordinator.shared.isEligible
+        if let web = player.engine.webEngine {
             status["playingVideoID"] = web.playingVideoID ?? ""
             status["pageFrozen"] = web.isPageFrozen
             status["networkAvailable"] = web.isNetworkAvailable

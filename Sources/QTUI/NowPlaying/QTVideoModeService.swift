@@ -39,7 +39,7 @@ public final class QTVideoModeService {
             guard track.videoId.count == 11 else { return nil }
             return try? await live.client.counterpart(for: track)
         }
-        if let web = playback.engine as? QTWebPlaybackEngine {
+        if let web = playback.engine.webEngine {
             web.onModeSwitch = { report in
                 QTVideoModeService.lastReports.append(report)
                 if QTVideoModeService.lastReports.count > 32 { QTVideoModeService.lastReports.removeFirst() }
@@ -52,7 +52,7 @@ public final class QTVideoModeService {
     public private(set) static var lastReports: [QTModeSwitchReport] = []
 
     /// The web engine's video output (nil for the simulated engine).
-    public var videoOutput: QTWebVideoOutput? { (model?.player.engine as? QTWebPlaybackEngine)?.video }
+    public var videoOutput: QTWebVideoOutput? { model?.player.engine.webEngine?.video }
 
     // MARK: Picture in Picture
 

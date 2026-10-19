@@ -2,7 +2,9 @@ import Accelerate
 @preconcurrency import AVFoundation
 import Foundation
 
-// M5 SPIKE — the native audio path: download → AVAudioFile → AVAudioEngine.
+// M5 SPIKE — the native audio path as the spike measured it: download → AVAudioFile → AVAudioEngine. The app's
+// engine is `QTNativeAudioPlayer` (in-memory audio, never on disk); this file stays for the QTNativeSpike harness
+// (`QTNativeStreamDownloader` writes files, so it exists in DEBUG builds only). `QTNativeTapSink` is shared.
 //
 //   playerA ─┐
 //            ├─ crossfade mixer ─ 10-band AVAudioUnitEQ ─ main mixer (output volume 0 in every test) ─ output
@@ -13,8 +15,10 @@ import Foundation
 // and remainder, so no encoder padding lands at the seam.
 // Crossfade: the next track starts on the other node and the two node volumes ramp in opposite directions.
 
+#if DEBUG
 /// Downloads a googlevideo URL to a local file in ≤ 10 MB range requests (larger single requests get throttled or
-/// refused), with the User-Agent of the client that resolved it.
+/// refused), with the User-Agent of the client that resolved it. Spike only: the app keeps audio in memory
+/// (`QTNativeAudioFetcher`).
 public enum QTNativeStreamDownloader {
     public struct Result: Sendable {
         public var file: URL
@@ -61,6 +65,7 @@ public enum QTNativeStreamDownloader {
                       totalSeconds: ProcessInfo.processInfo.systemUptime - start)
     }
 }
+#endif
 
 /// Lock-protected sink the render-thread tap writes into.
 final class QTNativeTapSink: @unchecked Sendable {

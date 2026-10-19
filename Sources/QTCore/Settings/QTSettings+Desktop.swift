@@ -38,6 +38,9 @@ public enum QTEqualizerPreset: String, Codable, Sendable, Hashable, CaseIterable
 
 /// Gapless, crossfade and EQ need the Premium (native) engine; free accounts play through YouTube's web player.
 public struct QTPlaybackEffectsPrefs: Codable, Sendable, Hashable {
+    /// Experimental, opt-in (off by default): Premium songs play through the native engine (QTPlayback/Native),
+    /// which falls back to YouTube's player on its own when it stops working.
+    public var nativeEngine = false
     public var gapless = true
     /// Seconds; 0 = off.
     public var crossfadeSeconds: Double = 0
@@ -49,6 +52,7 @@ public struct QTPlaybackEffectsPrefs: Codable, Sendable, Hashable {
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let d = QTPlaybackEffectsPrefs()
+        nativeEngine = (try? c.decodeIfPresent(Bool.self, forKey: .nativeEngine)) ?? d.nativeEngine
         gapless = (try? c.decodeIfPresent(Bool.self, forKey: .gapless)) ?? d.gapless
         crossfadeSeconds = (try? c.decodeIfPresent(Double.self, forKey: .crossfadeSeconds)) ?? d.crossfadeSeconds
         equalizer = (try? c.decodeIfPresent(QTEqualizerPreset.self, forKey: .equalizer)) ?? d.equalizer

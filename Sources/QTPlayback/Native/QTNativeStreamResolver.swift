@@ -1,8 +1,8 @@
 import Foundation
 import QTInnerTube
 
-// M5 SPIKE — native stream resolution (docs/native-engine-spike.md). Not wired into the app:
-// `QTNativePlaybackEngine.isAvailable` stays false until the user decides on the build-out.
+// Native engine — stream resolution (docs/native-engine-spike.md). The app's native Premium engine resolves with
+// WEB_REMIX and the signed-in session (`resolvePremium`); the other clients stay for the QTNativeSpike harness.
 //
 // Asks the InnerTube `player` endpoint for a track's streams with one of several client profiles, the way yt-dlp,
 // NewPipe and YouTube.js do (their public source was the reference; nothing is copied or linked). Mobile clients
@@ -123,6 +123,8 @@ public struct QTNativePlayerResponse: Sendable {
     public var expiresInSeconds: Int?
     public var durationSeconds: Double?
     public var signedIn: Bool
+    /// `playerConfig.audioConfig.loudnessDb` (formats usually carry their own).
+    public var loudnessDb: Double?
 
     /// Best AVFoundation-playable audio: AAC 256 (Premium, itag 141) > AAC 128 (140) > HE-AAC 48 (139).
     public var bestPlayableAudio: QTNativeAudioFormat? {
@@ -162,7 +164,8 @@ public struct QTNativePlayerResponse: Sendable {
             hasServerABR: streaming["serverAbrStreamingUrl"].string != nil,
             expiresInSeconds: streaming["expiresInSeconds"].string.flatMap(Int.init),
             durationSeconds: json["videoDetails"]["lengthSeconds"].string.flatMap(Double.init),
-            signedIn: signedIn)
+            signedIn: signedIn,
+            loudnessDb: json["playerConfig"]["audioConfig"]["loudnessDb"].double)
     }
 }
 
@@ -179,9 +182,15 @@ public struct QTNativeResolvedStream: Sendable {
     public var resolveSeconds: Double
     /// Clients tried before this one succeeded, with why they failed.
     public var fallbacks: [(client: String, reason: String)]
+    /// When googlevideo stops honouring `url` (its `expire` parameter; about 6 h after resolving).
+    public var expires: Date?
+    /// The track's loudness relative to YouTube's target (dB; positive = louder). YouTube's own player turns loud
+    /// tracks down by this much, and so does the native engine, so both engines sound equally loud.
+    public var loudnessDb: Double?
 
     public init(videoId: String, client: QTNativeStreamClient, format: QTNativeAudioFormat, url: URL, userAgent: String,
-                durationSeconds: Double?, resolveSeconds: Double, fallbacks: [(client: String, reason: String)]) {
+                durationSeconds: Double?, resolveSeconds: Double, fallbacks: [(client: String, reason: String)],
+                loudnessDb: Double? = nil) {
         self.videoId = videoId
         self.client = client
         self.format = format
@@ -190,6 +199,21 @@ public struct QTNativeResolvedStream: Sendable {
         self.durationSeconds = durationSeconds
         self.resolveSeconds = resolveSeconds
         self.fallbacks = fallbacks
+        self.expires = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+            .first { $0.name == "expire" }?.value.flatMap(TimeInterval.init).map { Date(timeIntervalSince1970: $0) }
+        self.loudnessDb = loudnessDb ?? format.loudnessDb
+    }
+
+    /// The `dur` parameter: the rendition's exact length in seconds (ms precision).
+    public var exactDuration: Double? {
+        URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "dur" }?.value
+            .flatMap(Double.init)
+    }
+
+    /// Still usable for at least `margin` seconds.
+    public func isFresh(margin: TimeInterval = 120) -> Bool {
+        guard let expires else { return true }
+        return expires.timeIntervalSinceNow > margin
     }
 }
 
@@ -207,18 +231,89 @@ public enum QTNativeStreamError: Error, Sendable, CustomStringConvertible {
     }
 }
 
+/// Why the native engine couldn't play something, sorted by what the engine does about it.
+public enum QTNativeFailure: Error, Sendable, Hashable, CustomStringConvertible {
+    /// The native path itself is broken right now (403 on media, a bot check, the solver, SABR-only answers, no
+    /// session): the engine falls back to YouTube's player for the rest of the session.
+    case systemic(String)
+    /// Only this item (unplayable, region, age check, no AAC rendition, a network hiccup): YouTube's player gets this
+    /// item, and says why if it can't play it either.
+    case item(String)
+
+    public var description: String {
+        switch self {
+        case .systemic(let s): "native unavailable: \(s)"
+        case .item(let s): "item: \(s)"
+        }
+    }
+
+    public var isSystemic: Bool {
+        if case .systemic = self { return true }
+        return false
+    }
+
+    /// Classifies a `player` answer that isn't OK.
+    static func playability(_ p: QTNativePlayability) -> QTNativeFailure {
+        switch p {
+        case .ok: .item("ok")
+        case .loginRequired(let reason):
+            // "Sign in to confirm you're not a bot" — with a session, that is about us, not the song.
+            reason.localizedCaseInsensitiveContains("bot") ? .systemic("bot check") : .item("login required: \(reason)")
+        case .unplayable(let reason):
+            // "The page needs to be reloaded" is a client problem, not the song's.
+            reason.localizedCaseInsensitiveContains("reload") ? .systemic("unplayable: \(reason)") : .item("unplayable: \(reason)")
+        case .error(let reason): .item(reason)
+        }
+    }
+
+    /// Classifies any error from resolving or downloading.
+    static func from(_ error: any Error) -> QTNativeFailure {
+        if let failure = error as? QTNativeFailure { return failure }
+        if let stream = error as? QTNativeStreamError {
+            switch stream {
+            case .cipherUnsolved(let s): return .systemic("solver: \(s)")
+            case .http(let code): return .systemic("HTTP \(code)")
+            case .noPlayableAudio(let s): return s.contains("SABR") ? .systemic("SABR only") : .item(s)
+            }
+        }
+        if let url = error as? URLError { return .item("network: \(url.code.rawValue)") }
+        return .systemic(String(describing: error))
+    }
+}
+
 /// Resolves stream URLs. Anonymous by default; with credentials, cookie-capable clients send the signed-in session
 /// (read-only: the `player` call alone records nothing — history is written by the playback-tracking pings, which
 /// the spike never sends).
 public actor QTNativeStreamResolver {
-    private let session: URLSession
-    private let credentials: QTInnerTubeCredentials?
-    private var playerScript: QTNativePlayerScript?
-    private var visitorDataValue: String?
+    /// How long a loaded player is trusted before its hash is checked again (YouTube ships players every few days;
+    /// a stale player's signatures fail, which invalidates it at once).
+    public static let playerRecheckInterval: TimeInterval = 3600
 
-    public init(credentials: QTInnerTubeCredentials? = nil, session: URLSession = QTURLSessionTransport.makeSession()) {
+    private let session: URLSession
+    private let credentialsProvider: @Sendable () async -> QTInnerTubeCredentials?
+    private let playerCache: QTNativePlayerCache?
+    private var playerScript: QTNativePlayerScript?
+    private var playerCheckedAt: TimeInterval = 0
+    private var scriptTask: Task<QTNativePlayerScript, any Error>?
+    private var visitorDataValue: String?
+    private var credentials: QTInnerTubeCredentials?
+    private var resolved: [String: QTNativeResolvedStream] = [:]
+
+    /// Fixed credentials (the spike harness; nil = anonymous).
+    public init(credentials: QTInnerTubeCredentials? = nil, session: URLSession = QTURLSessionTransport.makeSession(),
+                playerCache: QTNativePlayerCache? = nil) {
         self.credentials = credentials
+        self.credentialsProvider = { credentials }
         self.session = session
+        self.playerCache = playerCache
+    }
+
+    /// Credentials read for every resolve (the app: the Keychain session, whose cookies rotate).
+    public init(credentialsProvider: @escaping @Sendable () async -> QTInnerTubeCredentials?,
+                session: URLSession = QTURLSessionTransport.makeSession(), playerCache: QTNativePlayerCache? = .shared) {
+        self.credentialsProvider = credentialsProvider
+        self.session = session
+        self.playerCache = playerCache
     }
 
     public var isSignedIn: Bool { credentials != nil }
@@ -226,12 +321,74 @@ public actor QTNativeStreamResolver {
     /// Hash of the player script, if one was needed so far.
     public var loadedPlayerHash: String? { playerScript?.playerHash }
 
-    /// Player script (cached per resolver) — needed for web/TV clients' `signatureTimestamp` and cipher.
+    /// Player script — needed for web/TV clients' `signatureTimestamp` and cipher. Kept per resolver (its warm solver
+    /// context with it), its hash re-checked hourly, preprocessed per hash on disk. Concurrent callers share a fetch.
     public func script() async throws -> QTNativePlayerScript {
-        if let playerScript { return playerScript }
-        let s = try await QTNativePlayerScript.fetchCurrent(session: session)
+        let now = ProcessInfo.processInfo.systemUptime
+        if let playerScript, now - playerCheckedAt < Self.playerRecheckInterval { return playerScript }
+        if let scriptTask { return try await scriptTask.value }
+        let session = session, cache = playerCache, previous = playerScript
+        let task = Task<QTNativePlayerScript, any Error> {
+            // Same hash as the loaded one: keep it.
+            if let previous, let hash = try? await QTNativePlayerScript.currentHash(session: session),
+               hash == previous.playerHash { return previous }
+            return try await QTNativePlayerScript.fetchCurrent(session: session, cache: cache)
+        }
+        scriptTask = task
+        defer { scriptTask = nil }
+        let s = try await task.value
         playerScript = s
+        playerCheckedAt = ProcessInfo.processInfo.systemUptime
         return s
+    }
+
+    /// Forgets the player and every resolved URL (a signature failed or media was refused): the next request checks
+    /// for a new player.
+    public func invalidatePlayer() {
+        playerScript = nil
+        resolved.removeAll()
+    }
+
+    /// Drops one resolved URL (googlevideo refused it, or it is about to expire).
+    public func forget(videoId: String) {
+        resolved[videoId] = nil
+    }
+
+    /// Premium audio for the app's native engine: WEB_REMIX with the signed-in session — the only client that serves
+    /// the 256 kbps renditions and needs no PO token for Premium. Errors are `QTNativeFailure`s. A resolved URL is
+    /// reused until shortly before it expires. Read-only: the `player` call records nothing in the account's history.
+    public func resolvePremium(videoId: String) async throws -> QTNativeResolvedStream {
+        if let hit = resolved[videoId], hit.isFresh() { return hit }
+        guard let creds = await credentialsProvider() else { throw QTNativeFailure.systemic("not signed in") }
+        credentials = creds
+        let start = ProcessInfo.processInfo.systemUptime
+        let response: QTNativePlayerResponse
+        do {
+            response = try await player(videoId: videoId, client: .webRemix)
+        } catch {
+            throw QTNativeFailure.from(error)
+        }
+        guard response.playability == .ok else { throw QTNativeFailure.playability(response.playability) }
+        guard let format = response.bestPlayableAudio else {
+            let noURLs = response.audioFormats.allSatisfy { $0.url == nil && $0.signatureCipher == nil }
+            throw response.hasServerABR && noURLs ? QTNativeFailure.systemic("SABR only") : QTNativeFailure.item("no AAC rendition")
+        }
+        let answered = ProcessInfo.processInfo.systemUptime
+        let url: URL
+        do {
+            url = try await mediaURL(for: format)
+        } catch {
+            throw QTNativeFailure.from(error)
+        }
+        QTNativeAudioFetcher.log.debug("native resolve \(videoId, privacy: .public): player \(answered - start, format: .fixed(precision: 3)) s, signatures \(ProcessInfo.processInfo.systemUptime - answered, format: .fixed(precision: 3)) s")
+        let stream = QTNativeResolvedStream(videoId: videoId, client: .webRemix, format: format, url: url,
+                                            userAgent: QTNativeStreamClient.webRemix.userAgent,
+                                            durationSeconds: response.durationSeconds,
+                                            resolveSeconds: ProcessInfo.processInfo.systemUptime - start, fallbacks: [],
+                                            loudnessDb: format.loudnessDb ?? response.loudnessDb)
+        if resolved.count > 64 { resolved.removeAll() }
+        resolved[videoId] = stream
+        return stream
     }
 
     /// Anonymous visitor id (`VISITOR_DATA`) — web/TV clients refuse anonymous `player` calls without one.
@@ -252,6 +409,7 @@ public actor QTNativeStreamResolver {
         var clientContext: [String: Any] = ["clientName": client.name, "clientVersion": client.version, "hl": "en", "gl": "US"]
         for (k, v) in client.extraContext { clientContext[k] = v }
         if let sdk = client.androidSdkVersion { clientContext["androidSdkVersion"] = sdk }
+        if client.supportsCookies, credentials == nil { credentials = await credentialsProvider() }
         let signedIn = client.supportsCookies && credentials != nil
         if client.needsPlayerScript, !signedIn, let visitor = await visitorData() { clientContext["visitorData"] = visitor }
         var body: [String: Any] = ["context": ["client": clientContext], "videoId": videoId,

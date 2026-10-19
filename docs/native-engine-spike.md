@@ -1,10 +1,14 @@
 # Native playback engine: M5 spike
 
 *Spike run 2026-10-19 on macOS 27 (arm64), US connection, against the user's Premium account (shared dev session,
-read-only) and anonymously. Code: `Sources/QTPlayback/Native/` and `Sources/QTNativeSpike/`. The app does not use
-any of it: `QTNativePlaybackEngine.isAvailable` is still `false`, so Premium accounts keep using the web engine.*
+read-only) and anonymously. Code: `Sources/QTPlayback/Native/` and `Sources/QTNativeSpike/`.*
 
-**The decision is yours.** The spike shows a native engine is technically easy for Premium and plays well: 23/23
+> **Decision (2026-10-19): option B.** The user chose a native engine for Premium as an opt-in "Experimental"
+> setting, off by default, with automatic fallback to the web engine. They accepted the ToS risk, the monthly
+> upkeep, and that native plays don't reach their YouTube history (no faked playback pings). Vendoring the EJS
+> solver came with that choice. It is built: see **§8 Build-out** at the end. Sections 1–7 are the spike as it was.
+
+The spike shows a native engine is technically easy for Premium and plays well: 23/23
 tracks, about 0.66 s to first audio, sample-exact gapless playback, crossfade, a 10-band EQ and FFT data at about
 1% CPU. The costs are not technical. It breaks YouTube's Terms of Service, and keeping it working is a monthly
 job, on YouTube's schedule. Anonymous native playback is not viable (3/23 tracks). Options and a recommendation are
@@ -268,3 +272,40 @@ permission prompt; that is your call.
 6. Don't write audio to disk in release builds. Keep it in memory or purge it immediately; a full-file cache is a
    download in the ToS sense.
 7. Plan for SABR: when WEB_REMIX stops returning URLs, B stops working until UMP is implemented.
+
+## 8. Build-out (option B, 2026-10-19)
+
+How each step of §7 was done. Architecture notes: `docs/architecture.md` (QTPlayback row, *Engine*, *Next item*).
+
+| §7 step | Done as |
+|---|---|
+| 1. Wire the engine | `QTNativePlaybackEngine` wraps the app's `QTWebPlaybackEngine`. Songs play natively; Video items, item-level failures and every load after a systemic failure go to the web engine. `QTNativeEngineCoordinator` swaps it in when Settings › Playback › **Native engine** is on, the session is signed in and Premium, and playback uses that session. It swaps back when any of those stops being true. States and errors map onto `QTPlaybackState`; seek, volume and mute go to the graph. Capabilities are `.premium` until a fallback, then `.web`. |
+| 2. Prefetch, cache, re-resolve | `QTQueueController.prepareNext` names the next item after every queue edit. The engine fetches its audio into memory (`QTNativeAudioFetcher`, LRU of 4) and joins it gaplessly or crossfades into it. The queue follows through `QTPlaybackItem.queueID`, without a load. Preprocessed players are cached per hash in Caches (`QTNativePlayerCache`), so a known player costs one tiny hash check. Resolved URLs are reused until two minutes before `expire`. A 403/410 or a failed solve gets one retry with a re-checked player. |
+| 3. Streaming | Not done: the median start was already low. Whole files download into memory; decoding runs about 1 s ahead in 8,192-frame buffers. |
+| 4. Vendor EJS, fallback | EJS 0.8.0 lives in `Sources/QTPlayback/Resources/EJS`, pinned by `VERSION` + `CHECKSUMS`; `Scripts/update-ejs.sh` checks it or moves the pin. A 403, bot check, solver failure or SABR-only answer → `fallbackReason`, and the rest of the session plays in YouTube's player. Settings says so; there is no toast. |
+| 5. Playback reporting | None. Native plays don't reach the account's history (the user accepted this). |
+| 6. No audio on disk | `QTNativeMemoryAudioFile` decodes from `Data` through AudioToolbox read callbacks + ExtAudioFile. The spike's file downloader is DEBUG-only. |
+| 7. SABR | Unchanged. When WEB_REMIX goes SABR-only, the engine falls back automatically and stays fallen back. |
+
+Also built:
+- **Song⇄Video.** Song→Video keeps the native song playing while the video page loads muted. The page is then lined up with the native clock (held, or seeked once) and the audio swaps. Video→Song starts native at the page's position, then freezes the page.
+- **Album-aware transitions.** Two tracks from one album join gaplessly even with crossfade on.
+- **Loudness.** YouTube's `loudnessDb` turns loud tracks down, as its own player does, so the two engines sound equally loud.
+- **Visualizer.** The FFT tap runs only while something asks for the spectrum.
+- **Output changes.** A device change (headphones, AirPlay, sample rate) restarts the graph at the same position.
+
+### Measured (debug build, Premium session, output silent; `Scripts/native-acceptance.py`, 21/21 checks)
+
+| | Result |
+|---|---|
+| Tracks in a row, natively | 12/12, no stall, all AAC 256 (itag 141) |
+| Gapless | 12 seams over 12 advances. The new track was at 0.03–0.04 s when the seam was reported (output latency). Offline render of a chained deck = the two decodes back to back (max difference < 1e-5, no silence at the seam). |
+| Start, request → first rendered frame | From memory (prefetched next, Previous): 0.08–0.12 s. From the network: typically ~1 s (0.24–2.2 s). Cold first track: 1.0–1.4 s with a cached player, 2.5–3.4 s without one. |
+| Crossfade (5 s) | The next track started 4.5 s after seeking to 9 s before the end (≈ 4 s expected; status-file polling granularity) |
+| EQ | Bass Booster vs Treble Booster shifted the spectrum's low/high balance (0.320/0.135 vs 0.250/0.203) |
+| Song→Video | 1.6–4.1 s until the swap, with the song playing throughout; the two clocks were −0.04…+0.04 s apart at the swap |
+| Video→Song | 0.02–0.04 s |
+| Opt-in toggled mid-song | Off → YouTube's player continues the same song; on → native again |
+| Now Playing | One entry for the app, none from WebKit, before and after Song⇄Video |
+| CPU while playing (app + WebContent, 10 s, UI and status polling included) | Native 4.2–5.4 % + 0.1 %, vs the web engine 6.7 % + 3.4 % |
+| Forced solver failure | Systemic fallback; the next tracks played in YouTube's player |

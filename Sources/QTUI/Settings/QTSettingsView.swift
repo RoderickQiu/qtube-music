@@ -140,9 +140,12 @@ struct QTPlaybackSettings: View {
 
     var body: some View {
         let store = model.settings
-        // Gated on what the engine playing right now can do, not on the account tier: Premium accounts also play
-        // through YouTube's web player until the native engine ships (M5), and it supports none of these.
+        // Gated on what the engine playing right now can do, not on the account tier: Premium accounts play through
+        // YouTube's web player unless they opt into the native engine, and that player supports none of these.
         let caps = model.player.capabilities
+        let native = QTNativeEngineCoordinator.shared
+        let eligible = native.isEligible
+        let optedIn = store.settings.playbackEffects.nativeEngine
         let gapless = caps.contains(.gapless)
         let crossfades = caps.contains(.crossfade)
         let equalizes = caps.contains(.equalizer)
@@ -152,6 +155,13 @@ struct QTPlaybackSettings: View {
                 Toggle(QTLoc.tr("Prefer videos when available"), isOn: setting(store, \.preferVideos))
             }
             Section {
+                Toggle(isOn: Binding(get: { eligible && optedIn },
+                                     set: { v in store.update { $0.playbackEffects.nativeEngine = v } })) {
+                    Text(QTLoc.tr("Native engine", table: .desktop))
+                    Text(QTLoc.tr("Experimental. Plays Premium songs directly, with gapless playback, crossfade and EQ. Videos still play in YouTube’s player.", table: .desktop))
+                }
+                .disabled(!eligible)
+                .accessibilityIdentifier("qt.settings.nativeEngine")
                 // Controls show what is in effect: an engine without a feature reads "off" (the saved choices
                 // come back with an engine that has it).
                 Toggle(QTLoc.tr("Gapless playback", table: .desktop),
@@ -184,7 +194,8 @@ struct QTPlaybackSettings: View {
             } header: {
                 Text(QTLoc.tr("Premium engine"))
             } footer: {
-                if let note = Self.unsupportedNote(capabilities: caps, account: model.account) {
+                if let note = Self.unsupportedNote(capabilities: caps, account: model.account, eligible: eligible,
+                                                   optedIn: optedIn, fallbackReason: native.engine?.fallbackReason) {
                     Text(note)
                         .font(.callout)
                         .foregroundStyle(.secondary)
@@ -196,12 +207,18 @@ struct QTPlaybackSettings: View {
         .formStyle(.grouped)
     }
 
-    /// Why the section is off, or nil when the playing engine supports all of it.
-    static func unsupportedNote(capabilities: QTPlaybackCapabilities, account: QTAccountKind) -> String? {
+    /// Why the effects are off, or nil when the playing engine supports all of them.
+    static func unsupportedNote(capabilities: QTPlaybackCapabilities, account: QTAccountKind, eligible: Bool,
+                                optedIn: Bool, fallbackReason: String?) -> String? {
         guard !capabilities.isSuperset(of: [.gapless, .crossfade, .equalizer]) else { return nil }
-        return account == .free
-            ? QTLoc.tr("Free accounts play through YouTube’s own player, which doesn’t support these.", table: .desktop)
-            : QTLoc.tr("YouTube’s player, which plays your music for now, doesn’t support these.", table: .desktop)
+        if account == .free {
+            return QTLoc.tr("Free accounts play through YouTube’s own player, which doesn’t support these.", table: .desktop)
+        }
+        if !eligible { return QTLoc.tr("Needs a signed-in YouTube Music Premium account.", table: .desktop) }
+        if optedIn, fallbackReason != nil {
+            return QTLoc.tr("The native engine isn’t working right now, so YouTube’s player is playing. It doesn’t support these.", table: .desktop)
+        }
+        return QTLoc.tr("YouTube’s player doesn’t support these. Turn on the native engine to use them.", table: .desktop)
     }
 
     private func crossfadeLabel(_ seconds: Double) -> String {

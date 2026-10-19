@@ -13,10 +13,10 @@ SwiftPM package `QTubeMusic` (`Package.swift`, tools 6.2, Swift 6 language mode,
 | `QTCore` | — | Models (`QTTrack`, `QTAlbum`, `QTArtist`, `QTPlaylist`, `QTShelf`/`QTHomeFeed`, `QTArtworkPalette`), `QTQueue`, `QTLyricsDocument`, `QTSettings` + `QTSettingsStore`, `QTMockCatalog` + `QTCatalogService`, `QTFormat`, `QTLoc` localization, **all String Catalogs** | shared (scaffold) |
 | `QTInnerTube` | QTCore | `QTInnerTubeClient` (actor: ytcfg scrape, WEB_REMIX context, hl/gl, SAPISIDHASH, TTL+LRU cache, retries, session-loss detection; account writes gated by `setAllowsAccountWrites`), parsers → QTCore models (music-only filter), `QTCounterpartResolver` (Song⇄Video), `QTInnerTubeCatalog` (`QTCatalogService`), `QTInnerTubeConfiguration`; `Lyrics/QTInnerTubeLyricsClient` (anonymous ANDROID_MUSIC `post(_:payload:)` for timed lyrics, follows a client's hl/gl/visitor id — lyrics-live) | data-layer |
 | `QTAuth` | QTInnerTube | `QTAuthController` (`restore()`, `beginSignIn(hl:over:)`, `signOut()`, `webDataStore`, DEBUG-only session import), `QTSessionStore` (actor, Keychain `com.roderickqiu.qtube`), `QTAuthSession`/`QTCookie` (auth-cookie allowlist), `QTWebCookieStore` (`QTWebKitCookieStore.session`: the non-persistent jar playback uses), `QTLegacyWebStorage` (deletes old plain-text WebKit data), `QTAuthState` | data-layer |
-| `QTPlayback` | QTCore, QTInnerTube | `QTPlaybackEngine` protocol, `QTSimulatedPlaybackEngine`, `QTQueueController` (queue + context, shuffle/repeat, autoplay continuation, persistence via `QTQueueStore`, holds a process activity while playing), `QTNowPlayingController` (sole owner of Now Playing + remote commands), `Web/QTWebPlaybackEngine` (hidden WKWebView in the non-persistent session jar `QTWebKitCookieStore.session`, `sessionDidChange()`, JS bridge, ads, playability errors, offline recovery, 144p decode, page freeze while paused; `QTWebKitTuning` keeps the hidden page scheduled), `Web/QTWebVideoOutput` (M5: the page's music video in app views, native PiP, `QTModeSwitchReport`), `Web/Audio/` (web-audio: `QTWebAudioScript` page tap + `QTWebAudioTap` = `QTWebPlaybackEngine.audio`, spectrum for the visualizer decoded from the audio the page appends to its MediaSource, pulled only while a visualizer shows — `docs/web-audio.md`), `QTPlaybackEngineSelector`, `QTNativePlaybackEngine` stub (M5, `isAvailable = false`); `Native/` = M5 spike code, not used by the app (`QTNativeStreamResolver` + `QTNativeStreamClient` table, `QTNativePlayerScript` sig/n solving in JavaScriptCore, `QTNativeAudioGraph` AVAudioEngine gapless/crossfade/10-band EQ/FFT tap, `QTNativeStreamDownloader`, `QTNativeAVPlayerProbe`) — see `docs/native-engine-spike.md` | playback (Web video parts: stage-video; Web/Audio: web-audio); Native/: native-spike |
+| `QTPlayback` | QTCore, QTInnerTube | `QTPlaybackEngine` protocol, `QTSimulatedPlaybackEngine`, `QTQueueController` (queue + context, shuffle/repeat, autoplay continuation, persistence via `QTQueueStore`, holds a process activity while playing), `QTNowPlayingController` (sole owner of Now Playing + remote commands), `Web/QTWebPlaybackEngine` (hidden WKWebView in the non-persistent session jar `QTWebKitCookieStore.session`, `sessionDidChange()`, JS bridge, ads, playability errors, offline recovery, 144p decode, page freeze while paused; `QTWebKitTuning` keeps the hidden page scheduled), `Web/QTWebVideoOutput` (M5: the page's music video in app views, native PiP, `QTModeSwitchReport`), `Web/Audio/` (web-audio: `QTWebAudioScript` page tap + `QTWebAudioTap` = `QTWebPlaybackEngine.audio`, spectrum for the visualizer decoded from the audio the page appends to its MediaSource, pulled only while a visualizer shows — `docs/web-audio.md`), `QTPlaybackEngineSelector`; `Native/` = the native Premium engine (opt-in, option B of `docs/native-engine-spike.md`): `QTNativePlaybackEngine` (wraps a `QTWebPlaybackEngine` for videos and fallback; `prepareNext` → prefetch, gapless join, crossfade; Song⇄Video handovers; session fallback), `QTNativeAudioPlayer` + `QTNativeDeck` (AVAudioEngine: two player-node decks → mixer → 10-band EQ → main mixer; decode-ahead from memory; FFT tap only while asked), `QTNativeMemoryAudioFile` (AudioToolbox read callbacks + ExtAudioFile over in-memory AAC, never on disk), `QTNativeAudioFetcher` (resolve + ranged download into memory, retry with a re-checked player, LRU of 4 tracks), `QTNativeStreamResolver` (`resolvePremium`: WEB_REMIX + session; `QTNativeFailure` systemic/item), `QTNativePlayerScript` (vendored EJS solver in JavaScriptCore, `Resources/EJS` pinned by `Scripts/update-ejs.sh`; `QTNativePlayerCache` keeps preprocessed players per hash in Caches). Spike-only: `QTNativeAudioGraph`, `QTNativeStreamDownloader` (DEBUG), `QTNativeAVPlayerProbe` | playback (Web video parts: stage-video; Web/Audio: web-audio); Native/: native-engine |
 | `QTDevSession` | QTAuth | DEBUG-only executable: import the dev session from CDP cookie JSON on stdin; read-only `status` / `summary` / `probe` / `ytcfg` (never prints cookie values) | data-live |
 | `QTPlaybackLab` | QTPlayback | dev-only executable: drives the web engine live, muted and anonymous (`swift run --scratch-path .build/<you> QTPlaybackLab --scenario basic`) | playback |
-| `QTNativeSpike` | QTPlayback, QTAuth | DEBUG-only executable for the M5 spike: `clients` / `bench` / `cipher` / `avplayer` — stream resolution per client, download → AVAudioEngine (muted), TTFA, CPU, gapless, crossfade, EQ, spectrum; `--signed-in` reads the shared dev session (never prints cookie values). Downloads the EJS solver and audio into `~/Library/Caches/com.roderickqiu.qtube.native-spike/` (audio purged after each run) | native-spike |
+| `QTNativeSpike` | QTPlayback, QTAuth | DEBUG-only executable for the M5 spike: `clients` / `bench` / `cipher` / `avplayer` — stream resolution per client, download → AVAudioEngine (muted), TTFA, CPU, gapless, crossfade, EQ, spectrum; `--signed-in` reads the shared dev session (never prints cookie values). Uses the vendored EJS solver; downloads audio into `~/Library/Caches/com.roderickqiu.qtube.native-spike/` (purged after each run) | native-spike |
 | `QTLyrics` | QTCore, OpenCC (SwiftyOpenCC) | `QTLyricsResolver` (actor, `QTLyricsProviding`): parsers (LRC, YRC, QRC, KRC, TTML), QRC/KRC decryption, providers (YouTube Music, LRCLIB, AMLL; NetEase/Kugou/QQ opt-in), matcher, `QTLyricsCache` (SQLite), romanization, translation (selector, coordinator, Apple Intelligence + Translation framework engines), Chinese script (`QTChineseScript`, `QTChineseConverter`, `QTLyricsScriptConversion`); `QTMockLyricsProvider` | lyrics |
 | `QTIntegrations` | QTCore | Opt-in integrations, all off by default: Last.fm (`QTLastFMRequest` signing/requests, `QTLastFMClient`, `QTScrobbleRules`, `QTListenTracker`, `QTScrobbleQueue` offline queue, `QTScrobbler` actor), Discord Rich Presence (`QTDiscordIPC` framing, `QTDiscordActivity`, `QTDiscordPresence` socket actor), `QTIntegrationsSettings` + `QTIntegrationsStore` (defaults `qt.integrations.v1`; secrets in the Keychain via `QTKeychainSecretStore`) | desktop |
 | `QTUI` | all | SwiftUI/AppKit UI, app model, theme | per folder, below |
@@ -77,7 +77,24 @@ Everything is wired (integration of M1 polish + M2–M4):
   state and signs in/out through the store.
 
 - **Engine:** `QTPlaybackSetup.resolve(launch:source:tier:)` — mock data → `QTSimulatedPlaybackEngine`; real data
-  (`source: .live`) → `QTWebPlaybackEngine` for free *and* Premium until the native engine ships (M5).
+  (`source: .live`) → `QTWebPlaybackEngine` for free and Premium. **Native engine (opt-in):**
+  `QTNativeEngineCoordinator` (AppModel/) swaps in `QTNativePlaybackEngine` around that same web engine object when
+  Settings › Playback › Native engine is on (`QTPlaybackEffectsPrefs.nativeEngine`, default off; session override
+  `-qt.playback.native YES|NO`), the session is signed in and Premium, and playback uses the session (not anonymous);
+  it swaps back when any of that stops (`QTQueueController.replaceEngine`, position kept). It also pushes Gapless /
+  Crossfade / Equalizer into `QTNativePlaybackEngine.effects`. Songs then play natively; Video items, item-level
+  failures and — after a systemic failure (403, bot check, solver, SABR-only) — everything for the rest of the
+  session play in the wrapped web engine (`fallbackReason`; Settings says so). Native plays send no playback pings,
+  so they don't reach the account's history (accepted by the user). Song⇄Video: Song→Video keeps the native song
+  playing while the page loads muted, lines the page up with the native clock (hold or seek) and swaps; Video→Song
+  starts native at the page's position, then stops the page. Callers that need the web engine (video surface, PiP,
+  network hooks, debug) use `engine.webEngine`.
+- **Next item:** `QTQueueController` tells the engine what plays next in order (`prepareNext`, after every queue
+  edit; nil under Repeat One or when the end needs a wrap/continuation). An engine that moves on by itself (gapless
+  join on the same deck, or a crossfade onto the other deck) reports the prepared item (`QTPlaybackItem.queueID`), and
+  the queue advances without loading (`advanceToPrepared`). Gapless when crossfade is off or both tracks are from one
+  album; otherwise crossfade starts `crossfadeSeconds` before the end. Loudness: loud tracks are turned down by
+  YouTube's `loudnessDb` like its own player does.
   `-qt.engine web` plays the mock catalog through the web engine using each track's real MV id
   (`catalog.mv.videoId`); tracks without one keep their made-up id and fail like a removed video (toast + skip).
   Mock data through the web engine is always anonymous (non-persistent data store) and silent (media volume pinned
@@ -432,11 +449,11 @@ inside the Stage (`.cancelAction`), not in menus. File keeps one item, Close Win
 
 Core:
 - `QTPlaybackCapabilities`: `.web` (web engine, every account: video, AirPlay, visualizer data) · `.premium` (native:
-  adds gapless, crossfade, EQ) · `.free` (video, AirPlay). The Stage's visualizer follows `.visualizerData` of the
-  playing engine, not the account tier.
+  adds gapless, crossfade, EQ; the native engine reports `.web` once it has fallen back) · `.free` (video, AirPlay).
+  The Stage's visualizer follows `.visualizerData` of the playing engine, not the account tier.
 - `QTPlaybackEngine` (`@MainActor`): `capabilities`, `state`, `stateUpdates()` (new `AsyncStream` per subscriber,
   current state first), `load(_:autoplay:)`, `play`, `pause`, `seek(to:)`, `setVolume`, `setMuted`, `skipAd`,
-  `stop`, `spectrum(bandCount:)`. `QTPlaybackState` carries `status` (idle/loading/playing/paused/ended/failed),
+  `stop`, `spectrum(bandCount:)`, `prepareNext(_:)` (default no-op). `QTPlaybackState` carries `status` (idle/loading/playing/paused/ended/failed),
   `timeline`, `duration`, `isBuffering`, `ad: QTAdState?` (`remaining`, `skippableIn`, `canSkip`), `volume`.
   `QTSimulatedPlaybackEngine(account:)`: free → 12 s ad, skippable after 5 s; `playAd()`; `tick()` for tests.
 - `QTQueue`: `nowPlaying` · `upNext` (user) · `autoplay` (+ `autoplaySource`, `isAutoplayEnabled`), `history`;
@@ -738,7 +755,17 @@ InnerTube fixtures), `QT_DUMP=1` (print parser output), `QT_KEYCHAIN_TEST=1` (Ke
 - `swift run --scratch-path .build/<you> QTNativeSpike bench [--signed-in] [--count N] [--clients A,B]` (also
   `clients`, `cipher`, `avplayer`) — the M5 native-engine spike, headless and muted; appends one line per bench run
   to `~/Library/Caches/com.roderickqiu.qtube.native-spike/runs.jsonl` for breakage tracking. Findings, numbers and
-  the decision the user owns: `docs/native-engine-spike.md`.
+  the decision (option B, 2026-10-19): `docs/native-engine-spike.md`.
+- `QT_VARIANT=<name> Scripts/native-acceptance.py [--plays 12] [--only seek,plays,crossfade,eq,video,requeue,skips,toggle,cpu,fallback] [--web]`
+  — the native engine live in the bundled app (signed-in library, `-qt.playback.native YES`, silent): N tracks in a
+  row with gapless seams, seek/pause, crossfade timing, EQ moving the spectrum, Song⇄Video handovers, Next/Previous
+  starts, the opt-in toggled mid-song, one Now Playing entry, CPU, and a forced solver failure falling back for the
+  session. `--web` measures the same CPU with YouTube's player. DEBUG hooks for it: `native:on|off|fail-solver`,
+  `effects:gapless:on|off`, `effects:crossfade:<s>`, `effects:eq:<preset>`, `spectrum`, `upnext:<id>`; the status file
+  adds `native` (active, fallbackReason, loads, start/fetch seconds, seams, crossfades, handovers, itag, position,
+  tapFrames), `nativeOptIn`, `nativeEligible`.
+- `Scripts/update-ejs.sh [version]` — re-checks the vendored EJS solver against its release checksums, or moves the
+  pin (then run `swift test --filter NativeEngine` and `QTNativeSpike cipher --signed-in`).
 - `Scripts/perf-cpu.py <label> [--seconds 30] [--settle 8] [--sample] [--trace "Time Profiler"|SwiftUI] [--shot <name>]
   [--background] [--keep] [launch args]` (`QT_VARIANT=…`, `QT_SCREEN`, default the built-in display) — CPU of the
   bundled app + its WebContent process over a window (`ps` cputime), mock catalog unless given. Brings the app

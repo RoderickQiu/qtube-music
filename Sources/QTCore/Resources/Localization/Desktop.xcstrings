@@ -271,6 +271,16 @@
         }
       }
     },
+    "Experimental. Plays Premium songs directly, with gapless playback, crossfade and EQ. Videos still play in YouTube’s player." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "实验性功能。直接播放 Premium 歌曲，支持无缝播放、淡入淡出和均衡器。视频仍由 YouTube 播放器播放。"
+          }
+        }
+      }
+    },
     "Finish Connecting" : {
       "localizations" : {
         "zh-Hans" : {
@@ -457,6 +467,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "菜单栏"
+          }
+        }
+      }
+    },
+    "Native engine" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "原生引擎"
+          }
+        }
+      }
+    },
+    "Needs a signed-in YouTube Music Premium account." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "需要登录 YouTube Music Premium 账户。"
           }
         }
       }
@@ -961,6 +991,16 @@
         }
       }
     },
+    "The native engine isn’t working right now, so YouTube’s player is playing. It doesn’t support these." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "原生引擎暂时无法使用，现由 YouTube 播放器播放，它不支持这些功能。"
+          }
+        }
+      }
+    },
     "This Mac doesn’t support Apple Intelligence" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1121,12 +1161,12 @@
         }
       }
     },
-    "YouTube’s player, which plays your music for now, doesn’t support these." : {
+    "YouTube’s player doesn’t support these. Turn on the native engine to use them." : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "目前播放音乐所用的 YouTube 播放器不支持这些功能。"
+            "value" : "YouTube 播放器不支持这些功能。打开原生引擎即可使用。"
           }
         }
       }

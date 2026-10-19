@@ -89,8 +89,12 @@ import Testing
         #expect(sink.firstSignal != nil)
     }
 
-    @Test func nativeEngineStaysUnavailableInTheApp() {
-        #expect(QTNativePlaybackEngine.isAvailable == false)
+    @Test func nativeEngineIsOptIn() {
+        // Built, but only an opted-in Premium account gets it; mock data stays simulated.
+        #expect(QTNativePlaybackEngine.isAvailable)
         #expect(QTPlaybackEngineSelector.kind(tier: .premium, usesMockData: false) == .web)
+        #expect(QTPlaybackEngineSelector.kind(tier: .premium, usesMockData: false, nativeOptIn: true) == .native)
+        #expect(QTPlaybackEngineSelector.kind(tier: .free, usesMockData: false, nativeOptIn: true) == .web)
+        #expect(QTPlaybackEngineSelector.kind(tier: .premium, usesMockData: true, nativeOptIn: true) == .simulated)
     }
 }

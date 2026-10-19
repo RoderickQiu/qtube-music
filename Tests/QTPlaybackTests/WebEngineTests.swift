@@ -112,12 +112,6 @@ import WebKit
         #expect(engine.state.status == .failed(.unavailable(.regionLocked)))
     }
 
-    @Test func nativeEngineIsAStubUntilTheSpike() async {
-        let engine = QTNativePlaybackEngine()
-        #expect(QTNativePlaybackEngine.isAvailable == false)
-        #expect(engine.capabilities == .premium)
-        await #expect(throws: QTPlaybackError.self) { try await engine.load(QTPlaybackItem(track: PB.track("x")), autoplay: true) }
-    }
 
     /// Live check against music.youtube.com (anonymous, silent). Off by default; `QT_LIVE=1 swift test …`.
     /// The fuller live run (ads, skip, Now Playing ownership, 10 advances) is `swift run QTPlaybackLab`.

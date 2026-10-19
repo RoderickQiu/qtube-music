@@ -161,7 +161,6 @@ struct Spike {
 
     func bench() async throws {
         defer { QTNativeStreamDownloader.purge() }
-        try await QTNativeSolverSource.ensureDownloaded()
         let creds = try await credentials(options.signedIn)
         let resolver = QTNativeStreamResolver(credentials: creds)
         let clients = options.clientsGiven ? options.clients
@@ -334,7 +333,6 @@ struct Spike {
     // MARK: cipher
 
     func cipher() async throws {
-        try await QTNativeSolverSource.ensureDownloaded()
         let creds = try await credentials(options.signedIn)
         let resolver = QTNativeStreamResolver(credentials: creds)
         let script = try await resolver.script()
@@ -374,7 +372,6 @@ struct Spike {
     // MARK: avplayer
 
     func avplayer() async throws {
-        try await QTNativeSolverSource.ensureDownloaded()
         let creds = try await credentials(options.signedIn)
         let resolver = QTNativeStreamResolver(credentials: creds)
         let client: QTNativeStreamClient = options.signedIn ? .webRemix : .tvSamsung

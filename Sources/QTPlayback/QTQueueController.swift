@@ -59,7 +59,9 @@ public final class QTQueueController {
     public private(set) var mode: QTPlaybackMode = .song
     /// The rendition the listener wants (the Song | Video switch, "Prefer videos when available"): every new track
     /// starts as its music video when it has one, otherwise as the song. `setMode` updates it.
-    public var preferredMode: QTPlaybackMode = .song
+    public var preferredMode: QTPlaybackMode = .song {
+        didSet { if preferredMode != oldValue { syncPreparedNext() } }
+    }
     public private(set) var isShuffleOn = false
     public var repeatMode: QTRepeatMode = .off {
         didSet { if repeatMode != oldValue { scheduleSave(); publishNowPlaying() } }
@@ -108,6 +110,8 @@ public final class QTQueueController {
     @ObservationIgnored private var loadsInFlight = 0
     @ObservationIgnored private var consecutiveFailures = 0
     @ObservationIgnored private var lastAnnouncedTrackID: String?
+    /// The item last handed to `engine.prepareNext` (gapless/crossfade engines may move on to it by themselves).
+    @ObservationIgnored private var preparedNext: QTPlaybackItem?
     /// The user's intent: true after play/autoplaying load, false after pause. Decides whether a failure skips.
     @ObservationIgnored private var wantsPlayback = false
     /// Held while playing or loading so App Nap never throttles track ends, ad countdowns or the
@@ -348,7 +352,9 @@ public final class QTQueueController {
         let position = currentTime
         let wasPlaying = engine.state.isPlaying
         engine.stop()
+        engine.prepareNext(nil)
         engine = newEngine
+        preparedNext = nil
         observe(newEngine)
         state = newEngine.state
         if queue.nowPlaying != nil {
@@ -420,7 +426,9 @@ public final class QTQueueController {
         contextGeneration += 1
     }
 
+    /// After every queue edit (all of them save): the engine hears what comes next.
     private func scheduleSave() {
+        syncPreparedNext()
         guard store != nil else { return }
         saveTask?.cancel()
         saveTask = Task { @MainActor [weak self] in
@@ -470,6 +478,41 @@ public final class QTQueueController {
         await advance(userInitiated: false)
     }
 
+    /// What `advance` would play next without asking anyone (no Repeat All wrap, no continuation fetch), or nil.
+    /// Repeat One replays on its own, so nothing is prepared then.
+    private func naturalNext() -> QTQueueItem? {
+        guard repeatMode != .one, queue.nowPlaying != nil else { return nil }
+        if let first = queue.upNext.first { return first }
+        return queue.isAutoplayEnabled ? queue.autoplay.first : nil
+    }
+
+    /// Tells the engine what plays next in order (it prefetches it, and may join it gaplessly or crossfade into it).
+    private func syncPreparedNext() {
+        let item = naturalNext().map { next in
+            QTPlaybackItem(track: next.track, mode: preferredMode == .video && next.track.hasVideo ? .video : .song,
+                           queueID: next.id)
+        }
+        guard item != preparedNext else { return }
+        preparedNext = item
+        engine.prepareNext(item)
+    }
+
+    /// The engine moved on to the prepared next item by itself (a gapless join or a crossfade): the queue follows
+    /// without loading anything.
+    private func advanceToPrepared(_ s: QTPlaybackState) {
+        guard let id = s.item?.queueID, let next = naturalNext(), next.id == id, let section = popNext()?.section else { return }
+        becomeCurrent(next, from: section)
+        if let m = s.item?.mode { mode = m }
+        consecutiveFailures = 0
+        lastFailure = nil
+        wantsPlayback = true
+        announceTrackChange()
+        resolveCounterparts()
+        prefetchContinuationIfNeeded()
+        scheduleSave()
+        publishNowPlaying()
+    }
+
     private func popNext() -> (item: QTQueueItem, section: QTQueueSection)? {
         if !queue.upNext.isEmpty { return (queue.upNext.removeFirst(), .upNext) }
         if queue.isAutoplayEnabled, !queue.autoplay.isEmpty { return (queue.autoplay.removeFirst(), .autoplay) }
@@ -510,11 +553,12 @@ public final class QTQueueController {
         announceTrackChange()
         scheduleSave()
         do {
-            try await engine.load(QTPlaybackItem(track: track, mode: mode, startTime: startTime), autoplay: autoplay)
+            try await engine.load(QTPlaybackItem(track: track, mode: mode, startTime: startTime, queueID: item.id), autoplay: autoplay)
             guard token == loadToken else { return }
             consecutiveFailures = 0
             lastFailure = nil
             prefetchContinuationIfNeeded()
+            syncPreparedNext()
             handleEndOrFailureDuringLoad()
         } catch is CancellationError {
             // Not replaced by a newer load: the engine dropped this one itself (the track ended or failed while a
@@ -604,6 +648,7 @@ public final class QTQueueController {
         for i in queue.upNext.indices where queue.upNext[i].track.videoId == id { queue.upNext[i].track.counterpart = counterpart }
         for i in queue.autoplay.indices where queue.autoplay[i].track.videoId == id { queue.autoplay[i].track.counterpart = counterpart }
         for i in context.indices where context[i].track.videoId == id { context[i].track.counterpart = counterpart }
+        syncPreparedNext()
     }
 
     // MARK: Autoplay continuation
@@ -664,6 +709,10 @@ public final class QTQueueController {
         let previous = state
         state = s
         updatePlaybackActivity(for: s.status)
+        if loadsInFlight == 0, let id = s.item?.queueID, id != queue.nowPlaying?.id, id == preparedNext?.queueID {
+            advanceToPrepared(s)
+            return
+        }
         publishNowPlaying()
         guard loadsInFlight == 0, s.item?.track.videoId == queue.nowPlaying?.track.videoId else { return }
         if s.status == .ended, previous.status != .ended {
