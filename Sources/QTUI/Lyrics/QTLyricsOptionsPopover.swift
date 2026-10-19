@@ -27,7 +27,9 @@ public struct QTLyricsOptionsButton: View {
         .foregroundStyle(overArt ? QTTheme.Colors.onArtSecondary : QTTheme.Colors.secondaryLabel)
         .help(QTLoc.tr("Lyrics options"))
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+            // Over art (the Stage is always dark) the popover stays dark even under a light app theme.
             QTLyricsOptionsPopover()
+                .preferredColorScheme(overArt ? .dark : nil)
         }
         .accessibilityIdentifier(overArt ? "qt.lyrics.optionsButton.stage" : "qt.lyrics.optionsButton.panel")
         .task {
