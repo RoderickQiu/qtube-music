@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<QrcInfos>
+<QrcHeadInfo SaveTime="261" Version="100"/>
+<LyricInfo LyricCount="1">
+<Lyric_1 LyricType="1" LyricContent="[ti:夜に駆ける]
+[ar:YOASOBI]
+[al:夜に駆ける]
+[by:]
+[offset:0]
+[1800,7400]shi (1800,231)zu (2032,240)mu (2273,420)yo (2693,261)u (2955,261)ni (3217,223)to (3440,174)ke (3615,209)te (3825,279)yu (4104,224)ku (4328,158)yo (4487,308)u (4796,300)ni (5097,1112)
+[9201,22385]fu (9201,191)ta (9392,258)ri (9651,328)da (9979,349)ke (10329,189)no (10519,217)so (10736,230)ra (10967,223)ga (11190,239)hi (11430,258)ro (11689,197)ga (11887,263)ru (12151,416)yo (12729,149)ru (12878,228)ni (13107,1875)
+"/>
+</LyricInfo>
+</QrcInfos>

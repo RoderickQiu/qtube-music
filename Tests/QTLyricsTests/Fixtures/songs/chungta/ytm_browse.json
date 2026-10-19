@@ -1,0 +1,101 @@
+{
+ "contents": {
+  "elementRenderer": {
+   "newElement": {
+    "type": {
+     "componentType": {
+      "model": {
+       "timedLyricsModel": {
+        "lyricsData": {
+         "timedLyricsData": [
+          {
+           "lyricLine": "Mùa thu mang giấc mơ quay về",
+           "cueRange": {
+            "startTimeMilliseconds": "25620",
+            "endTimeMilliseconds": "29690",
+            "metadata": {
+             "id": "1"
+            }
+           }
+          },
+          {
+           "lyricLine": "Vẫn nguyên vẹn như hôm nào",
+           "cueRange": {
+            "startTimeMilliseconds": "29690",
+            "endTimeMilliseconds": "32660",
+            "metadata": {
+             "id": "2"
+            }
+           }
+          },
+          {
+           "lyricLine": "Lá bay theo gió xôn xao",
+           "cueRange": {
+            "startTimeMilliseconds": "32660",
+            "endTimeMilliseconds": "35910",
+            "metadata": {
+             "id": "3"
+            }
+           }
+          },
+          {
+           "lyricLine": "Chốn xưa em chờ (chốn xưa em chờ)",
+           "cueRange": {
+            "startTimeMilliseconds": "35910",
+            "endTimeMilliseconds": "38090",
+            "metadata": {
+             "id": "4"
+            }
+           }
+          },
+          {
+           "lyricLine": "Đoạn đường ngày nào nơi ta từng đón đưa",
+           "cueRange": {
+            "startTimeMilliseconds": "38090",
+            "endTimeMilliseconds": "41800",
+            "metadata": {
+             "id": "5"
+            }
+           }
+          },
+          {
+           "lyricLine": "Còn vấn vương không phai mờ",
+           "cueRange": {
+            "startTimeMilliseconds": "41800",
+            "endTimeMilliseconds": "44990",
+            "metadata": {
+             "id": "6"
+            }
+           }
+          },
+          {
+           "lyricLine": "Giấu yêu thương trong vần thơ",
+           "cueRange": {
+            "startTimeMilliseconds": "44990",
+            "endTimeMilliseconds": "48600",
+            "metadata": {
+             "id": "7"
+            }
+           }
+          },
+          {
+           "lyricLine": "Chúng ta là áng mây bên trời vội vàng ngang qua",
+           "cueRange": {
+            "startTimeMilliseconds": "48600",
+            "endTimeMilliseconds": "54660",
+            "metadata": {
+             "id": "8"
+            }
+           }
+          }
+         ],
+         "sourceMessage": "Source: LyricFind"
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ }
+}

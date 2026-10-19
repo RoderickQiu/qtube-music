@@ -1,0 +1,71 @@
+{
+ "contents": {
+  "elementRenderer": {
+   "newElement": {
+    "type": {
+     "componentType": {
+      "model": {
+       "timedLyricsModel": {
+        "lyricsData": {
+         "timedLyricsData": [
+          {
+           "lyricLine": "故事的小黃花從出生那年就飄著",
+           "cueRange": {
+            "startTimeMilliseconds": "29250",
+            "endTimeMilliseconds": "36120",
+            "metadata": {
+             "id": "1"
+            }
+           }
+          },
+          {
+           "lyricLine": "童年的盪鞦韆隨記憶一直晃到現在",
+           "cueRange": {
+            "startTimeMilliseconds": "36120",
+            "endTimeMilliseconds": "42670",
+            "metadata": {
+             "id": "2"
+            }
+           }
+          },
+          {
+           "lyricLine": "ㄖㄨㄟ ㄙㄡ ㄙㄡ ㄒ一 ㄉㄛ ㄒ一 ㄌㄚ",
+           "cueRange": {
+            "startTimeMilliseconds": "42670",
+            "endTimeMilliseconds": "45810",
+            "metadata": {
+             "id": "3"
+            }
+           }
+          },
+          {
+           "lyricLine": "ㄙㄡ ㄌㄚ ㄒ一 ㄒ一 ㄒ一 ㄒ一 ㄌㄚ ㄒ一 ㄌㄚ ㄙㄡ",
+           "cueRange": {
+            "startTimeMilliseconds": "45810",
+            "endTimeMilliseconds": "49960",
+            "metadata": {
+             "id": "4"
+            }
+           }
+          },
+          {
+           "lyricLine": "吹著前奏望著天空 我想起花瓣試著掉落",
+           "cueRange": {
+            "startTimeMilliseconds": "49960",
+            "endTimeMilliseconds": "56580",
+            "metadata": {
+             "id": "5"
+            }
+           }
+          }
+         ],
+         "sourceMessage": "Source: Musixmatch"
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ }
+}

@@ -1,0 +1,26 @@
+{
+ "code": 200,
+ "sgc": false,
+ "sfy": false,
+ "qfy": false,
+ "lrc": {
+  "version": 34,
+  "lyric": "[00:17.84]Well, I found a girl, beautiful and sweet\n[00:25.62]Oh, I never knew you were the someone waiting for me\n[00:32.33]'Cause we were just kids when we fell in love\n[00:36.53]Not knowing what it was\n[00:40.33]I will not give you up this time\n"
+ },
+ "tlyric": {
+  "version": 13,
+  "lyric": "[by:蠢梨Sherry]\n[00:17.84]我寻得这么一个女孩 漂亮甜美\n[00:25.62]我从没想过你就是那个为我等候着的人\n[00:32.33]当我们各自坠入爱河时 都还是个孩子\n[00:36.53]当时不懂得爱\n[00:40.33]但这一次我不会再让爱逝去\n"
+ },
+ "romalrc": {
+  "version": 0,
+  "lyric": ""
+ },
+ "ytlrc": {
+  "version": 2,
+  "lyric": "[00:17.790]我寻得这么一个女孩 漂亮甜美\n[00:25.320]我从没想过你就是那个为我等候着的人\n[00:31.980]当我们各自坠入爱河时 都还是个孩子\n[00:36.840]当时不懂得爱\n[00:40.650]但这一次我不会再让爱逝去\n"
+ },
+ "yrc": {
+  "version": 31,
+  "lyric": "{\"t\":0,\"c\":[{\"tx\":\"制作人: \"},{\"tx\":\"Ed Sheeran\"},{\"tx\":\"/\"},{\"tx\":\"Will Hicks\"}]}\n{\"t\":910,\"c\":[{\"tx\":\"作词: \"},{\"tx\":\"Ed Sheeran\",\"li\":\"http://p1.music.126.net/Ep4iFtkmgKe78Tp3U-fKKg==/109951170683334388.jpg\",\"or\":\"orpheus://nm/artist/home?id=33184&type=artist\"}]}\n[17790,6660](17790,210,0)Well(18000,0,0), (18000,240,0)I (18240,480,0)found (18720,30,0)a (18750,2100,0)girl(20850,660,0), (21510,1560,0)beautiful (23070,330,0)and (23400,1050,0)sweet\n[25320,6630](25320,180,0)Oh(25500,0,0), (25500,240,0)I (25740,630,0)never (26370,690,0)knew (27060,330,0)you (27390,690,0)were (28080,120,0)the (28200,1020,0)someone (29220,660,0)waiting (29880,360,0)for (30240,1710,0)me\n[31980,4620](31980,180,0)'Cause (32160,300,0)we (32460,300,0)were (32760,330,0)just (33090,450,0)kids (33540,240,0)when (33780,180,0)we (33960,1110,0)fell (35070,840,0)in (35910,690,0)love\n[36840,3600](36840,390,0)Not (37230,630,0)knowing (37860,1080,0)what (38940,810,0)it (39750,690,0)was\n[40650,7260](40650,330,0)I (40980,330,0)will (41310,300,0)not (41610,1020,0)give (42630,1020,0)you (43650,780,0)up (44430,960,0)this (45390,2520,0)time\n"
+ }
+}

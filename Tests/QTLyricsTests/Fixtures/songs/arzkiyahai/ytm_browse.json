@@ -1,0 +1,81 @@
+{
+ "contents": {
+  "elementRenderer": {
+   "newElement": {
+    "type": {
+     "componentType": {
+      "model": {
+       "timedLyricsModel": {
+        "lyricsData": {
+         "timedLyricsData": [
+          {
+           "lyricLine": "कायर जो थे, वो शायर बने",
+           "cueRange": {
+            "startTimeMilliseconds": "28220",
+            "endTimeMilliseconds": "32460",
+            "metadata": {
+             "id": "1"
+            }
+           }
+          },
+          {
+           "lyricLine": "अब क्या-क्या करें ये इश्क़ में",
+           "cueRange": {
+            "startTimeMilliseconds": "32460",
+            "endTimeMilliseconds": "37180",
+            "metadata": {
+             "id": "2"
+            }
+           }
+          },
+          {
+           "lyricLine": "ना कहते थे कुछ जो, लगे खोज में",
+           "cueRange": {
+            "startTimeMilliseconds": "37180",
+            "endTimeMilliseconds": "41900",
+            "metadata": {
+             "id": "3"
+            }
+           }
+          },
+          {
+           "lyricLine": "क्या लफ़्ज़ चुने, नए आशिक़ ये",
+           "cueRange": {
+            "startTimeMilliseconds": "41900",
+            "endTimeMilliseconds": "46790",
+            "metadata": {
+             "id": "4"
+            }
+           }
+          },
+          {
+           "lyricLine": "इश्क़ में तेरे हैं फ़ैज़ बने",
+           "cueRange": {
+            "startTimeMilliseconds": "46790",
+            "endTimeMilliseconds": "51630",
+            "metadata": {
+             "id": "5"
+            }
+           }
+          },
+          {
+           "lyricLine": "अर्ज़ किया है",
+           "cueRange": {
+            "startTimeMilliseconds": "51630",
+            "endTimeMilliseconds": "54010",
+            "metadata": {
+             "id": "6"
+            }
+           }
+          }
+         ],
+         "sourceMessage": "Source: LyricFind"
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ }
+}

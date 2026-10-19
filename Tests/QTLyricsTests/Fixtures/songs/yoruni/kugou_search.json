@@ -1,0 +1,54 @@
+{
+ "status": 200,
+ "errcode": 200,
+ "candidates": [
+  {
+   "id": "260678224",
+   "accesskey": "89B238079E1E52965F6F94872BD1D88E",
+   "singer": "YOASOBI",
+   "song": "夜に駆ける",
+   "duration": 261041,
+   "score": 60,
+   "krctype": 2,
+   "language": "",
+   "transname": "",
+   "contenttype": 0
+  },
+  {
+   "id": "175427220",
+   "accesskey": "6811955573D71F3F9B1925247EF69E78",
+   "singer": "YOASOBI",
+   "song": "夜に駆ける",
+   "duration": 261041,
+   "score": 50,
+   "krctype": 2,
+   "language": "",
+   "transname": "",
+   "contenttype": 0
+  },
+  {
+   "id": "205527944",
+   "accesskey": "8C3A054142CBABD7DE31DA50B062D01E",
+   "singer": "YOASOBI",
+   "song": "夜に駆ける",
+   "duration": 261041,
+   "score": 40,
+   "krctype": 2,
+   "language": "",
+   "transname": "",
+   "contenttype": 0
+  },
+  {
+   "id": "253600530",
+   "accesskey": "F79A5083822095AEF5A9D9DCED9810DF",
+   "singer": "YOASOBI",
+   "song": "夜に駆ける",
+   "duration": 261041,
+   "score": 30,
+   "krctype": 2,
+   "language": "",
+   "transname": "",
+   "contenttype": 0
+  }
+ ]
+}

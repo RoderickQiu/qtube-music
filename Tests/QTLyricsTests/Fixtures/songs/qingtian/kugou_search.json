@@ -1,0 +1,54 @@
+{
+ "status": 200,
+ "errcode": 200,
+ "candidates": [
+  {
+   "id": "34988004",
+   "accesskey": "383D2983B550D9A0AAB8FD92EE4E2286",
+   "singer": "周杰伦",
+   "song": "晴天",
+   "duration": 269000,
+   "score": 60,
+   "krctype": 2,
+   "language": "",
+   "transname": "",
+   "contenttype": 0
+  },
+  {
+   "id": "461810434",
+   "accesskey": "DE10B33BBE521C4962FF69E18C48A97B",
+   "singer": "周杰伦",
+   "song": "晴天",
+   "duration": 265072,
+   "score": 50,
+   "krctype": 2,
+   "language": "国语",
+   "transname": "",
+   "contenttype": 0
+  },
+  {
+   "id": "461810354",
+   "accesskey": "621CD430CAA35D1D7F0BB61E1EAA9C96",
+   "singer": "周杰伦",
+   "song": "晴天",
+   "duration": 265072,
+   "score": 40,
+   "krctype": 2,
+   "language": "国语",
+   "transname": "",
+   "contenttype": 0
+  },
+  {
+   "id": "461810432",
+   "accesskey": "CB131A61C6F87A742AC6323312FC2897",
+   "singer": "周杰伦",
+   "song": "晴天",
+   "duration": 265072,
+   "score": 30,
+   "krctype": 2,
+   "language": "国语",
+   "transname": "",
+   "contenttype": 0
+  }
+ ]
+}

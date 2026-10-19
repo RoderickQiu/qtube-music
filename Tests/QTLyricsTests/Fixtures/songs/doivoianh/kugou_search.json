@@ -1,0 +1,54 @@
+{
+ "status": 200,
+ "errcode": 200,
+ "candidates": [
+  {
+   "id": "61809392",
+   "accesskey": "E33E37E0479AA48C90F8C44BFEAA1C77",
+   "singer": "Kim Ny Ngọc",
+   "song": "Đối Với Anh Em Không Còn Cảm Giác",
+   "duration": 254,
+   "score": 60,
+   "krctype": 2,
+   "language": "",
+   "transname": "",
+   "contenttype": 0
+  },
+  {
+   "id": "61401654",
+   "accesskey": "9A1C6AFBA3C17E842DC109FFDA35904A",
+   "singer": "Kim Ny Ngọc",
+   "song": "Đối Với Anh Em Không Còn Cảm Giác",
+   "duration": 257,
+   "score": 50,
+   "krctype": 2,
+   "language": "",
+   "transname": "",
+   "contenttype": 0
+  },
+  {
+   "id": "271068874",
+   "accesskey": "DCFAEAA6667232A974ACF7FAD17E51FE",
+   "singer": "Kim Ny Ngọc",
+   "song": "Đối Với Anh Em Không Còn Cảm Giác",
+   "duration": 146000,
+   "score": 40,
+   "krctype": 2,
+   "language": "",
+   "transname": "",
+   "contenttype": 0
+  },
+  {
+   "id": "198064145",
+   "accesskey": "E9FD2FC3145FDC88721160B9353D60F8",
+   "singer": "Kim Ny Ngọc",
+   "song": "Đối Với Anh Em Không Còn Cảm Giác",
+   "duration": 257000,
+   "score": 30,
+   "krctype": 2,
+   "language": "越南语",
+   "transname": "",
+   "contenttype": 0
+  }
+ ]
+}

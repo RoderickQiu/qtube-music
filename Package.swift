@@ -9,10 +9,9 @@ let package = Package(
     products: [
         .executable(name: "QTubeMusic", targets: ["QTubeMusicApp"]),
     ],
-    dependencies: [
-        // MPL-2.0. Lyrics parsers/providers (NetEase, QQ QRC, Kugou KRC, LRCLIB). Used only by QTLyrics.
-        .package(url: "https://github.com/MxIris-LyricsX-Project/LyricsKit", from: "1.9.0"),
-    ],
+    // No third-party dependencies. QTLyrics has its own LRC/YRC/QRC/KRC/TTML parsers and decrypters
+    // (LyricsKit's are not public API). Sparkle comes later (ask first for anything else).
+    dependencies: [],
     targets: [
         .target(
             name: "QTCore",
@@ -21,10 +20,7 @@ let package = Package(
         .target(name: "QTInnerTube", dependencies: ["QTCore"]),
         .target(name: "QTAuth", dependencies: ["QTInnerTube"]),
         .target(name: "QTPlayback", dependencies: ["QTCore", "QTInnerTube"]),
-        .target(
-            name: "QTLyrics",
-            dependencies: ["QTCore", .product(name: "LyricsKit", package: "LyricsKit")]
-        ),
+        .target(name: "QTLyrics", dependencies: ["QTCore"]),
         .target(
             name: "QTUI",
             dependencies: ["QTCore", "QTInnerTube", "QTAuth", "QTPlayback", "QTLyrics"]

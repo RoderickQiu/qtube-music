@@ -1,0 +1,87 @@
+{
+ "code": 200,
+ "result": {
+  "songs": [
+   {
+    "id": 1805346557,
+    "name": "Chúng Ta Của Hiện Tại",
+    "alia": [],
+    "tns": [
+     "现在的我们"
+    ],
+    "dt": 301538,
+    "ar": [
+     {
+      "id": 1170007,
+      "name": "Sơn Tùng M-TP",
+      "tns": [
+       "山松"
+      ],
+      "alias": [
+       "Son Tung",
+       "山松",
+       "阮青松"
+      ]
+     }
+    ],
+    "al": {
+     "id": 120613851,
+     "name": "Chúng Ta Của Hiện Tại"
+    }
+   },
+   {
+    "id": 1890983808,
+    "name": "Chúng Ta Của Hiện Tại (Lofi)",
+    "alia": [],
+    "tns": [
+     "如今的我们"
+    ],
+    "dt": 170221,
+    "ar": [
+     {
+      "id": 50337975,
+      "name": "TUYENVU",
+      "tns": [],
+      "alias": []
+     },
+     {
+      "id": 1170007,
+      "name": "Sơn Tùng M-TP",
+      "tns": [
+       "山松"
+      ],
+      "alias": [
+       "Son Tung",
+       "山松",
+       "阮青松"
+      ]
+     }
+    ],
+    "al": {
+     "id": 135472921,
+     "name": "Chúng Ta Của Hiện Tại (Lofi)"
+    }
+   },
+   {
+    "id": 1812679631,
+    "name": "Sơn Tùng M-TP-Chung ta cua hien tai（KINGWG remix）",
+    "alia": [],
+    "tns": null,
+    "dt": 137050,
+    "ar": [
+     {
+      "id": 32682416,
+      "name": "恩赐",
+      "tns": [],
+      "alias": []
+     }
+    ],
+    "al": {
+     "id": 121759949,
+     "name": "chúng ta của hiện tại"
+    }
+   }
+  ],
+  "songCount": 3
+ }
+}

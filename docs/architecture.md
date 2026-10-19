@@ -14,18 +14,16 @@ SwiftPM package `QTubeMusic` (`Package.swift`, tools 6.2, Swift 6 language mode,
 | `QTInnerTube` | QTCore | InnerTube client + parsers (M3). Today: `QTInnerTubeConfiguration` | data-layer |
 | `QTAuth` | QTInnerTube | Google sign-in, Keychain cookies (M3). Today: `QTAuthState` | data-layer |
 | `QTPlayback` | QTCore, QTInnerTube | `QTPlaybackEngine` protocol, `QTSimulatedPlaybackEngine`; empty `QTQueueController`, `QTNowPlayingController`, `QTWebPlaybackEngine` | playback |
-| `QTLyrics` | QTCore, LyricsKit | `QTLyricsProviding`, `QTMockLyricsProvider`; LyricsKit adapter stub | lyrics |
+| `QTLyrics` | QTCore | `QTLyricsResolver` (actor, `QTLyricsProviding`): parsers (LRC, YRC, QRC, KRC, TTML), QRC/KRC decryption, providers (YouTube Music, LRCLIB, AMLL; NetEase/Kugou/QQ opt-in), matcher, `QTLyricsCache` (SQLite), romanization, translation plan; `QTMockLyricsProvider` | lyrics |
 | `QTUI` | all | SwiftUI/AppKit UI, app model, theme | per folder, below |
 | `QTubeMusicApp` (product `QTubeMusic`) | QTUI | `@main` app: `Window` (main), `Settings`, `MenuBarExtra`, `QTCommands`, app delegate | desktop |
 
 Spec names → types: PlaybackEngine = `QTPlaybackEngine`, QueueController = `QTQueueController`,
 NowPlayingController = `QTNowPlayingController`, WebPlaybackEngine = `QTWebPlaybackEngine`.
 
-**LyricsKit** (MxIris-LyricsX-Project/LyricsKit, MPL-2.0, `from: 1.9.0`) resolves and builds with Swift 6.4
-(warnings only; it compiles in Swift 5 mode, which is per-package). It is linked into `QTLyrics` only; keep its
-types inside `QTLyrics` and convert to `QTLyricsDocument`. It brings transitive packages: Regex, SwiftCF,
-swift-async-algorithms, BigInt, CryptoSwift, FrameworkToolbox (+ swift-syntax for its macros, swift-collections).
-Do not add any other dependency without asking the user (Sparkle comes later).
+**No third-party dependencies.** LyricsKit was dropped at integration: its QRC/KRC/YRC parsers and decrypters
+are not public, so `QTLyrics` has its own (zlib and sqlite3 come from the system). Do not add any dependency
+without asking the user (Sparkle comes later).
 
 ## QTUI folder ownership
 

@@ -1,0 +1,38 @@
+{
+ "code": 0,
+ "data": {
+  "song": {
+   "count": 4,
+   "itemlist": [
+    {
+     "docid": "247294300",
+     "id": "247294300",
+     "mid": "003WFMXk4O5ywc",
+     "name": "夜に駆ける",
+     "singer": "YOASOBI"
+    },
+    {
+     "docid": "437306028",
+     "id": "437306028",
+     "mid": "000tbPpN42ew3h",
+     "name": "夜に駆ける - From THE FIRST TAKE",
+     "singer": "YOASOBI"
+    },
+    {
+     "docid": "325852165",
+     "id": "325852165",
+     "mid": "003b34Vx21nbbp",
+     "name": "夜に駆ける (奔向黑夜)",
+     "singer": "YOASOBI"
+    },
+    {
+     "docid": "385133078",
+     "id": "385133078",
+     "mid": "004eDUdU2dILmm",
+     "name": "夜に駆ける(ピアノver.)",
+     "singer": "YOASOBI"
+    }
+   ]
+  }
+ }
+}

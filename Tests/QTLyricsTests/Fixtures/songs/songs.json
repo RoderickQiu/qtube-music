@@ -1,0 +1,79 @@
+[
+ {
+  "slug": "perfect",
+  "artist": "Ed Sheeran",
+  "title": "Perfect",
+  "duration": 263,
+  "neteaseId": 460043703,
+  "window": [
+   17.0,
+   41.0
+  ]
+ },
+ {
+  "slug": "qingtian",
+  "artist": "周杰伦",
+  "title": "晴天",
+  "duration": 269,
+  "neteaseId": 186016,
+  "window": [
+   29.0,
+   53.0
+  ]
+ },
+ {
+  "slug": "haphom",
+  "artist": "Hoàng Thùy Linh",
+  "title": "Hạ Phỏm",
+  "duration": 0,
+  "neteaseId": 1968907343,
+  "window": [
+   20.0,
+   44.0
+  ]
+ },
+ {
+  "slug": "doivoianh",
+  "artist": "Kim Ny Ngọc",
+  "title": "Đối Với Anh Em Không Còn Cảm Giác",
+  "duration": 0,
+  "neteaseId": 34516548,
+  "window": [
+   35.0,
+   59.0
+  ]
+ },
+ {
+  "slug": "chungta",
+  "artist": "Sơn Tùng M-TP",
+  "title": "Chúng Ta Của Hiện Tại",
+  "duration": 301,
+  "neteaseId": 1805346557,
+  "window": [
+   25.0,
+   49.0
+  ]
+ },
+ {
+  "slug": "yoruni",
+  "artist": "YOASOBI",
+  "title": "夜に駆ける",
+  "duration": 261,
+  "neteaseId": 1409311773,
+  "window": [
+   1.0,
+   25.0
+  ]
+ },
+ {
+  "slug": "arzkiyahai",
+  "artist": "Anuv Jain",
+  "title": "Arz Kiya Hai",
+  "duration": 0,
+  "neteaseId": 2738094873,
+  "window": [
+   28.0,
+   52.0
+  ]
+ }
+]

@@ -1,0 +1,18 @@
+{
+ "status": 200,
+ "errcode": 200,
+ "candidates": [
+  {
+   "id": "92151884",
+   "accesskey": "8342238AE437610513517E99CBB711F2",
+   "singer": "Sơn Tùng M-TP",
+   "song": "Chúng Ta Của Hiện Tại",
+   "duration": 301,
+   "score": 60,
+   "krctype": 2,
+   "language": "",
+   "transname": "",
+   "contenttype": 0
+  }
+ ]
+}

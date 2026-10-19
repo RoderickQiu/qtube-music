@@ -1,0 +1,124 @@
+{
+ "code": 200,
+ "result": {
+  "songs": [
+   {
+    "id": 570056840,
+    "name": "Đối Với Anh Em Không Còn Cảm Giác",
+    "alia": [],
+    "tns": [
+     "《对你已无感》"
+    ],
+    "dt": 257332,
+    "ar": [
+     {
+      "id": 1147059,
+      "name": "Kim Ny Ngọc",
+      "tns": [],
+      "alias": []
+     }
+    ],
+    "al": {
+     "id": 39512031,
+     "name": "Anh Vui Là Được"
+    }
+   },
+   {
+    "id": 34516548,
+    "name": "Đối Với Anh Em Không Còn Cảm Giác",
+    "alia": [],
+    "tns": null,
+    "dt": 257306,
+    "ar": [
+     {
+      "id": 1147059,
+      "name": "Kim Ny Ngọc",
+      "tns": [],
+      "alias": []
+     }
+    ],
+    "al": {
+     "id": 3287120,
+     "name": "Đối Với Anh Em Không Còn Cảm Giác"
+    }
+   },
+   {
+    "id": 2059203486,
+    "name": "Đối Với Anh Em Không Còn Cảm Giác",
+    "alia": [],
+    "tns": null,
+    "dt": 49084,
+    "ar": [
+     {
+      "id": 1147059,
+      "name": "Kim Ny Ngọc",
+      "tns": [],
+      "alias": []
+     }
+    ],
+    "al": {
+     "id": 168438832,
+     "name": "Tuyển Tập Nhạc Chờ Bolero (phần 1)"
+    }
+   },
+   {
+    "id": 2088421302,
+    "name": "Đối với anh em không còn cảm giác",
+    "alia": [],
+    "tns": null,
+    "dt": 257306,
+    "ar": [
+     {
+      "id": 1147059,
+      "name": "Kim Ny Ngọc",
+      "tns": [],
+      "alias": []
+     }
+    ],
+    "al": {
+     "id": 176369696,
+     "name": "Chia Tay Ai Không Buồn"
+    }
+   },
+   {
+    "id": 1944714226,
+    "name": "Đối Với Anh Em Không Còn Cảm Giác (Beat)",
+    "alia": [],
+    "tns": null,
+    "dt": 247878,
+    "ar": [
+     {
+      "id": 1147059,
+      "name": "Kim Ny Ngọc",
+      "tns": [],
+      "alias": []
+     }
+    ],
+    "al": {
+     "id": 144499805,
+     "name": "Đối Với Anh Em Không Còn Cảm Giác"
+    }
+   },
+   {
+    "id": 2721037104,
+    "name": "Đối Với Anh Em Không Còn Cảm Giác (#3)",
+    "alia": [],
+    "tns": null,
+    "dt": 51475,
+    "ar": [
+     {
+      "id": 1147059,
+      "name": "Kim Ny Ngọc",
+      "tns": [],
+      "alias": []
+     }
+    ],
+    "al": {
+     "id": 276793817,
+     "name": "Hoa Dại Trang Nhật Ký"
+    }
+   }
+  ],
+  "songCount": 6
+ }
+}

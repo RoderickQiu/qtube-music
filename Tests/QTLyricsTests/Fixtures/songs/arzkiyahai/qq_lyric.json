@@ -1,0 +1,16 @@
+{
+ "code": 0,
+ "req": {
+  "code": 0,
+  "data": {
+   "songID": 0,
+   "songName": "",
+   "songType": 0,
+   "qrc": 0,
+   "crypt": 0,
+   "lyric": "",
+   "trans": "",
+   "roma": ""
+  }
+ }
+}

@@ -1,0 +1,54 @@
+{
+ "status": 200,
+ "errcode": 200,
+ "candidates": [
+  {
+   "id": "346470551",
+   "accesskey": "76BB65494FCCB31A9B77874A3EE6ED13",
+   "singer": "Ed Sheeran",
+   "song": "Perfect",
+   "duration": 263444,
+   "score": 60,
+   "krctype": 2,
+   "language": "英语",
+   "transname": "",
+   "contenttype": 0
+  },
+  {
+   "id": "389516721",
+   "accesskey": "EF94A9276A4D2B1C9551DA8E125AF42E",
+   "singer": "Ed Sheeran",
+   "song": "Perfect",
+   "duration": 263444,
+   "score": 50,
+   "krctype": 2,
+   "language": "英语",
+   "transname": "",
+   "contenttype": 0
+  },
+  {
+   "id": "510757755",
+   "accesskey": "1758A85D1666E5D8452D42455F748711",
+   "singer": "Ed Sheeran",
+   "song": "Perfect",
+   "duration": 263444,
+   "score": 40,
+   "krctype": 2,
+   "language": "英语",
+   "transname": "",
+   "contenttype": 0
+  },
+  {
+   "id": "510757754",
+   "accesskey": "663F3C1D84C6647F7588B557F7BAE176",
+   "singer": "Ed Sheeran",
+   "song": "Perfect",
+   "duration": 263444,
+   "score": 30,
+   "krctype": 2,
+   "language": "英语",
+   "transname": "",
+   "contenttype": 0
+  }
+ ]
+}

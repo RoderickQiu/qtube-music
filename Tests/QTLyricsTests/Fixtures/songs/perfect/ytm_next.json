@@ -1,0 +1,51 @@
+{
+ "contents": {
+  "singleColumnMusicWatchNextResultsRenderer": {
+   "tabbedRenderer": {
+    "watchNextTabbedResultsRenderer": {
+     "tabs": [
+      {
+       "tabRenderer": {
+        "title": "Up next"
+       }
+      },
+      {
+       "tabRenderer": {
+        "title": "Lyrics",
+        "endpoint": {
+         "clickTrackingParams": "CCMQpLQFGJMEIhMIusKMuYbFlwMVWa5_BB2s1xVNygEEWr1yMg==",
+         "browseEndpoint": {
+          "browseId": "MPLYt_T5s950Swfdy-5",
+          "browseEndpointContextSupportedConfigs": {
+           "browseEndpointContextMusicConfig": {
+            "pageType": "MUSIC_PAGE_TYPE_TRACK_LYRICS",
+            "screenTargetType": "MUSIC_SCREEN_TARGET_TYPE_PLAYER"
+           }
+          }
+         }
+        }
+       }
+      },
+      {
+       "tabRenderer": {
+        "title": "Related",
+        "endpoint": {
+         "clickTrackingParams": "CCIQlM0FGJQEIhMIusKMuYbFlwMVWa5_BB2s1xVNygEEWr1yMg==",
+         "browseEndpoint": {
+          "browseId": "MPTRt_T5s950Swfdy-5",
+          "browseEndpointContextSupportedConfigs": {
+           "browseEndpointContextMusicConfig": {
+            "pageType": "MUSIC_PAGE_TYPE_TRACK_RELATED",
+            "screenTargetType": "MUSIC_SCREEN_TARGET_TYPE_PLAYER"
+           }
+          }
+         }
+        }
+       }
+      }
+     ]
+    }
+   }
+  }
+ }
+}

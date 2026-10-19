@@ -1,0 +1,18 @@
+{
+ "status": 200,
+ "errcode": 200,
+ "candidates": [
+  {
+   "id": "196990476",
+   "accesskey": "65772164E6D39F858B8AC396D7888B90",
+   "singer": "Hoàng Thùy Linh",
+   "song": "Hạ Phỏm",
+   "duration": 195787,
+   "score": 60,
+   "krctype": 2,
+   "language": "越南语",
+   "transname": "",
+   "contenttype": 0
+  }
+ ]
+}

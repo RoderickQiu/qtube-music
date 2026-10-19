@@ -1,0 +1,38 @@
+{
+ "code": 0,
+ "data": {
+  "song": {
+   "count": 4,
+   "itemlist": [
+    {
+     "docid": "97773",
+     "id": "97773",
+     "mid": "0039MnYb0qxYhV",
+     "name": "晴天",
+     "singer": "周杰伦"
+    },
+    {
+     "docid": "373283135",
+     "id": "373283135",
+     "mid": "0011I18U4VPP1q",
+     "name": "周杰伦晴天Demo",
+     "singer": "宝藏挖掘机"
+    },
+    {
+     "docid": "627269356",
+     "id": "627269356",
+     "mid": "003qMjZQ0V8Fhf",
+     "name": "周杰伦《晴天》：故事的小黄花，从出生那年就飘着",
+     "singer": "音乐帕特 MusicPart"
+    },
+    {
+     "docid": "373447092",
+     "id": "373447092",
+     "mid": "000Ab2Sk4MkkpI",
+     "name": "周杰伦 - 晴天 demo",
+     "singer": "周杰伦微博台"
+    }
+   ]
+  }
+ }
+}

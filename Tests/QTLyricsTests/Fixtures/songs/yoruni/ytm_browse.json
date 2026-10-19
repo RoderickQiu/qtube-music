@@ -1,0 +1,51 @@
+{
+ "contents": {
+  "elementRenderer": {
+   "newElement": {
+    "type": {
+     "componentType": {
+      "model": {
+       "timedLyricsModel": {
+        "lyricsData": {
+         "timedLyricsData": [
+          {
+           "lyricLine": "沈むように溶けてゆくように",
+           "cueRange": {
+            "startTimeMilliseconds": "1530",
+            "endTimeMilliseconds": "6500",
+            "metadata": {
+             "id": "0"
+            }
+           }
+          },
+          {
+           "lyricLine": "二人だけの空が広がる夜に",
+           "cueRange": {
+            "startTimeMilliseconds": "9040",
+            "endTimeMilliseconds": "16720",
+            "metadata": {
+             "id": "1"
+            }
+           }
+          },
+          {
+           "lyricLine": "♪",
+           "cueRange": {
+            "startTimeMilliseconds": "16720",
+            "endTimeMilliseconds": "31460",
+            "metadata": {
+             "id": "2"
+            }
+           }
+          }
+         ],
+         "sourceMessage": "Source: Musixmatch"
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ }
+}

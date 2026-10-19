@@ -1,0 +1,81 @@
+{
+ "contents": {
+  "elementRenderer": {
+   "newElement": {
+    "type": {
+     "componentType": {
+      "model": {
+       "timedLyricsModel": {
+        "lyricsData": {
+         "timedLyricsData": [
+          {
+           "lyricLine": "Well, I found a girl",
+           "cueRange": {
+            "startTimeMilliseconds": "17270",
+            "endTimeMilliseconds": "21060",
+            "metadata": {
+             "id": "3"
+            }
+           }
+          },
+          {
+           "lyricLine": "Beautiful and sweet",
+           "cueRange": {
+            "startTimeMilliseconds": "21060",
+            "endTimeMilliseconds": "24780",
+            "metadata": {
+             "id": "4"
+            }
+           }
+          },
+          {
+           "lyricLine": "Oh, I never knew you were the someone waiting for me",
+           "cueRange": {
+            "startTimeMilliseconds": "24780",
+            "endTimeMilliseconds": "31880",
+            "metadata": {
+             "id": "5"
+            }
+           }
+          },
+          {
+           "lyricLine": "'Cause we were just kids when we fell in love",
+           "cueRange": {
+            "startTimeMilliseconds": "31880",
+            "endTimeMilliseconds": "36310",
+            "metadata": {
+             "id": "6"
+            }
+           }
+          },
+          {
+           "lyricLine": "Not knowing what it was",
+           "cueRange": {
+            "startTimeMilliseconds": "36310",
+            "endTimeMilliseconds": "40050",
+            "metadata": {
+             "id": "7"
+            }
+           }
+          },
+          {
+           "lyricLine": "I will not give you up this time",
+           "cueRange": {
+            "startTimeMilliseconds": "40050",
+            "endTimeMilliseconds": "47630",
+            "metadata": {
+             "id": "8"
+            }
+           }
+          }
+         ],
+         "sourceMessage": "Source: LyricFind"
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ }
+}

@@ -1,0 +1,17 @@
+{
+ "contents": {
+  "elementRenderer": {
+   "newElement": {
+    "type": {
+     "componentType": {
+      "model": {
+       "musicMessageModel": {
+        "text": "Lyrics not available at this time."
+       }
+      }
+     }
+    }
+   }
+  }
+ }
+}

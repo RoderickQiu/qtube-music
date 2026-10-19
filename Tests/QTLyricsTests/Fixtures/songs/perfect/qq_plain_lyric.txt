@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<QrcInfos>
+<QrcHeadInfo SaveTime="1488463723" Version="100"/>
+<LyricInfo LyricCount="1">
+<Lyric_1 LyricType="1" LyricContent="[ti:Perfect]
+[ar:Ed Sheeran]
+[al:÷ (Deluxe)]
+[by:]
+[offset:0]
+[18237,5941]Well (18237,193)I (18430,174)found (18604,234)a (18838,182)girl (19020,2827)beautiful (21847,1316)and (23163,420)sweet(23583,595)
+[25752,6619]Oh I (25752,225)never (25977,571)knew (26548,774)you (27322,274)were (27596,708)the (28304,201)someone (28505,865)waiting (29370,588)for (29958,450)me(30408,1963)
+[32668,3921]Cause (32668,255)we (32923,203)were (33126,182)just (33308,294)kids (33602,280)when (33882,316)we (34198,230)fell (34428,587)in (35015,989)love(36004,585)
+[36968,10929]Not (36968,353)knowing (37321,600)what (37921,1126)it (39047,685)was (39732,1064)I (40796,246)will (41042,308)not (41350,356)give (41706,879)you (42585,790)up (43375,1183)this (44558,896)time(45454,2443)
+"/>
+</LyricInfo>
+</QrcInfos>

@@ -1,0 +1,151 @@
+{
+ "code": 200,
+ "result": {
+  "songs": [
+   {
+    "id": 1409311773,
+    "name": "夜に駆ける",
+    "alia": [],
+    "tns": [
+     "向夜晚奔去"
+    ],
+    "dt": 261013,
+    "ar": [
+     {
+      "id": 33927412,
+      "name": "YOASOBI",
+      "tns": [
+       "夜游"
+      ],
+      "alias": [
+       "ヨアソビ"
+      ]
+     }
+    ],
+    "al": {
+     "id": 84072830,
+     "name": "夜に駆ける"
+    }
+   },
+   {
+    "id": 1500151583,
+    "name": "夜に駆ける",
+    "alia": [],
+    "tns": [
+     "向夜晚奔去"
+    ],
+    "dt": 258840,
+    "ar": [
+     {
+      "id": 33927412,
+      "name": "YOASOBI",
+      "tns": [
+       "夜游"
+      ],
+      "alias": [
+       "ヨアソビ"
+      ]
+     }
+    ],
+    "al": {
+     "id": 99079344,
+     "name": "THE BOOK"
+    }
+   },
+   {
+    "id": 1851982133,
+    "name": "Into The Night",
+    "alia": [
+     "夜に駆ける English Ver."
+    ],
+    "tns": null,
+    "dt": 262153,
+    "ar": [
+     {
+      "id": 33927412,
+      "name": "YOASOBI",
+      "tns": [
+       "夜游"
+      ],
+      "alias": [
+       "ヨアソビ"
+      ]
+     }
+    ],
+    "al": {
+     "id": 128732322,
+     "name": "Into the Night"
+    }
+   },
+   {
+    "id": 1896853733,
+    "name": "YOASOBI 夜に駆ける(Mahan Remix)",
+    "alia": [],
+    "tns": null,
+    "dt": 159360,
+    "ar": [
+     {
+      "id": 28431234,
+      "name": "Mahan",
+      "tns": [],
+      "alias": []
+     }
+    ],
+    "al": {
+     "id": 136412155,
+     "name": "YOASOBI 夜に駆ける(Mahan Remix)"
+    }
+   },
+   {
+    "id": 2083193896,
+    "name": "夜に駆ける - From THE FIRST TAKE",
+    "alia": [],
+    "tns": [
+     "向夜晚奔去"
+    ],
+    "dt": 248523,
+    "ar": [
+     {
+      "id": 33927412,
+      "name": "YOASOBI",
+      "tns": [
+       "夜游"
+      ],
+      "alias": [
+       "ヨアソビ"
+      ]
+     }
+    ],
+    "al": {
+     "id": 175014930,
+     "name": "夜に駆ける - From THE FIRST TAKE"
+    }
+   },
+   {
+    "id": 1461676118,
+    "name": "YOASOBI-夜に駆ける（Ayasa绚沙 remix）",
+    "alia": [],
+    "tns": null,
+    "dt": 222822,
+    "ar": [
+     {
+      "id": 1193188,
+      "name": "Ayasa",
+      "tns": [
+       "岛村绚沙"
+      ],
+      "alias": [
+       "島村絢沙",
+       "岛村绚沙"
+      ]
+     }
+    ],
+    "al": {
+     "id": 75065112,
+     "name": "Ayasa绚沙 I 小提琴の二次元合辑<二>"
+    }
+   }
+  ],
+  "songCount": 6
+ }
+}

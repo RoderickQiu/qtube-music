@@ -1,11 +1,18 @@
 import Foundation
 import QTCore
 
-// Owner: lyrics builder (M2). See docs/architecture.md › QTLyrics.
+// Owner: lyrics engine (M2). See docs/architecture.md › QTLyrics.
 //
-// Planned contents: provider chain (YouTube Music, LRCLIB, AMLL TTML DB; opt-in NetEase/Kugou/QQ via LyricsKit),
-// parsers (LRC incl. enhanced word tags, YRC, QRC, KRC, TTML), matcher + scorer (draft §6), SQLite cache keyed by
-// videoId, translation engines (provider lane, Apple Intelligence on macOS 26+, Translation framework).
+// - `QTLyricsResolver` (actor, conforms to `QTLyricsProviding`): the engine the app uses. `.standard(configuration:)`
+//   builds the chain YouTube Music · AMLL TTML DB · LRCLIB (safe, on) + NetEase · Kugou · QQ (opt-in).
+//   `resolve(_:)` → `QTLyricsResolution` (document, other versions, pin state, attribution); `pin`/`unpin`,
+//   `setOffset(_:for:)` (persisted, positive = lyrics earlier).
+// - Providers (`QTLyricsSourceProvider`) talk through `QTLyricsHTTPClient` / `QTInnerTubeLyricsRequesting`.
+// - Parsers: `QTLRCParser`, `QTYRCParser`, `QTQRCParser`, `QTKRCParser`, `QTTTMLParser`; codecs `QTKRCCodec`,
+//   `QTQRCCodec`. Matching: `QTLyricsMatchScorer`, `QTTitleCleaner`, `QTLyricsTextFolding`, `QTLyricsAliasBook`.
+// - `QTLyricsCache` (SQLite), `QTLyricsLanguageDetector`, `QTLyricsRomanizer`, translation selection
+//   (`QTLyricsTranslationSelector` / `QTLyricsTranslationCoordinator`; Foundation Models + Translation framework
+//   engines are M6 stubs).
 
 /// Anything that can produce lyrics for a track. The UI only depends on this.
 public protocol QTLyricsProviding: Sendable {

@@ -1,0 +1,158 @@
+{
+ "code": 200,
+ "result": {
+  "songs": [
+   {
+    "id": 1921150691,
+    "name": "See Tình",
+    "alia": [],
+    "tns": [
+     "遇见挚爱"
+    ],
+    "dt": 185063,
+    "ar": [
+     {
+      "id": 1049217,
+      "name": "Hoàng Thùy Linh",
+      "tns": [
+       "黄垂玲"
+      ],
+      "alias": []
+     },
+     {
+      "id": 34782351,
+      "name": "Dtap",
+      "tns": [],
+      "alias": []
+     }
+    ],
+    "al": {
+     "id": 140545875,
+     "name": "See Tình"
+    }
+   },
+   {
+    "id": 1944518589,
+    "name": "See Tình (Speed Up Version)",
+    "alia": [],
+    "tns": [
+     "看见爱情（倍速版）"
+    ],
+    "dt": 142175,
+    "ar": [
+     {
+      "id": 1049217,
+      "name": "Hoàng Thùy Linh",
+      "tns": [
+       "黄垂玲"
+      ],
+      "alias": []
+     }
+    ],
+    "al": {
+     "id": 144459428,
+     "name": "See Tình (Speed Up Version)"
+    }
+   },
+   {
+    "id": 1968907343,
+    "name": "Hạ Phỏm",
+    "alia": [],
+    "tns": [
+     "出牌"
+    ],
+    "dt": 195813,
+    "ar": [
+     {
+      "id": 1049217,
+      "name": "Hoàng Thùy Linh",
+      "tns": [
+       "黄垂玲"
+      ],
+      "alias": []
+     }
+    ],
+    "al": {
+     "id": 149034216,
+     "name": "LINK"
+    }
+   },
+   {
+    "id": 3448696791,
+    "name": "Thầy Dùi",
+    "alia": [],
+    "tns": null,
+    "dt": 168750,
+    "ar": [
+     {
+      "id": 1049217,
+      "name": "Hoàng Thùy Linh",
+      "tns": [
+       "黄垂玲"
+      ],
+      "alias": []
+     }
+    ],
+    "al": {
+     "id": 404093925,
+     "name": "Thầy Dùi"
+    }
+   },
+   {
+    "id": 1397712862,
+    "name": "Kẻ Cắp Gặp Bà Già",
+    "alia": [
+     "Diamond Cut Diamond"
+    ],
+    "tns": [
+     "棋逢对手"
+    ],
+    "dt": 231504,
+    "ar": [
+     {
+      "id": 1049217,
+      "name": "Hoàng Thùy Linh",
+      "tns": [
+       "黄垂玲"
+      ],
+      "alias": []
+     },
+     {
+      "id": 858028,
+      "name": "Binz",
+      "tns": [],
+      "alias": []
+     }
+    ],
+    "al": {
+     "id": 82527025,
+     "name": "Hoàng"
+    }
+   },
+   {
+    "id": 1942294244,
+    "name": "See Tình - Cucak Remix",
+    "alia": [],
+    "tns": [
+     "看见爱情"
+    ],
+    "dt": 170225,
+    "ar": [
+     {
+      "id": 1049217,
+      "name": "Hoàng Thùy Linh",
+      "tns": [
+       "黄垂玲"
+      ],
+      "alias": []
+     }
+    ],
+    "al": {
+     "id": 144136712,
+     "name": "See Tình - Cucak Remix"
+    }
+   }
+  ],
+  "songCount": 6
+ }
+}

@@ -1,0 +1,130 @@
+{
+ "code": 200,
+ "result": {
+  "songs": [
+   {
+    "id": 2738094873,
+    "name": "Arz Kiya Hai | Coke Studio Bharat",
+    "alia": [],
+    "tns": null,
+    "dt": 294500,
+    "ar": [
+     {
+      "id": 36014947,
+      "name": "Anuv Jain",
+      "tns": [],
+      "alias": []
+     }
+    ],
+    "al": {
+     "id": 282210373,
+     "name": "Arz Kiya Hai | Coke Studio Bharat"
+    }
+   },
+   {
+    "id": 2613614332,
+    "name": "Jo Tum Mere Ho",
+    "alia": [],
+    "tns": [
+     "你属于我"
+    ],
+    "dt": 251813,
+    "ar": [
+     {
+      "id": 36014947,
+      "name": "Anuv Jain",
+      "tns": [],
+      "alias": []
+     }
+    ],
+    "al": {
+     "id": 243885186,
+     "name": "Jo Tum Mere Ho"
+    }
+   },
+   {
+    "id": 2104608354,
+    "name": "Husn",
+    "alia": [],
+    "tns": null,
+    "dt": 217894,
+    "ar": [
+     {
+      "id": 36014947,
+      "name": "Anuv Jain",
+      "tns": [],
+      "alias": []
+     }
+    ],
+    "al": {
+     "id": 180216028,
+     "name": "Husn"
+    }
+   },
+   {
+    "id": 3328209792,
+    "name": "Inaam",
+    "alia": [],
+    "tns": null,
+    "dt": 270804,
+    "ar": [
+     {
+      "id": 122014494,
+      "name": "AnuvJain",
+      "tns": [],
+      "alias": []
+     }
+    ],
+    "al": {
+     "id": 354510863,
+     "name": "Inaam"
+    }
+   },
+   {
+    "id": 1973046704,
+    "name": "热恋情节",
+    "alia": [],
+    "tns": null,
+    "dt": 198501,
+    "ar": [
+     {
+      "id": 13008205,
+      "name": "吴子健REmi",
+      "tns": [],
+      "alias": []
+     },
+     {
+      "id": 36624209,
+      "name": "kiya",
+      "tns": [],
+      "alias": []
+     }
+    ],
+    "al": {
+     "id": 149874091,
+     "name": "热恋情节"
+    }
+   },
+   {
+    "id": 1952010932,
+    "name": "我想要你",
+    "alia": [],
+    "tns": null,
+    "dt": 145170,
+    "ar": [
+     {
+      "id": 36624209,
+      "name": "kiya",
+      "tns": [],
+      "alias": []
+     }
+    ],
+    "al": {
+     "id": 145755211,
+     "name": "我想要你"
+    }
+   }
+  ],
+  "songCount": 6
+ }
+}
