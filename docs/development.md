@@ -177,8 +177,9 @@ with `--publish`. See the comments at the top of the script and [CHANGELOG.md](.
 project `qtube` (team roderick-qius-projects) with **Root Directory `site`**, linked at the **repo root**
 (`.vercel/` at the root, git-ignored).
 
-- Pushes to `main` deploy through the Vercel GitHub integration; `site/vercel.json`'s `ignoreCommand` skips commits
-  that don't touch `site/`.
+- Pushes to `main` deploy through the Vercel GitHub integration (every push; the static site builds in seconds). No
+  `ignoreCommand`: Vercel's checkout may have no parent commit, so `git diff HEAD^` exits with an error and fails
+  the deployment (happened 2026-10-19).
 - A manual deploy is `vercel deploy --prod` **from the repo root**. Never deploy from `site/` (the root directory
   would resolve to `site/site` and fail), and never clear the Root Directory setting (the whole repo would be served
   and every page 404s). The root `.vercelignore` uploads only `site/`.
