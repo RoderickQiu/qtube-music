@@ -6,6 +6,9 @@ import SwiftUI
 public actor QTImageLoader {
     public static let shared = QTImageLoader()
 
+    /// DEBUG fixture runs (`-qt.live.fixtures YES`) keep artwork offline: remote URLs show the placeholder.
+    nonisolated(unsafe) static var allowsNetwork = true
+
     private let cache = NSCache<NSString, CGImageBox>()
     private var inflight: [String: Task<CGImage?, Never>] = [:]
 
@@ -24,6 +27,7 @@ public actor QTImageLoader {
         let key = "\(url.absoluteString)#\(bucket)"
         if let hit = cache.object(forKey: key as NSString) { return hit.image }
         if let running = inflight[key] { return await running.value }
+        guard url.isFileURL || Self.allowsNetwork else { return nil }
         let task = Task.detached(priority: .userInitiated) { () -> CGImage? in
             let data: Data?
             if url.isFileURL {

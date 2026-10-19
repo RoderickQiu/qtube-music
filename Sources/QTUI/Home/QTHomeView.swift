@@ -25,7 +25,8 @@ public struct QTHomeView: View {
     public var body: some View {
         let store = QTLiveCatalogStore.shared
         feed(live: store.isLive && !isRestoring ? store : nil)
-            .task(id: store.isLive) { if store.isLive && !isRestoring { await store.loadHome() } }
+            // Keyed by the mode: a sign-out (library → guest) resets the pages, and Home reloads anonymously.
+            .task(id: store.mode) { if store.isLive && !isRestoring { await store.loadHome() } }
     }
 
     private func feed(live store: QTLiveCatalogStore?) -> some View {
@@ -671,12 +672,18 @@ struct QTTrackContextMenu: View {
             Button(QTLoc.tr("Go to Artist · %@", artist.name)) { QTNavigator.shared.go(.artist(artist)) }
         }
         Divider()
-        Menu(QTLoc.tr("Add to Playlist")) {
-            ForEach(model.catalog.playlists) { p in
-                Button(p.title.resolved) { QTTrackActions.add([track], to: p) }
+        if QTLiveCatalogStore.shared.isGuest {
+            // Guest mode: no playlists of one's own; the item offers to sign in.
+            Button(QTLoc.tr("Add to Playlist")) { _ = QTAccountGate.allows(.addToPlaylist) }
+                .disabled(!playable)
+        } else {
+            Menu(QTLoc.tr("Add to Playlist")) {
+                ForEach(model.catalog.playlists) { p in
+                    Button(p.title.resolved) { QTTrackActions.add([track], to: p) }
+                }
             }
+            .disabled(!playable)
         }
-        .disabled(!playable)
         Button(QTLoc.tr(player.isLiked(track) ? "Remove from Liked Songs" : "Like")) { QTTrackActions.toggleLike([track]) }
         Divider()
         Button(QTLoc.tr("Copy Link")) { QTTrackActions.copyLinks([track]) }

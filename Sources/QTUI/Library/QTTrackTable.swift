@@ -465,8 +465,13 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
             pi.image = NSImage(systemSymbolName: QTIcon.playlist.systemName, accessibilityDescription: nil)
             sub.addItem(pi)
         }
-        add.submenu = sub
-        add.action = #selector(menuNoop)
+        if QTLiveCatalogStore.shared.isGuest {
+            // Guest mode: no playlists of one's own; the item offers to sign in.
+            add.action = #selector(menuAddToPlaylistAsGuest)
+        } else {
+            add.submenu = sub
+            add.action = #selector(menuNoop)
+        }
         menu.addItem(add)
         let allLiked = menuTargets.allSatisfy { model.player.isLiked($0) }
         menu.addItem(item(QTLoc.tr(allLiked ? "Remove from Liked Songs" : "Like"), #selector(menuToggleLike), key: "l", mods: .command))
@@ -475,6 +480,8 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
     }
 
     @objc private func menuNoop() {}
+
+    @objc private func menuAddToPlaylistAsGuest() { _ = QTAccountGate.allows(.addToPlaylist) }
 
     @objc private func menuPlay() {
         guard let t = page?.tableView, rows.indices.contains(t.clickedRow) else { return }

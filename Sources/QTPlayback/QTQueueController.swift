@@ -598,7 +598,8 @@ public final class QTQueueController {
         consecutiveFailures += 1
         let hasNext = !queue.upNext.isEmpty || (queue.isAutoplayEnabled && (!queue.autoplay.isEmpty || autoplayContinuation != nil))
             || (repeatMode == .all && !context.isEmpty)
-        let skip = wantsPlayback && consecutiveFailures < Self.maxConsecutiveFailures && hasNext
+        // A bot check stops the queue: the next item would land on it too.
+        let skip = wantsPlayback && consecutiveFailures < Self.maxConsecutiveFailures && hasNext && error != .botCheck
         onFailure?(QTPlaybackFailureEvent(track: track, error: error, skipped: skip, consecutive: consecutiveFailures))
         guard skip else { return }
         await advance(userInitiated: false)

@@ -44,7 +44,7 @@ public struct QTToastOverlay: View {
                     Text(toast.message)
                         .font(QTTheme.Typography.secondary)
                     if let undo = toast.undo {
-                        Button(QTLoc.tr("Undo")) {
+                        Button(toast.actionTitle ?? QTLoc.tr("Undo")) {
                             undo()
                             model.dismissToast()
                         }

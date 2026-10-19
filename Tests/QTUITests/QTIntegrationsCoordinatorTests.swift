@@ -113,7 +113,7 @@ final class QTUIStubEngine: QTPlaybackEngine {
         demo.source = .mock
         let real = QTUIStubEngine()
         #expect(QTIntegrationsCoordinator.reportsPlays(setup: live, engine: real, catalogMode: .live))
-        #expect(QTIntegrationsCoordinator.reportsPlays(setup: live, engine: real, catalogMode: .signedOut))
+        #expect(QTIntegrationsCoordinator.reportsPlays(setup: live, engine: real, catalogMode: .guest))
         #expect(!QTIntegrationsCoordinator.reportsPlays(setup: live, engine: real, catalogMode: .mock))
         #expect(!QTIntegrationsCoordinator.reportsPlays(setup: demo, engine: real, catalogMode: .live))
         #expect(!QTIntegrationsCoordinator.reportsPlays(setup: silent, engine: real, catalogMode: .live))

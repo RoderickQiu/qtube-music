@@ -18,7 +18,8 @@ private struct QTSidebarContextMenuModifier: ViewModifier {
     let playlist: QTPlaylist?
 
     func body(content: Content) -> some View {
-        if let target = QTSidebarPlaylistTarget(item: item, playlist: playlist) {
+        // Guest mode has no library to play from (Liked Songs asks to sign in).
+        if !QTLiveCatalogStore.shared.isGuest, let target = QTSidebarPlaylistTarget(item: item, playlist: playlist) {
             content.contextMenu {
                 Button(QTLoc.tr("Play")) { target.play(shuffled: false) }
                 Button(QTLoc.tr("Shuffle")) { target.play(shuffled: true) }

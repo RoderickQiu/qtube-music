@@ -35,15 +35,28 @@ public struct QTSidebarView: View {
             } header: {
                 Text(QTLoc.tr("Library"))
             }
-            Section(isExpanded: $playlistsExpanded) {
-                ForEach(model.catalog.playlists) { p in
-                    QTSidebarRow(item: .playlist(p.id), title: p.title.resolved, icon: .playlist, playlist: p)
+            if !model.catalog.playlists.isEmpty {
+                Section(isExpanded: $playlistsExpanded) {
+                    ForEach(model.catalog.playlists) { p in
+                        QTSidebarRow(item: .playlist(p.id), title: p.title.resolved, icon: .playlist, playlist: p)
+                    }
+                } header: {
+                    Text(QTLoc.tr("Playlists"))
                 }
-            } header: {
-                Text(QTLoc.tr("Playlists"))
             }
         }
         .listStyle(.sidebar)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            // Guest mode: the one way into the account, at the foot of the source list.
+            if QTLiveCatalogStore.shared.isGuest {
+                QTSignInButton()
+                    .controlSize(.large)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, QTTheme.Spacing.m)
+                    .padding(.vertical, QTTheme.Spacing.s)
+                    .accessibilityIdentifier("qt.sidebar.signIn")
+            }
+        }
         .accessibilityIdentifier("qt.sidebar")
     }
 

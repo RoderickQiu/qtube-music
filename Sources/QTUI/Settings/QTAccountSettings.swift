@@ -91,7 +91,7 @@ struct QTAccountSettings: View {
         .formStyle(.grouped)
         .confirmationDialog(QTLoc.tr("Sign out of YouTube Music?", table: .desktop), isPresented: $confirmSignOut) {
             Button(QTLoc.tr("Sign Out", table: .desktop), role: .destructive) {
-                // Through the live store (it also clears the library pages and shows the signed-out state).
+                // Through the live store (it also clears the library pages and continues in guest mode).
                 Task { await QTLiveCatalogStore.shared.signOut() }
             }
         } message: {

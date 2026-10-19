@@ -69,6 +69,9 @@ public enum QTPlaybackError: Error, Sendable, Hashable {
     case ageRestricted
     case network(String)
     case engine(String)
+    /// The player page landed on Google's bot check (www.google.com/sorry) instead of YouTube Music. Every item would
+    /// hit it, so the queue stops instead of skipping; signing in usually clears it.
+    case botCheck
 
     /// Network trouble rather than a problem with the item: retry later instead of skipping for good.
     public var isNetwork: Bool {

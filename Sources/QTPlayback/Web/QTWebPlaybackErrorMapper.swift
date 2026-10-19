@@ -1,12 +1,19 @@
 import Foundation
 import QTCore
+import QTInnerTube
 
 /// Turns what YouTube's player reports into a `QTPlaybackError` the queue and UI understand.
 ///
 /// Two sources: the player's `onError` codes (IFrame API numbering), and the item's
 /// `playabilityStatus` (`status` + human `reason`, in the page's language) for cases that never raise `onError`
-/// — age gates, region locks, removed or private videos.
+/// — age gates, region locks, removed or private videos. Plus the page itself: a player page that landed on Google's
+/// bot check (`www.google.com/sorry/…`) is `.botCheck`, at once, instead of a load timeout.
 enum QTWebPlaybackErrorMapper {
+    /// The player page navigated to Google's "unusual traffic" check instead of YouTube Music.
+    static func isBotCheckPage(_ url: URL?) -> Bool {
+        QTInnerTubeError.isBotCheck(url: url)
+    }
+
     static func error(code: Int, status: String, reason: String, ageGate: Bool = false) -> QTPlaybackError {
         if ageGate { return .ageRestricted }
         switch status {

@@ -71,6 +71,8 @@ final class Rig {
 @MainActor
 final class FailingEngine: QTPlaybackEngine {
     var failing: Set<String>
+    /// What a failing item fails with.
+    var error: QTPlaybackError = .unavailable(.removed)
     var loads: [String] = []
     var capabilities: QTPlaybackCapabilities { .free }
     private(set) var state = QTPlaybackState()
@@ -88,9 +90,9 @@ final class FailingEngine: QTPlaybackEngine {
     func load(_ item: QTPlaybackItem, autoplay: Bool) async throws {
         loads.append(item.track.videoId)
         if failing.contains(item.track.videoId) {
-            state = QTPlaybackState(item: item, status: .failed(.unavailable(.removed)))
+            state = QTPlaybackState(item: item, status: .failed(error))
             for c in continuations.values { c.yield(state) }
-            throw QTPlaybackError.unavailable(.removed)
+            throw error
         }
         state = QTPlaybackState(item: item, status: autoplay ? .playing : .paused, duration: item.track.duration)
         for c in continuations.values { c.yield(state) }

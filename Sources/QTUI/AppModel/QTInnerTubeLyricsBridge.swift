@@ -29,6 +29,8 @@ public struct QTInnerTubeLyricsBridge: QTInnerTubeLyricsRequesting {
         case .http(let status), .api(let status, _): .http(status: status)
         case .invalidResponse, .parse: .decoding("InnerTube")
         case .notSignedIn, .sessionExpired, .writesDisabled: .http(status: 403)
+        // Google's bot check: back off like a rate limit (lyrics retry later, nothing hammers the check).
+        case .botCheck: .rateLimited(retryAfter: 300)
         @unknown default: .transport(String(describing: error))
         }
     }

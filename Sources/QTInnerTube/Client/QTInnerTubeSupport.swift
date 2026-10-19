@@ -110,9 +110,27 @@ public enum QTInnerTubeError: Error, Sendable, Equatable, LocalizedError {
     case writesDisabled
     /// YouTube refused the request with an error payload.
     case api(status: Int, message: String)
+    /// The request landed on Google's "unusual traffic" check (`www.google.com/sorry/…`, a captcha page) instead of
+    /// YouTube Music. Not retried: the check doesn't clear by itself in seconds, and the app never opens or solves it.
+    case botCheck
+
+    /// Whether a response is Google's bot check rather than YouTube's answer: a redirect to `google.*/sorry/…`, or a
+    /// captcha / "unusual traffic" HTML page.
+    public static func isBotCheck(url: URL?, body: Data? = nil) -> Bool {
+        if let url, let host = url.host?.lowercased(),
+           host == "google.com" || host.hasSuffix(".google.com") || host.hasPrefix("google.") || host.contains(".google."),
+           url.path.lowercased().hasPrefix("/sorry") {
+            return true
+        }
+        guard let body, !body.isEmpty, body.first != UInt8(ascii: "{") else { return false }
+        let text = String(decoding: body.prefix(64 * 1024), as: UTF8.self).lowercased()
+        return text.contains("/sorry/index") || text.contains("unusual traffic from your computer network")
+            || (text.contains("g-recaptcha") && text.contains("sorry"))
+    }
 
     public var errorDescription: String? {
         switch self {
+        case .botCheck: "YouTube asked to verify this connection"
         case .network(let code): "Network error (\(code))"
         case .http(let status): "HTTP \(status)"
         case .rateLimited: "Rate limited"

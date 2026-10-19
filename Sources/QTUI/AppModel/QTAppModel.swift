@@ -9,10 +9,13 @@ import QTPlayback
 public struct QTToast: Identifiable {
     public let id = UUID()
     public var message: String
+    /// The toast's one action ("Undo" unless `actionTitle` names another, e.g. "Sign In").
     public var undo: (@MainActor () -> Void)?
+    public var actionTitle: String?
 
-    public init(message: String, undo: (@MainActor () -> Void)? = nil) {
+    public init(message: String, actionTitle: String? = nil, undo: (@MainActor () -> Void)? = nil) {
         self.message = message
+        self.actionTitle = actionTitle
         self.undo = undo
     }
 }
@@ -82,12 +85,18 @@ public final class QTAppModel {
                 s.unofficialLyricsSources = v
             }
         }
+        // The demo catalog only for a DEBUG `-qt.catalog mock` launch; YouTube Music (signed in or guest) starts empty,
+        // so no demo track, lyric or palette can surface (release builds never find the catalog at all).
         let catalog: QTMockCatalog
-        if let url = QTMockCatalog.locate(explicitPath: launch.catalogPath), let loaded = try? QTMockCatalog.load(from: url) {
-            catalog = loaded
+        if !QTLiveCatalogStore.wantsLive(launch) {
+            if let url = QTMockCatalog.locate(explicitPath: launch.catalogPath), let loaded = try? QTMockCatalog.load(from: url) {
+                catalog = loaded
+            } else {
+                FileHandle.standardError.write(Data("QTube Music: mock catalog not found; run Scripts/make-mock-catalog.py\n".utf8))
+                catalog = QTLiveCatalogStore.emptyCatalog
+            }
         } else {
-            FileHandle.standardError.write(Data("QTube Music: mock catalog not found; run Scripts/make-mock-catalog.py\n".utf8))
-            catalog = QTMockCatalog(tracks: [], liked: QTPlaylist(id: "LM", title: .localized("Liked Songs"), kind: .liked, tracks: []))
+            catalog = QTLiveCatalogStore.emptyCatalog
         }
         // `-qt.lyrics.engine mock` serves the catalog's bundled lyrics, which came from unofficial providers; say so
         // in the session's settings (never persisted) so the lyrics options don't name NetEase over an "Unofficial
@@ -119,6 +128,8 @@ public final class QTAppModel {
         model.surface = launch.surface ?? .window
         model.sidebarSelection = launch.section ?? .home
         model.panelTab = launch.panelTab ?? .nowPlaying
+        // `-qt.search <text>`: open with search results (screenshots).
+        if let query = launch.string("qt.search") { model.searchText = query }
         model.isPanelShown = !(launch.panelHidden ?? false)
         model.isVideoMode = launch.videoMode ?? (launch.stageBackground == .video || settings.settings.preferVideos)
         if launch.extraWindows.contains(.desktopLyrics) { settings.override { $0.desktopLyrics.isShown = true } }
@@ -229,10 +240,11 @@ public final class QTAppModel {
 
     // MARK: Toasts
 
-    /// Shows a HUD message; with `undo` it stays 5 s, otherwise 2.2 s (prototype timings).
-    public func showToast(_ message: String, undo: (@MainActor () -> Void)? = nil) {
+    /// Shows a HUD message; with an action (`undo`, titled "Undo" unless `actionTitle` says otherwise) it stays 5 s,
+    /// otherwise 2.2 s (prototype timings).
+    public func showToast(_ message: String, actionTitle: String? = nil, undo: (@MainActor () -> Void)? = nil) {
         toastTask?.cancel()
-        toast = QTToast(message: message, undo: undo)
+        toast = QTToast(message: message, actionTitle: actionTitle, undo: undo)
         let duration: Duration = undo == nil ? .milliseconds(2200) : .seconds(5)
         toastTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: duration)

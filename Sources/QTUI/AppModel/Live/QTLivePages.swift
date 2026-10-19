@@ -5,7 +5,7 @@ import SwiftUI
 // Owner: builder "data-live". Content pages backed by YouTube Music. Track lists reuse the window builder's
 // QTLibraryView (native NSTableView, sticky compact header); Home and the library grids are the window's one set
 // (QTHomeView, QTLibraryAlbumsPage / QTLibraryArtistsPage) for demo + live; these views add loading, failure and
-// signed-out states. Explore, mood, album, artist and
+// guest (sign-in) states. Explore, mood, album, artist and
 // search pages are the window's shared browse pages (Shell/), fed by `QTLiveBrowseService`.
 
 /// Live replacement for a content-column destination (see `QTLiveCatalogStore.handles(_:)`).
@@ -20,14 +20,15 @@ struct QTLivePage: View {
             // Home's own loading state (real greeting, chip and shelf placeholders), so restoring → loading →
             // loaded never swaps one skeleton for another of a different shape.
             if destination == .section(.home) { QTHomeView(isRestoring: true) } else { skeleton }
-        case .signedOut:
-            QTLiveSignedOutView()
-        case .mock, .live:
-            if store.auth.state == .sessionExpired {
-                QTLiveSignedOutView()
+        case .guest:
+            // Guest mode: YouTube Music without an account; the library's places ask to sign in.
+            if QTLiveCatalogStore.isLibrary(destination) {
+                QTLiveSignInPrompt(destination: destination)
             } else {
                 page
             }
+        case .mock, .live:
+            page
         }
     }
 

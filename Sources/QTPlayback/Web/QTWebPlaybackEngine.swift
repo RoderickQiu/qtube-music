@@ -283,6 +283,15 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
             while true {
                 try? await Task.sleep(for: .milliseconds(500))
                 guard let self, self.pendingLoads[gen] != nil, gen == self.generation else { return }
+                // Google's bot check instead of the player: fail now (no retry — a fresh page lands there too).
+                if QTWebPlaybackErrorMapper.isBotCheckPage(self.webView?.url),
+                   let c = self.pendingLoads.removeValue(forKey: gen) {
+                    self.state.status = .failed(.botCheck)
+                    self.state.isBuffering = false
+                    self.publish()
+                    c.resume(throwing: QTPlaybackError.botCheck)
+                    return
+                }
                 if self.isNetworkAvailable { online += 0.5 }
                 guard online >= limit else { continue }
                 if self.loadRetriesLeft > 0 {

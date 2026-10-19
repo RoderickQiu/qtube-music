@@ -192,11 +192,21 @@ public struct QTDevSharedKeychainStore: QTSecureStore {
 
 public extension QTKeychainStore {
     /// The store the app uses: the shared, prompt-free dev item in DEBUG builds; the per-app Keychain item otherwise.
+    /// A release build of a dev variant (`QT_VARIANT=x QT_CONFIG=release`, bundle id `com.roderickqiu.qtube.dev-x`)
+    /// gets its own account, so it never reads (or prompts for, or clears) the installed app's session.
     static var appDefault: any QTSecureStore {
         #if DEBUG
         QTDevSharedKeychainStore()
         #else
-        QTKeychainStore()
+        QTKeychainStore(account: releaseAccount(bundleIdentifier: Bundle.main.bundleIdentifier))
         #endif
+    }
+
+    /// The release Keychain account for a bundle id: the app's own for `com.roderickqiu.qtube`, a separate one per
+    /// dev variant.
+    static func releaseAccount(bundleIdentifier: String?) -> String {
+        let variantPrefix = QTKeychainStore.defaultService + ".dev-"
+        guard let id = bundleIdentifier, id.hasPrefix(variantPrefix) else { return QTKeychainStore.defaultAccount }
+        return QTKeychainStore.defaultAccount + "." + id.dropFirst(variantPrefix.count)
     }
 }

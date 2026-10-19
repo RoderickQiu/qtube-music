@@ -128,8 +128,10 @@ public final class QTPlayerModel {
 
     // MARK: Likes and lyrics
 
-    /// Local only: writing likes to the YouTube Music account waits for the user's go-ahead.
+    /// Local only: writing likes to the YouTube Music account waits for the user's go-ahead. Guest mode offers to
+    /// sign in instead (there is no account to like for).
     public func toggleLike(_ track: QTTrack) {
+        guard QTAccountGate.allows(.like) else { return }
         if likedTrackIDs.contains(track.videoId) { likedTrackIDs.remove(track.videoId) } else { likedTrackIDs.insert(track.videoId) }
     }
 

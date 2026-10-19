@@ -20,6 +20,13 @@ import Testing
         ]
     }
 
+    /// A release build of a dev variant never shares the installed app's Keychain item.
+    @Test func releaseKeychainAccountIsPerVariant() {
+        #expect(QTKeychainStore.releaseAccount(bundleIdentifier: "com.roderickqiu.qtube") == "youtube-music-session")
+        #expect(QTKeychainStore.releaseAccount(bundleIdentifier: nil) == "youtube-music-session")
+        #expect(QTKeychainStore.releaseAccount(bundleIdentifier: "com.roderickqiu.qtube.dev-guest") == "youtube-music-session.guest")
+    }
+
     @Test func cookieRoundTripsThroughHTTPCookie() throws {
         let c = QTCookie(name: "SID", value: "v", domain: ".youtube.com", path: "/",
                          expires: Date(timeIntervalSince1970: (Date().timeIntervalSince1970 + 30 * 86_400).rounded()),

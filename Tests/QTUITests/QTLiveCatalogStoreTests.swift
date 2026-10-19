@@ -7,7 +7,7 @@ import QTPlayback
 import Testing
 @testable import QTUI
 
-/// `QTLiveCatalogStore` mode transitions (mock / restoring / signedOut / live), the auth restore → WebKit cookie
+/// `QTLiveCatalogStore` mode transitions (mock / restoring / guest / live), the auth restore → WebKit cookie
 /// sync, sign-out, demo → sign-in, expiry → sign-in reload and the launch-playback-once rule — with fake cookies,
 /// an in-memory Keychain, an in-memory cookie jar and a stub transport (no network, never the user's session).
 @MainActor
@@ -111,7 +111,7 @@ import Testing
     }
 
     static func cleanUp() {
-        UserDefaults.standard.removeObject(forKey: QTLiveCatalogStore.demoDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: QTLiveCatalogStore.legacyDemoDefaultsKey)
     }
 
     // MARK: Tests
@@ -129,7 +129,7 @@ import Testing
     @Test func noSavedSessionIsSignedOutAndTheJarStaysEmpty() async throws {
         let h = try await Self.makeHarness()
         #expect(h.store.mode == .restoring)
-        await Self.waitUntil("signed out") { h.store.mode == .signedOut }
+        await Self.waitUntil("guest") { h.store.mode == .guest }
         #expect(h.keychain.reads == 1)
         #expect(h.jar.cookies.isEmpty, "nothing may land in the persistent WebKit jar without a session")
         #expect(h.store.handles(.section(.liked)))
@@ -181,7 +181,7 @@ import Testing
         let h = try await Self.makeHarness(savedSession: Self.fakeLogin())
         await Self.waitUntil("liked loaded") { h.store.likedPhase == .loaded }
         await h.store.signOut()
-        #expect(h.store.mode == .signedOut)
+        #expect(h.store.mode == .guest)
         #expect(h.store.likedPhase == .idle)
         #expect(h.model.catalog.liked.tracks == nil)
         #expect(h.model.player.likedTrackIDs.isEmpty)
@@ -191,19 +191,16 @@ import Testing
     }
 
     #if DEBUG
-    @Test func demoLibraryThenSignInEntersLive() async throws {
+    @Test func guestThenSignInEntersLive() async throws {
         defer { Self.cleanUp() }
         let h = try await Self.makeHarness()
-        await Self.waitUntil("signed out") { h.store.mode == .signedOut }
-        h.store.useDemoLibrary()
-        #expect(h.store.mode == .mock)
-        #expect(UserDefaults.standard.bool(forKey: QTLiveCatalogStore.demoDefaultsKey))
+        await Self.waitUntil("guest") { h.store.mode == .guest }
+        #expect(h.transport.likedRequestCount == 0, "guest mode never asks for the account's library")
         // A sign-in (the DEBUG import stands in for the Google window) takes the app to the live library.
         try await h.store.auth.importSession(cookies: Self.fakeLogin())
         await Self.waitUntil("live after sign-in") { h.store.mode == .live }
         await Self.waitUntil("liked loaded") { h.store.likedPhase == .loaded }
         #expect(!(h.model.catalog.liked.tracks ?? []).isEmpty)
-        #expect(!UserDefaults.standard.bool(forKey: QTLiveCatalogStore.demoDefaultsKey), "signing in forgets the demo choice")
     }
 
     @Test func signingInAgainAfterExpiryReloadsEveryPage() async throws {
@@ -215,7 +212,7 @@ import Testing
         await h.store.auth.sessionStore.sessionDidExpire()
         await Self.waitUntil("expired") { h.store.auth.state == .sessionExpired }
         // Expiry shows the signed-out screen ("Signed out of YouTube Music" + Sign In), not failing pages.
-        await Self.waitUntil("signed-out screen after expiry") { h.store.mode == .signedOut }
+        await Self.waitUntil("guest mode after expiry") { h.store.mode == .guest }
         try await h.store.auth.importSession(cookies: Self.fakeLogin(psidts: "NEW-TS"))
         await Self.waitUntil("liked reloaded from the network") { h.transport.likedRequestCount > before }
         await Self.waitUntil("liked loaded") { h.store.likedPhase == .loaded }

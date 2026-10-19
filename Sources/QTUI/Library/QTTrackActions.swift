@@ -60,7 +60,7 @@ public enum QTTrackActions {
 
     /// Likes all when any is unliked, otherwise unlikes all (with Undo).
     public static func toggleLike(_ tracks: [QTTrack], model: QTAppModel = .shared) {
-        guard !tracks.isEmpty else { return }
+        guard !tracks.isEmpty, QTAccountGate.allows(.like, model: model) else { return }
         let player = model.player
         let like = tracks.contains { !player.isLiked($0) }
         let changed = tracks.filter { player.isLiked($0) != like }
@@ -82,7 +82,7 @@ public enum QTTrackActions {
     public static func add(_ tracks: [QTTrack], to playlist: QTPlaylist, model: QTAppModel = .shared,
                            edits: QTPlaylistEdits = .shared) {
         let playable = tracks.filter(\.availability.isPlayable)
-        guard !playable.isEmpty else { return }
+        guard !playable.isEmpty, QTAccountGate.allows(.addToPlaylist, model: model) else { return }
         let name = playlist.title.resolved
         let added = edits.add(playable.map(\.videoId), to: playlist)
         guard !added.isEmpty else {

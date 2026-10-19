@@ -198,6 +198,7 @@ public final class QTPlaybackServices {
     /// The toast for a failed track. Exposed for tests.
     public static func message(for event: QTPlaybackFailureEvent) -> String {
         let title = event.track.title
+        if event.error == .botCheck { return QTLoc.tr("YouTube wants to check this connection", table: .live) }
         guard event.skipped else {
             return event.consecutive >= QTQueueController.maxConsecutiveFailures
                 ? QTLoc.tr("Playback stopped — the next songs couldn’t play", table: .playback)
@@ -208,13 +209,19 @@ public final class QTPlaybackServices {
         case .unavailable(.regionLocked): return QTLoc.tr("“%@” isn’t available in your region — skipped", table: .playback, title)
         case .unavailable: return QTLoc.tr("“%@” isn’t available — skipped", table: .playback, title)
         case .network: return QTLoc.tr("“%@” didn’t load — skipped", table: .playback, title)
-        case .engine: return QTLoc.tr("Couldn’t play “%@” — skipped", table: .playback, title)
+        case .engine, .botCheck: return QTLoc.tr("Couldn’t play “%@” — skipped", table: .playback, title)
         }
     }
 
     private func report(_ event: QTPlaybackFailureEvent) {
-        model?.showToast(Self.message(for: event))
-        lastFailureMessage = Self.message(for: event)
+        let message = Self.message(for: event)
+        lastFailureMessage = message
+        // A bot check: one calm toast with Sign In (signing in usually clears it); signed in already, just the line.
+        if event.error == .botCheck, QTLiveCatalogStore.shared.auth.isSignedIn == false {
+            model?.showToast(message, actionTitle: QTLoc.tr("Sign In", table: .live)) { QTLiveCatalogStore.shared.signIn() }
+        } else {
+            model?.showToast(message)
+        }
     }
 
     /// The most recent failure toast (DEBUG status file, tests).

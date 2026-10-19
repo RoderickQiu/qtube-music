@@ -37,20 +37,30 @@ dependency without asking the user.
 
 Everything is wired (integration of M1 polish + M2–M4):
 
-- **Catalog:** live by default (data-live, M3). `QTLiveCatalogStore` restores the saved session and loads the user's
-  YouTube Music library; signed out, the content column shows a native signed-out state with Sign In / Use Demo
-  Library. `-qt.catalog mock` (the default in `Scripts/shoot.sh`) keeps `QTMockCatalog` and never touches the
-  Keychain. `QTLiveCatalogStore.wantsLive(launch)` is the one decision; bootstrap also uses it for playback.
-  **Mode transitions** (`QTLiveCatalogStore.authStateChanged`, the one place): signed in while signed out (signed-out
-  screen, Settings, or again after expiry) → pages reset and reload; signed out → signed-out screen; session expired
-  → the signed-out screen ("Signed out of YouTube Music" + Sign In), never every page failing on its own. "Use Demo
-  Library" is remembered (`qt.data.demoLibrary`), but a demo launch still restores the account (Settings › Account
-  shows it) and any session — restored or a new sign-in — clears the choice and switches to the library
-  (`QTPlaybackServices.switchSource(to:)`: web engine with the session, Now Playing, queue persistence; the demo
-  plays through the simulated engine and never overwrites the saved queue). Choosing the demo on an expired session
-  signs out (a dead session can't come back). Only `-qt.catalog mock` (or a catalog path) never reads the Keychain.
+- **Catalog:** YouTube Music, always (data-live, M3; guest mode R7). `QTLiveCatalogStore` restores the saved session
+  and loads the user's library; with no session it runs **guest mode** (`QTCatalogMode.guest`): Home, moods,
+  Explore, search, album, artist and public playlist pages read anonymously, playback is anonymous (free, with ads),
+  and the library places (Liked Songs, Songs, Albums, Artists — `QTLiveCatalogStore.isLibrary`) show a native
+  sign-in state (`QTLiveSignInPrompt`: the place's SF Symbol, one line, Sign In). History stays the app's own local
+  play history in every mode. The sidebar shows Sign In at its foot in guest mode and hides the empty Playlists
+  section. Likes and "Add to Playlist" offer sign-in (`QTAccountGate`: a toast with Sign In) — never a local stand-in
+  for the account's library.
+  **Demo data never reaches users.** `QTMockCatalog` is a DEBUG tool (`QTBuild.allowsDemoData`): release builds never
+  locate it (whatever `-qt.catalog` says), `Scripts/build-app.sh` bundles it only for `QT_CONFIG=debug`, and even a
+  DEBUG launch only loads it for `-qt.catalog mock` (a YouTube Music launch starts from an empty catalog, so no demo
+  track, lyric or palette can surface). `-qt.catalog mock` (the default in `Scripts/shoot.sh`) keeps the demo catalog
+  and never touches the Keychain. `QTLiveCatalogStore.wantsLive(launch)` is the one decision; bootstrap also uses it
+  for playback. The old "Use Demo Library" choice (`qt.data.demoLibrary`) is removed at launch and never read.
+  **Mode transitions** (`QTLiveCatalogStore.authStateChanged`, the one place): signed in from guest mode (sidebar, a
+  library page, Settings, or again after expiry) → pages reset and the library loads; signed out → guest mode at once
+  (no relaunch; Home reloads anonymously); session expired → guest mode plus a "Signed out of YouTube Music" toast
+  with Sign In (library pages and Settings › Account say so too), never every page failing on its own.
   Page failures: only connectivity errors (`QTInnerTubeError.isConnectivity`) read as offline; a cancelled load
-  (account switch) returns the page to idle instead of a failure state.
+  (account switch) returns the page to idle instead of a failure state. **Google's bot check** (a redirect to
+  `www.google.com/sorry/…`, or a captcha / "unusual traffic" page) is `QTInnerTubeError.botCheck` →
+  `QTLiveFailure.botCheck` ("YouTube wants to check this connection" + Sign In; Try Again when already signed in),
+  never retried; in the player page it is `QTPlaybackError.botCheck` at once (no load timeout), the queue stops
+  instead of skipping, and one toast offers Sign In. The app never opens or tries to solve the check.
 - **Result tidying (R6, `QTInnerTube/Parsing/QTResultTidying.swift`):** every parsed shelf and search result keeps
   one card per release — same browse id or album playlist id, or same kind + primary artist + year + normalized title
   (case/width/Traditional-Simplified folded, "(Explicit)"/"(Clean)" dropped, a Latin re-title after a CJK title
@@ -123,7 +133,7 @@ Everything is wired (integration of M1 polish + M2–M4):
 
 
 **Live data (data-live).** `QTLiveCatalogStore.shared` (attached in `QTAppModel.bootstrap`) owns the client and
-`QTAuthController`, a `QTCatalogMode` (`mock` / `restoring` / `signedOut` / `live`) and per-page `QTLivePhase`s.
+`QTAuthController`, a `QTCatalogMode` (`mock` (DEBUG) / `restoring` / `guest` / `live`) and per-page `QTLivePhase`s.
 `QTContentRouter` hands destinations to `QTLivePage` (AppModel/Live/) when `handles(_:)` says so: Home (mood
 chips load that mood's feed), Liked and playlists (first page at once, continuation pages stream in), library Songs /
 Albums / Artists. **Home and the library grids are one set** for demo + live (window): `QTHomeView` (live adds the
@@ -163,6 +173,10 @@ Tests: `Tests/QTInnerTubeTests/PrivacyTests.swift` (the counterpart fallback, pl
 the `ytcfg` scrape on and across a session change).
 
 **Session storage.** The session lives in the Keychain and, in memory only, in WebKit:
+- **One Keychain item per app.** Release builds use service `com.roderickqiu.qtube`, account
+  `youtube-music-session`; a release build of a dev variant (`com.roderickqiu.qtube.dev-<v>`) uses
+  `youtube-music-session.<v>` (`QTKeychainStore.releaseAccount`), so it never reads, prompts for or clears the
+  installed app's session. DEBUG builds use the shared dev item below, or memory with `-qt.auth.store memory`.
 - **Never a persistent WebKit store.** WebKit saves `WKWebsiteDataStore.default()` cookies in plain text
   (`~/Library/HTTPStorages/<bundle id>.binarycookies`, 0644). The app uses none: sign-in runs in a fresh
   `.nonPersistent()` store per attempt — the login is moved to the Keychain and the throwaway cleared; playback runs in
@@ -209,7 +223,7 @@ the `ytcfg` scrape on and across a session change).
 | `Stage/` | stage | `QTStageView` (layouts × backgrounds, chrome, drawer) |
 | `Desktop/`, `Commands/`, `Settings/`, `Sources/QTubeMusicApp`, `Assets/AppIcon.icns` | desktop | mini player, desktop lyrics, menu bar, `QTDesktopCoordinator`, Dock menu, sidebar playlist context menu (`QTSidebarContextMenu`), `QTIntegrationsCoordinator` (Last.fm / Discord / notifications), `QTScripting` (AppleScript), menus + key routing, Settings (incl. Integrations, `QTInterfaceLanguageSync`), app icon |
 | `Theme/`, `Shared/`, `AppModel/` | shared | builders may **add**; don't rename, repurpose or break existing API |
-| `AppModel/QTLiveCatalogStore.swift`, `AppModel/Live/` | data-live | live catalog wiring, signed-out / skeleton / failure states, live track-list pages (Home, library grids and browse pages are window's shared set) |
+| `AppModel/QTLiveCatalogStore.swift`, `AppModel/Live/` | data-live | live catalog wiring, guest sign-in / skeleton / failure states, `QTFixtureTransport` (DEBUG), live track-list pages (Home, library grids and browse pages are window's shared set) |
 
 Edit only your folders and your String Catalog table. Need a change in someone else's area or in a shared
 signature? Add a defaulted parameter or a new type in your own folder, and say so in your report.
@@ -664,7 +678,7 @@ Booleans: `YES/NO`, `true/false`, `1/0` (empty = true).
 | `qt.window` | `1440x900` (default) | |
 | `qt.show` | comma list: `mini`, `desktopLyrics`, `menuBarPopover`, `settings` | |
 | `qt.readyFile` | path; JSON `{pid, bundleID, windows:[{identifier, number, title, frame}]}` when settled | |
-| `qt.catalog` | `live` (default: the saved session, else signed out) · `mock` (demo catalog; never reads the Keychain; `Scripts/shoot.sh` passes it unless you give `-qt.catalog`) · a mock catalog folder path (also `$QT_MOCK_CATALOG`) | |
+| `qt.catalog` | `live` (default: the saved session, else guest mode) · `mock` (DEBUG builds only — release builds ignore it — demo catalog; never reads the Keychain; `Scripts/shoot.sh` passes it unless you give `-qt.catalog`) · a mock catalog folder path (also `$QT_MOCK_CATALOG`) | |
 
 Builders add their own as `qt.<area>.<name>` (e.g. `qt.stage.chrome hidden`, `qt.lyrics.scrolled YES`), read with
 `model.launch.string/bool/double("qt.stage.chrome")`, and list them here.
@@ -678,7 +692,7 @@ Builders add their own as `qt.<area>.<name>` (e.g. `qt.stage.chrome hidden`, `qt
 | glass | DEBUG `qt.reduceTransparency YES` (every glass primitive draws its Reduce Transparency solid) |
 | desktop | `qt.desktop.miniMode compact\|art` · `qt.desktop.miniLyric` · `qt.desktop.miniHover` · `qt.desktop.lyricsUnlocked` · `qt.desktop.menuBarScroll` · `qt.desktop.lyricsSize <pt>` · `qt.settingsTab general\|playback\|lyrics\|account\|integrations\|advanced`; DEBUG: `qt.desktop.switchLanguage`, `qt.desktop.popUpMenu <index>` (1 = File, 3 = View, 4 = Controls), `qt.desktop.showShortcuts`, `qt.desktop.accountPreview signedIn\|premium\|signingIn\|expired\|signedOut` (Settings › Account without Keychain access), `qt.desktop.staleMenus YES` (General shows Relaunch), `qt.desktop.integrationsExpanded YES` (Integrations opens both "Use your own …" disclosures), `qt.desktop.scriptProbe <path>` (runs AppleScript against the app from inside it — no Automation prompt — and writes the results as JSON) |
 | lyrics-live | `qt.lyrics.unofficial all\|none\|netease,kugou,qq` (session-only Settings override) · `qt.lyrics.engine live\|mock` (default live) · `qt.lyrics.cache memory\|<path>` (fresh lookup; default Application Support/<bundle id>/Lyrics.sqlite) · `qt.lyrics.offline YES` (every source unreachable → fallback path) |
-| data-live | `qt.live.open album:<id\|title>` · `artist:<id\|name>` · `playlist:<id>` (once the library has loaded) · `qt.live.state skeleton\|offline\|unavailable\|expired` (pins every live page's state) · `qt.live.loadDelay <s>` (DEBUG: Home and mood feeds arrive that much later — loading and transition shots) · `qt.live.signedOut YES` (signed-out screen, no Keychain read) · with it `qt.live.signIn YES` (Google sign-in window in a throwaway WebKit store; a login there is never kept) |
+| data-live | `qt.live.open album:<id\|title>` · `artist:<id\|name>` · `playlist:<id>` (once the library has loaded) · `qt.live.state skeleton\|offline\|unavailable\|expired\|botCheck` (pins every live page's state) · `qt.live.loadDelay <s>` (DEBUG: Home and mood feeds arrive that much later — loading and transition shots) · `qt.live.signedOut YES` (guest mode, no Keychain read) · DEBUG `qt.auth.store memory` (the session lives in memory: a guest run never reads, and a sign-out never clears, the shared dev session) · DEBUG `qt.live.fixtures YES` (YouTube Music answered offline from `Tests/QTInnerTubeTests/Fixtures`, artwork offline — guest screenshots with no network) · with `qt.live.signedOut`, `qt.live.signIn YES` (Google sign-in window in a throwaway WebKit store; a login there is never kept) |
 | stage-video | DEBUG `qt.video.debugVisibleHost YES` (orders the web engine's host window onto U270CA, alpha 1 — page diagnostics only) |
 | playback | `qt.engine auto\|simulated\|web` · `qt.webaudio.tap NO` (web engine without the spectrum tap: A/B CPU) · `qt.playback.silent` · `qt.playback.persist` · `qt.playback.nowPlaying` · `qt.playback.anonymous` · `qt.playback.readyWhen playing\|ad\|buffering\|failed\|toast` (+ `qt.playback.readyTimeout <s>`, default 120) · `qt.playback.loadDelay <s>` (slow-network look) · DEBUG: `qt.playback.statusFile <path>` (JSON status twice a second: engine, queue, Now Playing, the player page's `LOGGED_IN`/`IS_SUBSCRIBER`, main window, catalog mode) and distributed-notification commands (`QTPlaybackDebugHooks`, incl. `window:close` / `window:reopen` without activation) |
 

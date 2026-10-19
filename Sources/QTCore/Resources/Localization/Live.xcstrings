@@ -71,16 +71,6 @@
         }
       }
     },
-    "Sign in to YouTube Music" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "登录 YouTube Music"
-          }
-        }
-      }
-    },
     "Signed out of YouTube Music" : {
       "localizations" : {
         "zh-Hans" : {
@@ -111,22 +101,62 @@
         }
       }
     },
-    "Use Demo Library" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "使用演示资料库"
-          }
-        }
-      }
-    },
     "You’re offline" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "你已离线"
+          }
+        }
+      }
+    },
+    "Sign in to see your liked songs" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "登录以查看你喜欢的歌曲"
+          }
+        }
+      }
+    },
+    "Sign in to see your library" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "登录以查看你的资料库"
+          }
+        }
+      }
+    },
+    "Sign in to like songs" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "登录后才能喜欢歌曲"
+          }
+        }
+      }
+    },
+    "Sign in to add songs to playlists" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "登录后才能将歌曲添加到播放列表"
+          }
+        }
+      }
+    },
+    "YouTube wants to check this connection" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "YouTube 需要验证此网络连接"
           }
         }
       }

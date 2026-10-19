@@ -156,7 +156,7 @@ struct QTContentRouter: View {
         let query = model.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         let live = QTLiveCatalogStore.shared
         Group {
-            if !query.isEmpty, live.mode == .mock || live.mode == .live {
+            if !query.isEmpty, live.mode == .mock || live.isLive {
                 // One search page for the demo catalog and YouTube Music (QTBrowse.service).
                 QTSearchResultsView(query: query)
             } else if live.handles(navigator.current) {

@@ -48,11 +48,11 @@ private final class QTCountingSecureStore: QTSecureStore, @unchecked Sendable {
         let jar: QTMemoryWebCookieStore
     }
 
-    private static func makeRig(launch args: [String: String] = [:], demoChosen: Bool = false,
+    private static func makeRig(launch args: [String: String] = [:], legacyDemoChoice: Bool = false,
                                 signedIn: Bool = false) async throws -> Rig {
         let suite = "qt.tests.session.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        if demoChosen { defaults.set(true, forKey: QTLiveCatalogStore.demoDefaultsKey) }
+        if legacyDemoChoice { defaults.set(true, forKey: QTLiveCatalogStore.legacyDemoDefaultsKey) }
         let keychain = QTCountingSecureStore()
         let sessionStore = QTSessionStore(store: keychain)
         if signedIn { try await sessionStore.save(QTAuthSession(cookies: fakeLogin)) }
@@ -87,43 +87,91 @@ private final class QTCountingSecureStore: QTSecureStore, @unchecked Sendable {
         #expect(rig.store.auth.state == .signedOut)
     }
 
-    @Test func demoChoiceStillRestoresTheAccountAndASessionSwitchesToTheLibrary() async throws {
-        let rig = try await Self.makeRig(demoChosen: true, signedIn: true)
+    @Test func anOldDemoLibraryChoiceIsForgottenAndTheLibraryOpens() async throws {
+        let rig = try await Self.makeRig(legacyDemoChoice: true, signedIn: true)
         rig.store.attach(rig.model)
-        #expect(rig.store.mode == .mock)
+        #expect(rig.store.mode == .restoring)
+        #expect(!rig.defaults.bool(forKey: QTLiveCatalogStore.legacyDemoDefaultsKey))
         await Self.waitFor { rig.store.mode == .live }
         #expect(rig.store.mode == .live)
         #expect(rig.store.auth.isSignedIn)
-        // The choice is cleared: the next launch opens the library.
-        #expect(!rig.defaults.bool(forKey: QTLiveCatalogStore.demoDefaultsKey))
-        #expect(QTLiveCatalogStore.wantsLive(QTLaunchOptions(arguments: [:]), defaults: rig.defaults))
+    }
+
+    @Test func noSessionIsGuestModeWithTheLibraryAskingToSignIn() async throws {
+        let rig = try await Self.makeRig(launch: ["qt.catalog": "live"])
+        rig.store.attach(rig.model)
+        await Self.waitFor { rig.store.mode == .guest }
+        #expect(rig.store.mode == .guest)
+        #expect(rig.store.isLive && rig.store.isGuest && !rig.store.hasLibrary)
+        #expect(rig.model.catalog.tracks.isEmpty, "no catalog content stands in for the account")
+        // Library places ask to sign in; browsing doesn't.
+        #expect(QTLiveCatalogStore.isLibrary(.section(.liked)))
+        #expect(QTLiveCatalogStore.isLibrary(.section(.songs)))
+        #expect(!QTLiveCatalogStore.isLibrary(.section(.home)))
+        #expect(!QTLiveCatalogStore.isLibrary(.section(.playlist("VLPL0GvsLQil0MmYC96KEs_7dTNsLm1PS6JX"))))
+        #expect(!rig.store.handles(.section(.history)), "History is the app's own play history")
+        // Home loads anonymously (offline here, so it fails as offline — it was asked for); the library never is.
+        await rig.store.loadHome()
+        #expect(rig.store.homePhase == .failed(.offline))
+        await rig.store.loadLiked()
+        await rig.store.loadLibraryPlaylists()
+        #expect(rig.store.likedPhase == .idle)
+        #expect(rig.store.libraryPhase == .idle)
+        await rig.store.search("Trú Mưa")
+        #expect(rig.store.searchPhases["Trú Mưa"] == .failed(.offline))
+    }
+
+    @Test func likesAndPlaylistAddsOfferSignInAsAGuest() async throws {
+        let rig = try await Self.makeRig(launch: ["qt.catalog": "live"])
+        rig.store.attach(rig.model)
+        await Self.waitFor { rig.store.mode == .guest }
+        #expect(!QTAccountGate.allows(.like, model: rig.model, store: rig.store))
+        #expect(rig.model.toast?.actionTitle == QTLoc.tr("Sign In", table: .live))
+        #expect(rig.model.toast?.undo != nil)
+        #expect(!QTAccountGate.allows(.addToPlaylist, model: rig.model, store: rig.store))
+        #expect(rig.model.player.likedTrackIDs.isEmpty)
+    }
+
+    @Test func releaseBuildsNeverUseTheDemoCatalog() throws {
+        let mock = QTLaunchOptions(arguments: ["qt.catalog": "mock"])
+        #expect(!QTLiveCatalogStore.wantsLive(mock, allowsDemoData: true))
+        #expect(QTLiveCatalogStore.wantsLive(mock, allowsDemoData: false))
+        #expect(!QTLiveCatalogStore.isDemoOnly(QTLaunchOptions(arguments: ["qt.catalog": "/tmp/MockCatalog"]), allowsDemoData: false))
+        #expect(QTLiveCatalogStore.wantsLive(QTLaunchOptions(arguments: [:]), allowsDemoData: true))
+        // Even an existing catalog folder isn't found when demo data isn't allowed.
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("qt-mock-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try Data("{}".utf8).write(to: folder.appendingPathComponent(QTMockCatalog.fileName))
+        #expect(QTMockCatalog.locate(explicitPath: folder.path, environment: [:], allowsDemoData: true) != nil)
+        #expect(QTMockCatalog.locate(explicitPath: folder.path, environment: [:], allowsDemoData: false) == nil)
     }
 
     #if DEBUG
-    @Test func signingInFromTheDemoLibrarySwitchesToTheLibrary() async throws {
-        let rig = try await Self.makeRig(demoChosen: true)
+    @Test func signingInFromGuestModeOpensTheLibrary() async throws {
+        let rig = try await Self.makeRig(launch: ["qt.catalog": "live"])
         rig.store.attach(rig.model)
-        await Self.waitFor { rig.store.lastAuthState != nil || rig.store.auth.state == .signedOut }
-        try await Task.sleep(for: .milliseconds(50))
-        #expect(rig.store.mode == .mock)
-        #expect(rig.store.auth.state == .signedOut)
-        // A sign-in (Settings › Account) — the debug import takes the same path into `.signedIn`.
+        await Self.waitFor { rig.store.mode == .guest }
+        // A sign-in (sidebar, a library page, Settings) — the debug import takes the same path into `.signedIn`.
         try await rig.store.auth.importSession(cookies: Self.fakeLogin)
         await Self.waitFor { rig.store.mode == .live }
         #expect(rig.store.mode == .live)
-        #expect(!rig.defaults.bool(forKey: QTLiveCatalogStore.demoDefaultsKey))
+        #expect(rig.store.hasLibrary)
     }
 
-    @Test func expiryShowsSignedOutAndSigningInAgainReloadsThePages() async throws {
+    @Test func expiryReturnsToGuestModeAndSigningInAgainReloadsThePages() async throws {
         let rig = try await Self.makeRig(launch: ["qt.catalog": "live"], signedIn: true)
         rig.store.attach(rig.model)
         await Self.waitFor { rig.store.mode == .live && rig.store.likedPhase.isSettled }
         #expect(rig.store.mode == .live)
 
         await rig.sessionStore.sessionDidExpire()
-        await Self.waitFor { rig.store.mode == .signedOut }
-        #expect(rig.store.mode == .signedOut)
+        await Self.waitFor { rig.store.mode == .guest }
+        #expect(rig.store.mode == .guest)
         #expect(rig.store.auth.state == .sessionExpired)
+        #expect(rig.model.toast?.message == QTLoc.tr("Signed out of YouTube Music", table: .live))
+        #expect(rig.model.toast?.actionTitle == QTLoc.tr("Sign In", table: .live))
+        #expect(QTLiveSignInPrompt.title(for: .section(.liked), expired: true) == QTLoc.tr("Signed out of YouTube Music", table: .live))
 
         try await rig.store.auth.importSession(cookies: Self.fakeLogin)
         await Self.waitFor { rig.store.mode == .live && rig.store.likedPhase.isSettled }
@@ -134,19 +182,20 @@ private final class QTCountingSecureStore: QTSecureStore, @unchecked Sendable {
     }
     #endif
 
-    @Test func useDemoLibraryOnAnExpiredSessionDropsIt() async throws {
+    @Test func signOutContinuesAsAGuestAtOnce() async throws {
         let rig = try await Self.makeRig(launch: ["qt.catalog": "live"], signedIn: true)
         rig.store.attach(rig.model)
         await Self.waitFor { rig.store.mode == .live }
-        await rig.sessionStore.sessionDidExpire()
-        await Self.waitFor { rig.store.mode == .signedOut }
-        rig.store.useDemoLibrary()
-        #expect(rig.store.mode == .mock)
-        #expect(rig.defaults.bool(forKey: QTLiveCatalogStore.demoDefaultsKey))
-        await Self.waitFor { rig.store.auth.state == .signedOut }
-        #expect(rig.store.auth.state == .signedOut)
+        await rig.store.signOut()
+        #expect(rig.store.mode == .guest)
+        #expect(rig.model.player.likedTrackIDs.isEmpty)
+        #expect(rig.model.catalog.liked.tracks == nil)
         #expect(try rig.keychain.read() == nil)
         #expect(rig.jar.cookies.filter(\.isGoogleOrYouTube).isEmpty)
+        // Pages reload anonymously when shown.
+        #expect(rig.store.homePhase == .idle)
+        await rig.store.loadHome()
+        #expect(rig.store.homePhase == .failed(.offline))
     }
 
     @Test func pageFailuresReadRight() {
@@ -158,6 +207,7 @@ private final class QTCountingSecureStore: QTSecureStore, @unchecked Sendable {
         #expect(QTLivePhase.failure(QTInnerTubeError.network(code: URLError.Code.badServerResponse.rawValue)) == .failed(.unavailable))
         #expect(QTLivePhase.failure(QTInnerTubeError.http(status: 403)) == .failed(.unavailable))
         #expect(QTLivePhase.failure(QTInnerTubeError.sessionExpired) == .failed(.sessionExpired))
+        #expect(QTLivePhase.failure(QTInnerTubeError.botCheck) == .failed(.botCheck))
     }
 
     // MARK: Launch playback

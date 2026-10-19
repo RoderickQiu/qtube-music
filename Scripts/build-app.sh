@@ -104,16 +104,19 @@ for l in en zh-Hans; do
   printf '"CFBundleName" = "%s";\n"CFBundleDisplayName" = "%s";\n' "$NAME" "$NAME" > "$APP/Contents/Resources/$l.lproj/InfoPlist.strings"
 done
 
-# Mock catalog (git-ignored): this checkout, else the main checkout, else generate it into the main checkout.
-CATALOG=""
-for c in "$QT_REPO/Generated/MockCatalog" "$QT_MAIN/Generated/MockCatalog"; do
-  [[ -f "$c/catalog.json" ]] && { CATALOG="$c"; break; }
-done
-if [[ -z "$CATALOG" ]] && "$QT_REPO/Scripts/make-mock-catalog.py" >&2; then CATALOG="$QT_MAIN/Generated/MockCatalog"; fi
-if [[ -n "$CATALOG" ]]; then
-  cp -R "$CATALOG" "$APP/Contents/Resources/MockCatalog"
-else
-  echo "warning: no mock catalog; the app will start empty" >&2
+# Mock catalog (git-ignored), DEBUG builds only: demo data never ships (release builds wouldn't read it anyway,
+# QTBuild.allowsDemoData). This checkout, else the main checkout, else generate it into the main checkout.
+if [[ "$CONFIG" == "debug" ]]; then
+  CATALOG=""
+  for c in "$QT_REPO/Generated/MockCatalog" "$QT_MAIN/Generated/MockCatalog"; do
+    [[ -f "$c/catalog.json" ]] && { CATALOG="$c"; break; }
+  done
+  if [[ -z "$CATALOG" ]] && "$QT_REPO/Scripts/make-mock-catalog.py" >&2; then CATALOG="$QT_MAIN/Generated/MockCatalog"; fi
+  if [[ -n "$CATALOG" ]]; then
+    cp -R "$CATALOG" "$APP/Contents/Resources/MockCatalog"
+  else
+    echo "warning: no mock catalog; -qt.catalog mock will start empty" >&2
+  fi
 fi
 
 # App icon (Scripts/make-app-icon.sh renders both when missing):

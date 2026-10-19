@@ -260,6 +260,25 @@ import Testing
         #expect(controller.lastFailure == .unavailable(.removed))
     }
 
+    @Test func aBotCheckStopsTheQueueInsteadOfSkipping() async {
+        let engine = FailingEngine(failing: ["t2", "t3", "t4"])
+        engine.error = .botCheck
+        let controller = QTQueueController(engine: engine)
+        var events: [QTPlaybackFailureEvent] = []
+        controller.onFailure = { events.append($0) }
+        await controller.play(PB.tracks(5))
+        await controller.next()
+        #expect(engine.loads == ["t1", "t2"], "the next item would land on the same check")
+        #expect(controller.lastFailure == .botCheck)
+        #expect(events.map(\.skipped) == [false])
+    }
+
+    @Test func aPlayerPageOnGooglesSorryPageIsABotCheck() {
+        #expect(QTWebPlaybackErrorMapper.isBotCheckPage(URL(string: "https://www.google.com/sorry/index?continue=https://music.youtube.com/watch%3Fv%3DFAKE")))
+        #expect(!QTWebPlaybackErrorMapper.isBotCheckPage(URL(string: "https://music.youtube.com/watch?v=dQw4w9WgXcQ")))
+        #expect(!QTWebPlaybackErrorMapper.isBotCheckPage(nil))
+    }
+
     // MARK: Song/Video and engines
 
     @Test func songVideoSwitchKeepsPosition() async {

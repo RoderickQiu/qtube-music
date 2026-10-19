@@ -315,6 +315,11 @@ public actor QTInnerTubeClient {
         } catch {
             throw QTInnerTubeError.network(code: URLError.Code.unknown.rawValue)
         }
+        // Google's bot check answers instead of YouTube (a redirect to google.com/sorry, usually 429): say so instead
+        // of retrying, timing out or reading it as a lost session.
+        if QTInnerTubeError.isBotCheck(url: response.url, body: data) {
+            throw QTInnerTubeError.botCheck
+        }
         switch response.statusCode {
         case 200..<300:
             break

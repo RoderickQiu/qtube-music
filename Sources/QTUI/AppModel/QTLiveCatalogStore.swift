@@ -5,22 +5,28 @@ import QTAuth
 import QTCore
 import QTInnerTube
 
-// Owner: builder "data-live". Wires YouTube Music (QTInnerTube + QTAuth) into the app: decides between the live
-// catalog, the demo (mock) catalog and the signed-out state, loads pages on demand, and folds what it loads into
-// `QTAppModel.catalog` so the existing Home / Liked / playlist / sidebar views show real data unchanged.
+// Owner: builder "data-live". Wires YouTube Music (QTInnerTube + QTAuth) into the app: decides between the user's
+// library, guest mode (signed out: YouTube Music without an account) and — DEBUG builds only — the demo (mock)
+// catalog, loads pages on demand, and folds what it loads into `QTAppModel.catalog` so the existing Home / Liked /
+// playlist / sidebar views show real data unchanged.
 // Read-only: account writes stay off (`QTInnerTubeClient.setAllowsAccountWrites(false)`); likes and playlist edits
 // remain session-only (QTPlaylistEdits) until the user approves writes.
 
 /// Where the app's catalog comes from.
 public enum QTCatalogMode: String, Sendable, Hashable {
-    /// The mock catalog from the prototype's 12 tracks (`-qt.catalog mock`, or the user chose the demo library).
+    /// DEBUG only: the mock catalog from the prototype's 12 tracks (`-qt.catalog mock`, dev scripts, tests).
+    /// Release builds never enter it (`QTBuild.allowsDemoData`).
     case mock
     /// Reading the saved session (a fraction of a second at launch).
     case restoring
-    /// No session and no demo: the signed-out state.
-    case signedOut
+    /// Signed out: YouTube Music without an account — Home, Explore, search, albums, artists and public playlists,
+    /// read anonymously; the library places ask to sign in.
+    case guest
     /// The user's YouTube Music library.
     case live
+
+    /// Real YouTube Music pages (signed in or not), as opposed to the demo catalog or the launch restore.
+    public var browsesYouTube: Bool { self == .live || self == .guest }
 }
 
 /// Why a page couldn't load, as the UI presents it.
@@ -28,11 +34,15 @@ public enum QTLiveFailure: Sendable, Hashable {
     case offline
     case sessionExpired
     case unavailable
+    /// YouTube sent the request to Google's "unusual traffic" check (usually anonymous requests from a busy
+    /// network). Signing in usually clears it; the app never opens or tries to solve the check.
+    case botCheck
 
     /// Only connectivity errors read as offline; TLS, bad-server and other network errors are "couldn't load".
     init(_ error: any Error) {
         if let e = error as? QTInnerTubeError {
             switch e {
+            case .botCheck: self = .botCheck
             case .sessionExpired, .notSignedIn: self = .sessionExpired
             default: self = e.isConnectivity ? .offline : .unavailable
             }
@@ -124,17 +134,37 @@ public final class QTLiveCatalogStore {
     /// Album/artist keys (titles or names from the mock-era navigation API) resolved to browse ids.
     @ObservationIgnored private var resolvedKeys: [String: String] = [:]
 
-    /// UserDefaults key: the user picked the demo library on the signed-out screen.
-    static let demoDefaultsKey = "qt.data.demoLibrary"
+    /// UserDefaults key earlier builds set when the user picked "Use Demo Library" on the signed-out screen. Guest
+    /// mode replaced the demo library; the key is removed at launch and never read.
+    static let legacyDemoDefaultsKey = "qt.data.demoLibrary"
 
-    /// Where the demo-library choice is remembered (tests pass their own suite).
+    /// App defaults (tests pass their own suite).
     @ObservationIgnored let defaults: UserDefaults
     /// Engine / Now Playing / queue persistence switching (tests pass an unattached instance).
     @ObservationIgnored let playbackServices: QTPlaybackServices
 
     public convenience init() {
         let hl = QTInnerTubeConfiguration.hl(for: QTLoc.language)
-        let client = QTInnerTubeClient(configuration: QTInnerTubeConfiguration(hl: hl, gl: QTInnerTubeConfiguration.gl()))
+        let configuration = QTInnerTubeConfiguration(hl: hl, gl: QTInnerTubeConfiguration.gl())
+        #if DEBUG
+        // Dev runs: `-qt.auth.store memory` keeps the session in memory (a guest run never reads, and a sign-out never
+        // clears, the shared dev session); `-qt.live.fixtures YES` answers YouTube Music from recorded responses
+        // (Tests/QTInnerTubeTests/Fixtures), offline, for screenshots.
+        let launch = QTLaunchOptions.current
+        if launch.bool("qt.live.fixtures") == true { QTImageLoader.allowsNetwork = false }
+        let client = launch.bool("qt.live.fixtures") == true
+            ? QTInnerTubeClient(configuration: configuration, transport: QTFixtureTransport(), retry: .none,
+                                scrapesClientConfig: false)
+            : QTInnerTubeClient(configuration: configuration)
+        if launch.string("qt.auth.store") == "memory" {
+            // WebKit's session jar is already per process and never persisted; only the Keychain item is swapped.
+            self.init(client: client, auth: QTAuthController(sessionStore: QTSessionStore(store: QTMemorySecureStore()),
+                                                             client: client))
+            return
+        }
+        #else
+        let client = QTInnerTubeClient(configuration: configuration)
+        #endif
         self.init(client: client, auth: QTAuthController(client: client))
     }
 
@@ -151,10 +181,9 @@ public final class QTLiveCatalogStore {
 
     // MARK: Mode
 
-    /// Called once from `QTAppModel.bootstrap`. `-qt.catalog mock` (or a mock catalog path) keeps the demo catalog
-    /// and never touches the Keychain; `-qt.catalog live` or no argument restores the saved session. When the user
-    /// chose the demo library, the demo catalog shows but the account still restores (Settings › Account shows it)
-    /// and a session — restored or a new sign-in — switches to the user's library.
+    /// Called once from `QTAppModel.bootstrap`. DEBUG `-qt.catalog mock` (or a mock catalog path) keeps the demo
+    /// catalog and never touches the Keychain. Otherwise — always in release builds — the saved session restores:
+    /// the user's library when there is one, guest mode when there isn't.
     public func attach(_ model: QTAppModel) {
         guard self.model == nil else { return }
         self.model = model
@@ -162,21 +191,20 @@ public final class QTLiveCatalogStore {
         model.authController = auth
         // Earlier builds left the session in WebKit's plain-text persistent cookie jar; the app keeps none.
         QTLegacyWebStorage.purge()
+        // The demo library is gone (guest mode replaced it); forget an old choice.
+        defaults.removeObject(forKey: Self.legacyDemoDefaultsKey)
         model.liveCatalog = self
-        let wantsLive = Self.wantsLive(model.launch, defaults: defaults)
-        guard wantsLive else {
+        guard Self.wantsLive(model.launch) else {
             mode = .mock
-            guard !Self.isDemoOnly(model.launch) else { return }
-            Task { await client.setAllowsAccountWrites(false) }
-            observeLanguage()
-            Task { @MainActor in await self.restoreInDemo() }
             return
         }
         mode = .restoring
         model.catalog = Self.emptyCatalog
-        // Screenshot states (session-only): the signed-out screen without touching the Keychain.
+        // Screenshot states (session-only): guest mode without touching the Keychain.
         if model.launch.bool("qt.live.signedOut") == true {
-            mode = .signedOut
+            Task { await client.setAllowsAccountWrites(false) }
+            observeLanguage()
+            enterGuest()
             if model.launch.bool("qt.live.signIn") == true { openSignInAfterLaunch() }
             return
         }
@@ -189,13 +217,22 @@ public final class QTLiveCatalogStore {
         }
     }
 
-    public var isLive: Bool { mode == .live }
+    /// YouTube Music pages, signed in or as a guest (not the demo catalog, not while the session restores).
+    public var isLive: Bool { mode.browsesYouTube }
+
+    /// The user's own library is there (signed in): Liked Songs, library playlists, songs, albums and artists.
+    public var hasLibrary: Bool { mode == .live }
+
+    /// Guest mode: YouTube Music without an account.
+    public var isGuest: Bool { mode == .guest }
 
     /// Reading the saved session; launch playback waits for it (the player page must start signed in).
     public var isRestoringSession: Bool { mode == .restoring }
 
-    /// `-qt.catalog mock` or a mock catalog folder: the demo catalog only, the Keychain is never read.
-    public static func isDemoOnly(_ launch: QTLaunchOptions) -> Bool {
+    /// DEBUG `-qt.catalog mock` or a mock catalog folder: the demo catalog only, the Keychain is never read. Never in
+    /// release builds.
+    public static func isDemoOnly(_ launch: QTLaunchOptions, allowsDemoData: Bool = QTBuild.allowsDemoData) -> Bool {
+        guard allowsDemoData else { return false }
         switch launch.string("qt.catalog") {
         case "mock"?: return true
         case let path? where !path.isEmpty && path != "live": return true
@@ -203,25 +240,32 @@ public final class QTLiveCatalogStore {
         }
     }
 
-    /// Whether this launch tries the user's library (`-qt.catalog live`, or no `-qt.catalog` and the demo library
-    /// not chosen) rather than the mock catalog. Bootstrap also uses it to pick the playback engine.
-    public static func wantsLive(_ launch: QTLaunchOptions, defaults: UserDefaults = .standard) -> Bool {
-        switch launch.string("qt.catalog") {
-        case "live"?: return true
-        case "mock"?: return false
-        case let path? where !path.isEmpty: return false // legacy: a mock catalog folder
-        default: return !defaults.bool(forKey: demoDefaultsKey)
-        }
+    /// Whether this launch uses YouTube Music (the user's library, or guest mode) rather than the demo catalog: always
+    /// in release builds; in DEBUG unless `-qt.catalog mock` (or a mock catalog folder). Bootstrap also uses it to
+    /// pick the playback engine.
+    public static func wantsLive(_ launch: QTLaunchOptions, allowsDemoData: Bool = QTBuild.allowsDemoData) -> Bool {
+        !isDemoOnly(launch, allowsDemoData: allowsDemoData)
     }
 
-    /// Whether live pages replace the mock-era pages for this destination.
+    /// Whether live pages replace the mock-era pages for this destination. History is the app's own play history
+    /// (local, not the account's) in every mode.
     public func handles(_ destination: QTDestination) -> Bool {
         switch mode {
         case .mock: return false
-        case .restoring, .signedOut: return true
-        case .live:
+        case .restoring: return true
+        case .live, .guest:
             if case .section(.history) = destination { return false }
             return true
+        }
+    }
+
+    /// Places that are the account's library: guest mode shows the sign-in state there.
+    public static func isLibrary(_ destination: QTDestination) -> Bool {
+        switch destination {
+        case .section(.liked), .section(.songs), .section(.albums), .section(.artists): return true
+        // Playlists in the sidebar are the library's; one opened from Home, search or an artist page is public.
+        case .section(.playlist(let id)): return id == "LM"
+        default: return false
         }
     }
 
@@ -231,35 +275,22 @@ public final class QTLiveCatalogStore {
         if auth.isSignedIn {
             await enterLive()
         } else {
-            mode = .signedOut
+            enterGuest()
             await model?.applyLaunchPlayback()
         }
     }
 
-    /// Demo library chosen earlier: restore the account anyway; a saved session means the user has signed in since.
-    private func restoreInDemo() async {
-        await auth.restore()
-        observeAuth()
-        if auth.isSignedIn { await switchToLive() }
-    }
-
-    /// Demo catalog → the user's library (a sign-in, or a session restored in demo mode): the web engine with the
-    /// session, Now Playing, queue persistence, then the library.
-    private func switchToLive() async {
-        guard mode == .mock, let model else { return }
-        mode = .restoring
-        defaults.removeObject(forKey: Self.demoDefaultsKey)
-        resetPages()
-        model.catalog = Self.emptyCatalog
-        model.player.likedTrackIDs = []
-        await playbackServices.switchSource(to: .live)
-        model.resetLaunchPlayback()
-        await enterLive()
+    /// Guest mode: YouTube Music read anonymously; the library places ask to sign in. Home loads when shown.
+    private func enterGuest() {
+        mode = .guest
+        // Signed out, YouTube's player plays as a free listener (with ads).
+        if let model, model.launch.account == nil { model.account = .free }
+        installAutoplay()
+        applyLaunchDestination()
     }
 
     private func enterLive() async {
         mode = .live
-        defaults.removeObject(forKey: Self.demoDefaultsKey)
         let hold = QTReadiness.shared.hold("live.initial")
         defer { QTReadiness.shared.release(hold) }
         // The session is in the player's jar now: the saved queue (if any) cues signed in.
@@ -276,12 +307,12 @@ public final class QTLiveCatalogStore {
     }
 
     /// Autoplay after the queue runs out: YouTube Music's radio for the last track (`next` with `RDAMVM<id>`,
-    /// read-only), minus what is already queued. Only while the live library is on.
+    /// read-only), minus what is already queued. Signed in or as a guest (anonymous `next`).
     private func installAutoplay() {
         guard let model else { return }
         let client = client
         model.player.playback.autoplayContinuation = { [weak self] request in
-            guard let self, self.mode == .live, let seed = request.seed, seed.videoId.count == 11 else { return [] }
+            guard let self, self.mode.browsesYouTube, let seed = request.seed, seed.videoId.count == 11 else { return [] }
             let page = try await client.next(videoId: seed.videoId, playlistId: "RDAMVM" + seed.videoId)
             return page.tracks.filter { $0.videoId != seed.videoId && !request.excludingVideoIDs.contains($0.videoId) }
         }
@@ -308,6 +339,7 @@ public final class QTLiveCatalogStore {
         case "offline"?: .failed(.offline)
         case "unavailable"?: .failed(.unavailable)
         case "expired"?: .failed(.sessionExpired)
+        case "botCheck"?: .failed(.botCheck)
         default: nil
         }
     }
@@ -348,39 +380,24 @@ public final class QTLiveCatalogStore {
         model.account = premium ? .premium : .free
     }
 
-    /// Signed-out screen › "Use Demo Library": the mock catalog, remembered until the user signs in (a sign-in from
-    /// Settings › Account switches back). The demo plays through the simulated engine, like a `-qt.catalog mock`
-    /// launch. An expired session is dropped: it can't come back, and a later sign-in starts clean.
-    public func useDemoLibrary() {
-        defaults.set(true, forKey: Self.demoDefaultsKey)
-        guard let model, mode != .mock else { return }
-        let wasExpired = auth.state == .sessionExpired
-        resetPages()
-        if let url = QTMockCatalog.locate(explicitPath: nil), let loaded = try? QTMockCatalog.load(from: url) {
-            model.catalog = loaded
-            model.player.likedTrackIDs = Set(loaded.liked.tracks?.map(\.videoId) ?? [])
-        }
-        mode = .mock
-        Task { @MainActor in
-            if wasExpired { await auth.signOut() }
-            await playbackServices.switchSource(to: .mock)
-            model.resetLaunchPlayback()
-            await model.applyLaunchPlayback()
-        }
-    }
-
     /// Opens Google's sign-in window over the main window.
     public func signIn(ephemeral: Bool = false) {
         let parent = NSApp.windows.first { $0.identifier == QTWindowID.main.identifier }
         auth.beginSignIn(hl: hl, over: parent, isEphemeral: ephemeral)
     }
 
+    /// Signs out and continues as a guest at once (no relaunch): the library goes, YouTube Music stays.
     public func signOut() async {
         await auth.signOut()
+        leaveLibraryForGuest()
+    }
+
+    /// The library's pages and likes go; Home and the other pages reload anonymously when shown.
+    private func leaveLibraryForGuest() {
         resetPages()
         model?.catalog = Self.emptyCatalog
         model?.player.likedTrackIDs = []
-        mode = .signedOut
+        enterGuest()
     }
 
     private func observeAuth() {
@@ -409,30 +426,27 @@ public final class QTLiveCatalogStore {
                 applyAccount()
             case .restoring:
                 break
-            case .signedOut:
-                // Signed in from the signed-out screen, Settings, or again after the session expired.
+            case .guest:
+                // Signed in from guest mode (sidebar, a library page, Settings), or again after the session expired.
                 resetPages()
                 playbackServices.sessionDidChange()
                 Task { await enterLive() }
             case .mock:
-                guard let model, !Self.isDemoOnly(model.launch) else { return }
-                Task { await switchToLive() }
+                // DEBUG demo catalog: it never reads or follows the account.
+                break
             }
         case .signedOut:
             playbackServices.sessionDidChange()
             guard mode == .live || mode == .restoring else { return }
-            resetPages()
-            model?.catalog = Self.emptyCatalog
-            model?.player.likedTrackIDs = []
-            mode = .signedOut
+            leaveLibraryForGuest()
         case .sessionExpired:
-            // YouTube no longer sees the login: the signed-out screen ("Signed out of YouTube Music" + Sign In)
-            // instead of every page failing on its own. A new sign-in reloads everything.
+            // YouTube no longer sees the login: guest mode (a toast says so; the library places and Settings ›
+            // Account offer Sign In) instead of every page failing on its own. A new sign-in reloads everything.
             guard mode == .live else { return }
-            resetPages()
-            model?.catalog = Self.emptyCatalog
-            model?.player.likedTrackIDs = []
-            mode = .signedOut
+            leaveLibraryForGuest()
+            model?.showToast(QTLoc.tr("Signed out of YouTube Music", table: .live), actionTitle: QTLoc.tr("Sign In", table: .live)) {
+                QTLiveCatalogStore.shared.signIn()
+            }
         case .signingIn:
             break
         }
@@ -464,7 +478,7 @@ public final class QTLiveCatalogStore {
         hl = new
         Task {
             await client.setLanguage(hl: new)
-            guard mode == .live else { return }
+            guard mode.browsesYouTube else { return }
             homePhase = .idle
             moodFeeds = [:]
             moodPhases = [:]
@@ -513,7 +527,7 @@ public final class QTLiveCatalogStore {
     }
 
     private func updateCatalog(_ change: (inout QTMockCatalog) -> Void) {
-        guard let model, mode == .live else { return }
+        guard let model, mode.browsesYouTube else { return }
         var c = model.catalog
         change(&c)
         model.catalog = c
@@ -531,7 +545,7 @@ public final class QTLiveCatalogStore {
     // MARK: Home
 
     public func loadHome(force: Bool = false) async {
-        guard mode == .live, force || !homePhase.isLoadedOrLoading else { return }
+        guard mode.browsesYouTube, force || !homePhase.isLoadedOrLoading else { return }
         await run("home") { [self] in
             homePhase = .loading
             do {
@@ -720,7 +734,7 @@ public final class QTLiveCatalogStore {
 
     /// Loads a playlist's tracks: the first page shows at once, the rest streams in behind it.
     public func loadPlaylist(_ id: String, force: Bool = false) async {
-        guard mode == .live else { return }
+        guard mode.browsesYouTube else { return }
         if id == "LM" || id == "VLLM" { await loadLiked(force: force); return }
         guard force || !(playlistPhases[id] ?? .idle).isLoadedOrLoading else { return }
         await run("playlist:\(id)") { [self] in
@@ -755,7 +769,7 @@ public final class QTLiveCatalogStore {
                 playlistPhases[id] = .loaded
                 var token = first.continuation
                 var pages = 1
-                while let t = token, pages < service.maxPlaylistPages, mode == .live {
+                while let t = token, pages < service.maxPlaylistPages, mode.browsesYouTube {
                     guard let more = try? await client.playlistContinuation(t) else { break }
                     tracks += more.tracks
                     p.tracks = tracks
@@ -802,7 +816,7 @@ public final class QTLiveCatalogStore {
     }
 
     public func loadAlbum(_ key: String, force: Bool = false) async {
-        guard mode == .live, force || !(albumPhases[key] ?? .idle).isLoadedOrLoading else { return }
+        guard mode.browsesYouTube, force || !(albumPhases[key] ?? .idle).isLoadedOrLoading else { return }
         await run("album:\(key)") { [self] in
             albumPhases[key] = .loading
             do {
@@ -824,7 +838,7 @@ public final class QTLiveCatalogStore {
     }
 
     public func loadArtist(_ key: String, force: Bool = false) async {
-        guard mode == .live, force || !(artistPhases[key] ?? .idle).isLoadedOrLoading else { return }
+        guard mode.browsesYouTube, force || !(artistPhases[key] ?? .idle).isLoadedOrLoading else { return }
         await run("artist:\(key)") { [self] in
             artistPhases[key] = .loading
             do {
@@ -847,7 +861,7 @@ public final class QTLiveCatalogStore {
 
     /// Hover prefetch: warms the client cache for a card's page (cheap: one request, cached for minutes).
     public func prefetch(_ item: QTShelfItem) {
-        guard mode == .live else { return }
+        guard mode.browsesYouTube else { return }
         switch item {
         case .album(let a) where albumPhases[a.id] == nil: Task(priority: .utility) { _ = try? await client.album(a.id) }
         case .artist(let a) where artistPhases[a.id] == nil: Task(priority: .utility) { _ = try? await client.artist(a.id) }
@@ -860,7 +874,7 @@ public final class QTLiveCatalogStore {
     // MARK: Explore
 
     public func loadExplore(force: Bool = false) async {
-        guard mode == .live, force || !explorePhase.isLoadedOrLoading else { return }
+        guard mode.browsesYouTube, force || !explorePhase.isLoadedOrLoading else { return }
         await run("explore") { [self] in
             explorePhase = .loading
             do {
@@ -875,7 +889,7 @@ public final class QTLiveCatalogStore {
     }
 
     public func loadExploreSection(_ section: QTLiveExploreSection, force: Bool = false) async {
-        guard mode == .live, section != .overview,
+        guard mode.browsesYouTube, section != .overview,
               force || !(exploreSectionPhases[section] ?? .idle).isLoadedOrLoading else { return }
         await run("explore:\(section.rawValue)") { [self] in
             exploreSectionPhases[section] = .loading
@@ -899,7 +913,7 @@ public final class QTLiveCatalogStore {
     /// Shelves of a mood / genre page (Explore › Moods & genres).
     public func loadMoodPage(_ chip: QTMoodChip) async {
         let key = "moodpage:\(chip.id)"
-        guard mode == .live, !(moodPhases[key] ?? .idle).isLoadedOrLoading else { return }
+        guard mode.browsesYouTube, !(moodPhases[key] ?? .idle).isLoadedOrLoading else { return }
         await run(key) { [self] in
             moodPhases[key] = .loading
             do {
@@ -916,7 +930,7 @@ public final class QTLiveCatalogStore {
     /// Grouped, music-only search (podcasts, episodes and profiles are dropped by the parser).
     public func search(_ query: String, force: Bool = false) async {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard mode == .live, !q.isEmpty, force || !(searchPhases[q] ?? .idle).isLoadedOrLoading else { return }
+        guard mode.browsesYouTube, !q.isEmpty, force || !(searchPhases[q] ?? .idle).isLoadedOrLoading else { return }
         await run("search:\(q)") { [self] in
             searchPhases[q] = .loading
             do {

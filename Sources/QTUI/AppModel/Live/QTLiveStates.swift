@@ -3,7 +3,7 @@ import QTAuth
 import QTCore
 import SwiftUI
 
-// Owner: builder "data-live". Loading skeletons, failure and signed-out states for live pages. Native idioms:
+// Owner: builder "data-live". Loading skeletons, failure and guest (sign-in) states for live pages. Native idioms:
 // ContentUnavailableView for empty/failure, redacted-style placeholders in the real layout (no spinners in the
 // middle of a page), one prominent action. No explanatory copy.
 
@@ -388,11 +388,17 @@ struct QTLiveFailureView: View {
         ContentUnavailableView {
             Label(title, systemImage: symbol)
         } actions: {
-            if failure == .sessionExpired {
-                Button(QTLoc.tr("Sign In", table: .live)) { QTLiveCatalogStore.shared.signIn() }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .accessibilityIdentifier("qt.live.failure.signIn")
+            if failure == .sessionExpired || failure == .botCheck {
+                // A bot check usually clears once signed in; signed in already, it can only wait (Try Again).
+                if failure == .botCheck, QTLiveCatalogStore.shared.hasLibrary {
+                    Button(QTLoc.tr("Try Again", table: .live), action: retry)
+                        .controlSize(.large)
+                        .accessibilityIdentifier("qt.live.failure.retry")
+                } else {
+                    QTSignInButton(prominent: true)
+                        .controlSize(.large)
+                        .accessibilityIdentifier("qt.live.failure.signIn")
+                }
             } else {
                 Button(QTLoc.tr("Try Again", table: .live), action: retry)
                     .controlSize(.large)
@@ -408,6 +414,7 @@ struct QTLiveFailureView: View {
         case .offline: QTLoc.tr("You’re offline", table: .live)
         case .sessionExpired: QTLoc.tr("Signed out of YouTube Music", table: .live)
         case .unavailable: QTLoc.tr("Couldn’t load this page", table: .live)
+        case .botCheck: QTLoc.tr("YouTube wants to check this connection", table: .live)
         }
     }
 
@@ -416,6 +423,7 @@ struct QTLiveFailureView: View {
         case .offline: "wifi.slash"
         case .sessionExpired: "person.crop.circle.badge.exclamationmark"
         case .unavailable: "exclamationmark.triangle"
+        case .botCheck: "hand.raised"
         }
     }
 }
@@ -436,51 +444,74 @@ struct QTLivePhaseView<Content: View>: View {
     }
 }
 
-// MARK: - Signed out
+// MARK: - Guest
 
-/// No session: the app icon, one line, Sign In. "Use Demo Library" is the quiet way to look around first.
-struct QTLiveSignedOutView: View {
-    @Environment(\.colorScheme) private var scheme
+/// Guest mode on a library place (Liked Songs, Songs, Albums, Artists): the place's symbol, one line, Sign In.
+struct QTLiveSignInPrompt: View {
+    let destination: QTDestination
     var auth: QTAuthController { QTLiveCatalogStore.shared.auth }
 
     var body: some View {
-        let isSigningIn = auth.state == .signingIn
-        let expired = auth.state == .sessionExpired
-        VStack(spacing: 0) {
-            Image(nsImage: NSApp.applicationIconImage ?? NSImage())
-                .resizable()
-                .interpolation(.high)
-                .frame(width: 112, height: 112)
-                .shadow(color: .black.opacity(scheme == .dark ? 0.4 : 0.18), radius: 18, y: 10)
-                .accessibilityHidden(true)
-            Text(QTLoc.tr(expired ? "Signed out of YouTube Music" : "Sign in to YouTube Music", table: .live))
-                .font(.title2.weight(.semibold))
-                .multilineTextAlignment(.center)
-                .padding(.top, 28)
-            Button {
-                QTLiveCatalogStore.shared.signIn()
-            } label: {
-                Text(QTLoc.tr("Sign In", table: .live))
-                    .frame(minWidth: 140)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.extraLarge)
-            .keyboardShortcut(.defaultAction)
-            .disabled(isSigningIn)
-            .padding(.top, 22)
-            .accessibilityIdentifier("qt.live.signedOut.signIn")
-            Button(QTLoc.tr("Use Demo Library", table: .live)) {
-                QTLiveCatalogStore.shared.useDemoLibrary()
-            }
-            .buttonStyle(.link)
-            .foregroundStyle(.secondary)
-            .padding(.top, 16)
-            .accessibilityIdentifier("qt.live.signedOut.demo")
+        ContentUnavailableView {
+            Label(Self.title(for: destination, expired: auth.state == .sessionExpired), systemImage: symbol)
+        } actions: {
+            QTSignInButton(prominent: true)
+                .controlSize(.large)
+                .keyboardShortcut(.defaultAction)
+                .accessibilityIdentifier("qt.live.guest.signIn")
         }
-        .padding(40)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .offset(y: -24)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("qt.live.signedOut")
+        .accessibilityIdentifier("qt.live.guest")
+    }
+
+    static func title(for destination: QTDestination, expired: Bool) -> String {
+        if expired { return QTLoc.tr("Signed out of YouTube Music", table: .live) }
+        if destination == .section(.liked) || destination == .section(.playlist("LM")) {
+            return QTLoc.tr("Sign in to see your liked songs", table: .live)
+        }
+        return QTLoc.tr("Sign in to see your library", table: .live)
+    }
+
+    private var symbol: String {
+        switch destination {
+        case .section(let item): QTSidebarView.icon(for: item).systemName
+        default: "person.crop.circle"
+        }
+    }
+}
+
+/// "Sign In": opens Google's sign-in window (the one sign-in path; disabled while that window is open).
+struct QTSignInButton: View {
+    var prominent = false
+    var auth: QTAuthController { QTLiveCatalogStore.shared.auth }
+
+    var body: some View {
+        let button = Button(QTLoc.tr("Sign In", table: .live)) { QTLiveCatalogStore.shared.signIn() }
+            .disabled(auth.state == .signingIn)
+        if prominent { button.buttonStyle(.borderedProminent) } else { button }
+    }
+}
+
+/// Guest mode's offer to sign in when the user reaches for an account feature (a like, adding to a playlist):
+/// a toast with Sign In — never a local stand-in for the account's library.
+@MainActor
+enum QTAccountGate {
+    /// True when the action may go ahead; in guest mode shows the sign-in toast and returns false.
+    static func allows(_ feature: Feature, model: QTAppModel? = nil, store: QTLiveCatalogStore = .shared) -> Bool {
+        guard store.isGuest else { return true }
+        (model ?? .shared).showToast(feature.message, actionTitle: QTLoc.tr("Sign In", table: .live)) {
+            QTLiveCatalogStore.shared.signIn()
+        }
+        return false
+    }
+
+    enum Feature {
+        case like, addToPlaylist
+
+        var message: String {
+            switch self {
+            case .like: QTLoc.tr("Sign in to like songs", table: .live)
+            case .addToPlaylist: QTLoc.tr("Sign in to add songs to playlists", table: .live)
+            }
+        }
     }
 }
