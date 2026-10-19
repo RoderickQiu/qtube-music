@@ -55,12 +55,20 @@ import WebKit
     /// The video surface is its own small script; the bridge only tells it when to show (and boots with it).
     @Test func videoSurfaceStaysSmallAndSeparate() {
         let lines = QTWebPlaybackBridgeScript.videoSurface.split(separator: "\n").count
-        #expect(lines < 130, "\(lines) lines")
+        #expect(lines < 190, "\(lines) lines")
+        // Burned-in letterbox and pillarbox bars are both measured and cropped.
+        #expect(QTWebPlaybackBridgeScript.videoSurface.contains("pictureBars"))
         #expect(QTWebPlaybackBridgeScript.videoSurface.contains("requestVideoFrameCallback"))
         #expect(QTWebPlaybackBridgeScript.bridge.contains("__qtVideo"))
         let boot = QTWebPlaybackBridgeScript.bootstrap(generation: 2, videoID: "x", hold: true, volume: 1, muted: false,
                                                        silent: true, present: true, quality: "hd720")
         #expect(boot.contains("\"present\":true") && boot.contains("\"quality\":\"hd720\""))
+        #expect(boot.contains("\"standby\":false"))
+        let standby = QTWebPlaybackBridgeScript.bootstrap(generation: 3, videoID: "x", hold: false, volume: 0, muted: true,
+                                                          silent: false, standby: true)
+        #expect(standby.contains("\"standby\":true") && standby.contains("\"muted\":true"))
+        // The crossfade command exists on the bridge.
+        #expect(QTWebPlaybackBridgeScript.bridge.contains("fade(to, ms, dir, muted)"))
     }
 
     /// The rendition follows the slot: the panel's thumbnail never pulls 1080p, a full Stage does.
@@ -71,6 +79,11 @@ import WebKit
         #expect(QTWebVideoOutput.quality(forPixelHeight: 1800) == "hd1080")
         let report = QTModeSwitchReport(videoID: "v", from: .song, to: .video, requested: 40, landed: 40.3, latency: 0.9)
         #expect(abs(report.offset - 0.3) < 0.0001)
+        // An in-page switch is silent until the new rendition plays; a seamless one never is.
+        #expect(report.gap == 0.9 && !report.isSeamless)
+        let seamless = QTModeSwitchReport(videoID: "v", from: .video, to: .song, requested: 50, landed: 49.98, latency: 3,
+                                          gap: 0, isSeamless: true)
+        #expect(seamless.gap == 0 && seamless.isSeamless)
     }
 
     /// Video fields of a bridge sample (frame readiness, PiP).
@@ -78,7 +91,9 @@ import WebKit
         let s = try #require(QTWebPlaybackSample(["gen": 3, "vw": 1920.0, "vh": 1080.0, "rs": 4, "pip": true]))
         #expect(s.videoWidth == 1920 && s.videoHeight == 1080 && s.readyState == 4 && s.isPictureInPicture)
         let empty = try #require(QTWebPlaybackSample(["gen": 3]))
-        #expect(empty.videoWidth == 0 && !empty.isPictureInPicture)
+        #expect(empty.videoWidth == 0 && !empty.isPictureInPicture && empty.pictureBars == .zero)
+        let bars = try #require(QTWebPlaybackSample(["gen": 3, "pic": [0.12, 0, 0.12, 0]]))
+        #expect(bars.pictureBars == QTVideoPictureBars(left: 0.12, top: 0, right: 0.12, bottom: 0))
     }
 
     /// The Now Playing guarantee depends on this WebKit feature; fail loudly if a WebKit update removes it.

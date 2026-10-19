@@ -170,9 +170,11 @@ final class QTPlaybackDebugHooks {
                 "width": web.video.videoSize.width, "height": web.video.videoSize.height,
                 "container": web.video.container.map { String(describing: type(of: $0)) } ?? "",
             ] as [String: Any]
+            status["seamlessFallback"] = web.lastSeamlessFallback ?? ""
             status["modeSwitches"] = QTVideoModeService.lastReports.map {
                 ["videoID": $0.videoID, "from": $0.from.rawValue, "to": $0.to.rawValue, "requested": $0.requested,
-                 "landed": $0.landed, "offset": $0.offset, "latency": $0.latency] as [String: Any]
+                 "landed": $0.landed, "offset": $0.offset, "latency": $0.latency, "gap": $0.gap,
+                 "seamless": $0.isSeamless] as [String: Any]
             }
         }
         if let np = player.playback.nowPlaying {

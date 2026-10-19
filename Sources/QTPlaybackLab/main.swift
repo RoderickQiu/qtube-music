@@ -375,8 +375,11 @@ final class Lab {
                 let r = reports.last
                 check("\(query): \(target == .video ? "song → video" : "video → song") keeps the position",
                       landed && abs(r?.offset ?? 99) <= 0.5,
-                      r.map { String(format: "asked %.2f s, requested %.2f s, landed %.2f s, offset %+.2f s, latency %.2f s, queue %d",
-                                     asked, $0.requested, $0.landed, $0.offset, $0.latency, controller.queue.autoplay.count) } ?? "no report")
+                      r.map { String(format: "%@asked %.2f s, requested %.2f s, landed %.2f s, offset %+.3f s, latency %.2f s, gap %.2f s, queue %d",
+                                     $0.isSeamless ? "seamless; " : "in-page; ", asked, $0.requested, $0.landed, $0.offset, $0.latency,
+                                     $0.gap, controller.queue.autoplay.count) } ?? "no report")
+                if let r, landed { check("\(query): \(target == .video ? "song → video" : "video → song") has no gap", r.gap < 0.05,
+                                         String(format: "gap %.2f s", r.gap)) }
                 try? await Task.sleep(for: .seconds(4))
             }
         }

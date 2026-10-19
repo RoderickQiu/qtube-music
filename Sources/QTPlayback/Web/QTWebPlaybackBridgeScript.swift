@@ -7,7 +7,8 @@ import Foundation
 ///
 /// Messages (`window.webkit.messageHandlers.qtPlayback`):
 /// - `{type:"ready"}` once the page's player API exists;
-/// - `{type:"state", gen, vid, t, d, paused, ps, buffering, ad, vol, muted, vw, vh, rs, pip}` on media events (≤ 2/s);
+/// - `{type:"state", gen, vid, t, d, paused, ps, buffering, ad, vol, muted, vw, vh, rs, pip, pic}` on media events (≤ 2/s;
+///   `pic` = bars still visible around the cropped picture, left/top/right/bottom fractions of the slot);
 /// - `{type:"ended", gen, vid}` exactly once per load generation when content (not an ad) finishes;
 /// - `{type:"error", gen, vid, code, status, reason}` when the player reports an error or the item's
 ///   playability status isn't OK (age-restricted, region-locked, removed…).
@@ -18,7 +19,7 @@ import Foundation
 ///
 /// Video (M5, separate `videoSurface` script): the bridge's `present(on, quality)` turns the page into a bare video
 /// surface — every element is hidden (`visibility`, so YouTube's own layout and logic keep running), each decoded
-/// frame is drawn onto one full-viewport canvas (`object-fit: cover`, burned-in letterbox bars cropped), nothing
+/// frame is drawn onto one full-viewport canvas (`object-fit: cover`, burned-in letterbox and pillarbox bars cropped), nothing
 /// takes the pointer — and asks for a quality that fits the slot showing it. Frames go through a canvas because
 /// WebKit's inline video layer stays blank (white) once the web view has moved out of the window it was created
 /// in, while ordinary page content composites wherever the view goes; one `drawImage` per frame, only while
@@ -30,10 +31,11 @@ enum QTWebPlaybackBridgeScript {
 
     /// Injected at document start (page world): initial load parameters for the first document.
     static func bootstrap(generation: Int, videoID: String, hold: Bool, volume: Double, muted: Bool, silent: Bool,
-                          lowQuality: Bool = true, present: Bool = false, quality: String = "tiny") -> String {
+                          lowQuality: Bool = true, present: Bool = false, quality: String = "tiny",
+                          standby: Bool = false) -> String {
         let payload: [String: Any] = [
             "gen": generation, "target": videoID, "hold": hold, "vol": volume, "muted": muted, "silent": silent,
-            "lowQuality": lowQuality, "present": present, "quality": quality,
+            "lowQuality": lowQuality, "present": present, "quality": quality, "standby": standby,
         ]
         let json = (try? JSONSerialization.data(withJSONObject: payload)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
         return "window.__qtInit = \(json);"
@@ -93,33 +95,85 @@ enum QTWebPlaybackBridgeScript {
       // The frames themselves are copied onto a canvas (one draw per decoded frame, sized to the slot): WebKit's
       // inline video layer stays blank once the web view has moved out of the window it was created in, while
       // ordinary page content — a canvas — composites wherever the view goes.
-      // Letterbox bars burned into the stream (a 2.39:1 film in a 16:9 upload) are measured on a tiny probe every
-      // couple of seconds and cropped away, so a full-bleed slot never shows black bands.
-      const C = { canvas: null, ctx: null, running: false, v: null, handle: 0, bar: 0, probe: null, lastProbe: 0, probes: 0, src: "" };
+      // Bars burned into the stream — letterbox (a 2.39:1 film in a 16:9 upload) and pillarbox (a 4:3 or square
+      // picture, film-gate frames with sprocket notches) — are measured on a tiny probe and cropped away, so a slot
+      // shows the real picture edge to edge. Quick probes while a video starts, then every couple of seconds; a crop
+      // is only adopted when it repeats (a dark scene is not a bar) and changes glide over a few frames.
+      const C = { canvas: null, ctx: null, running: false, v: null, handle: 0, probe: null, lastProbe: 0, probes: 0, src: '',
+                  crop: [0, 0, 0, 0], target: [0, 0, 0, 0], raw: [0, 0, 0, 0], cand: null, seen: 0, srcAt: 0, pic: [0, 0, 0, 0],
+                  min: null };
+      const PW = 64, PH = 64, DARK = 24;
+      // Per side: the share of the frame that is a burned-in bar (left, top, right, bottom), or null when unsure.
+      function probeBars(v) {
+        if (!C.probe) { C.probe = document.createElement('canvas'); C.probe.width = PW; C.probe.height = PH; }
+        const p = C.probe.getContext('2d', { willReadFrequently: true });
+        p.drawImage(v, 0, 0, PW, PH);
+        const d = p.getImageData(0, 0, PW, PH).data;
+        const dk = (x, y) => { const i = (y * PW + x) * 4; return d[i] < DARK && d[i + 1] < DARK && d[i + 2] < DARK; };
+        const row = (y, x0, x1) => { let n = 0; for (let x = x0; x < x1; x++) if (dk(x, y)) n++; return n / Math.max(1, x1 - x0); };
+        const col = (x, y0, y1) => { let n = 0; for (let y = y0; y < y1; y++) if (dk(x, y)) n++; return n / Math.max(1, y1 - y0); };
+        // The middle must be lit: an all-dark frame (fade, night scene) says nothing about bars.
+        let lit = 0;
+        for (let y = PH * 0.3 | 0; y < PH * 0.7; y += 2) for (let x = PW * 0.3 | 0; x < PW * 0.7; x += 2) if (!dk(x, y)) lit++;
+        if (lit < 12) return null;
+        // Solid bars: whole rows / columns dark. Then step over the picture's soft edge (rounded film corners,
+        // sprocket notches): lines that are still partly dark, at most 5 % more.
+        const edge = (line, n, limit) => {
+          let k = 0; while (k < limit && line(k) >= 0.96) k++;
+          if (k === 0) return 0;
+          let soft = 0; while (soft < n * 0.05 && k + soft < limit && line(k + soft) > 0.06) soft++;
+          return k + soft + 1;   // + one probe line clears the blur of the boundary
+        };
+        // Side bars run the full height; top and bottom bars are then looked for between them only.
+        let l = edge(i => col(i, 0, PH), PW, PW * 0.36 | 0), r = edge(i => col(PW - 1 - i, 0, PH), PW, PW * 0.36 | 0);
+        // Bars come in pairs; a lone dark side is the scene.
+        if (!(l > 1 && r > 1)) { l = 0; r = 0; }
+        const x0 = Math.min(l, PW / 3 | 0), x1 = Math.max(x0 + 1, PW - Math.min(r, PW / 3 | 0));
+        let t = edge(i => row(i, x0, x1), PH, PH * 0.3 | 0), b = edge(i => row(PH - 1 - i, x0, x1), PH, PH * 0.3 | 0);
+        if (!(t > 1 && b > 1)) { t = 0; b = 0; }
+        return [l / PW, t / PH, r / PW, b / PH];
+      }
       function measureBars(v) {
         const now = Date.now();
-        if (C.src !== v.currentSrc) { C.src = v.currentSrc; C.bar = 0; C.lastProbe = 0; C.probes = 0; }
-        if (now - C.lastProbe < (C.probes < 10 ? 250 : 2000)) return;   // quick at the start, then calm
+        if (C.src !== v.currentSrc) {
+          C.src = v.currentSrc; C.lastProbe = 0; C.probes = 0; C.cand = null; C.seen = 0; C.srcAt = now; C.min = null;
+          C.raw = [0, 0, 0, 0]; C.target = [0, 0, 0, 0]; C.crop = [0, 0, 0, 0];
+        }
+        if (now - C.lastProbe < (C.probes < 12 ? 250 : 2000)) return;
         C.lastProbe = now; C.probes++;
-        if (!C.probe) { C.probe = document.createElement('canvas'); C.probe.width = 32; C.probe.height = 72; }
-        const p = C.probe.getContext('2d', { willReadFrequently: true });
-        try {
-          p.drawImage(v, 0, 0, 32, 72);
-          const d = p.getImageData(0, 0, 32, 72).data;
-          const dark = (row) => { let m = 0; for (let x = 0; x < 32; x++) { const i = (row * 32 + x) * 4; m = Math.max(m, d[i], d[i + 1], d[i + 2]); } return m < 22; };
-          let top = 0; while (top < 18 && dark(top)) top++;
-          let bottom = 0; while (bottom < 18 && dark(71 - bottom)) bottom++;
-          const bar = Math.min(top, bottom) / 72;
-          // Only a clear, symmetric band counts (a dark scene is not a letterbox: it must also be lit inside).
-          const lit = !dark(36) || !dark(30) || !dark(42);
-          C.bar = lit && bar >= 0.04 ? Math.min(0.3, bar + 0.01) : (lit ? 0 : C.bar);   // +1 % clears the soft edge
-        } catch (_) {}
+        let m = null; try { m = probeBars(v); } catch (_) {}
+        if (!m) return;
+        // Burned-in bars never change within a video, scenes do: the crop is the smallest bar seen so far (a dark
+        // opening scene that looked like bars lets go as soon as a brighter one shows), adopted once three probes
+        // in a row agree.
+        C.min = C.min ? C.min.map((x, i) => Math.min(x, m[i])) : m;
+        const same = C.cand && m.every((x, i) => Math.abs(x - C.cand[i]) <= 0.02);
+        C.cand = m; C.seen = same ? C.seen + 1 : 1;
+        if (C.seen < 3 && C.target.every(x => x === 0)) return;
+        m = C.min;
+        C.raw = m;
+        // Never crop past a square picture (vertical videos keep part of their bars) or a 2.4:1 film.
+        C.target = [Math.min(0.22, m[0]), Math.min(0.2, m[1]), Math.min(0.22, m[2]), Math.min(0.2, m[3])];
       }
-      function frameTarget(v, sh) {
-        const dpr = window.devicePixelRatio || 2, vw = v.videoWidth;
-        const cover = Math.max(innerWidth * dpr / vw, innerHeight * dpr / sh);
+      // The crop glides to its target (snaps while the video is still starting), so a late correction never jumps.
+      function stepCrop() {
+        const snap = Date.now() - C.srcAt < 1500;
+        C.crop = C.crop.map((x, i) => { const t = C.target[i]; return snap || Math.abs(t - x) < 0.002 ? t : x + (t - x) * 0.12; });
+      }
+      function frameTarget(sw, sh) {
+        const dpr = window.devicePixelRatio || 2;
+        const cover = Math.max(innerWidth * dpr / sw, innerHeight * dpr / sh);
         const k = Math.min(1, cover);   // never larger than the decoded frame
-        return [Math.max(2, Math.round(vw * k)), Math.max(2, Math.round(sh * k))];
+        return [Math.max(2, Math.round(sw * k)), Math.max(2, Math.round(sh * k))];
+      }
+      // Bars that are still visible after the crop (vertical videos), as fractions of the slot: the app keeps
+      // overlays (the Stage's lyric line) over the picture.
+      function visibleBars(vw, vh, sx, sy, sw, sh) {
+        const W = innerWidth, H = innerHeight, s = Math.max(W / sw, H / sh), x0 = (W - sw * s) / 2, y0 = (H - sh * s) / 2;
+        const f = (px, n) => Math.max(0, Math.min(0.45, px / n));
+        return [f(x0 + (C.raw[0] * vw - sx) * s, W), f(y0 + (C.raw[1] * vh - sy) * s, H),
+                f(x0 + (sx + sw - (1 - C.raw[2]) * vw) * s, W), f(y0 + (sy + sh - (1 - C.raw[3]) * vh) * s, H)]
+               .map(x => Math.round(x * 1000) / 1000);
       }
       function drawFrame() {
         C.handle = 0;
@@ -136,10 +190,14 @@ enum QTWebPlaybackBridgeScript {
             C.canvas = c; C.ctx = c.getContext('2d', { alpha: false, desynchronized: true });
           }
           measureBars(v);
-          const vw = v.videoWidth, vh = v.videoHeight, sy = Math.round(vh * C.bar), sh = vh - 2 * sy;
-          const [w, h] = frameTarget(v, sh);
+          stepCrop();
+          const vw = v.videoWidth, vh = v.videoHeight, c = C.crop;
+          const sx = Math.round(vw * c[0]), sy = Math.round(vh * c[1]);
+          const sw = Math.max(2, vw - sx - Math.round(vw * c[2])), sh = Math.max(2, vh - sy - Math.round(vh * c[3]));
+          const [w, h] = frameTarget(sw, sh);
           if (C.canvas.width !== w || C.canvas.height !== h) { C.canvas.width = w; C.canvas.height = h; }
-          try { C.ctx.drawImage(v, 0, sy, vw, sh, 0, 0, w, h); } catch (_) {}
+          try { C.ctx.drawImage(v, sx, sy, sw, sh, 0, 0, w, h); } catch (_) {}
+          C.pic = visibleBars(vw, vh, sx, sy, sw, sh);
         }
       }
       function scheduleFrame() {
@@ -150,6 +208,8 @@ enum QTWebPlaybackBridgeScript {
       }
       function setFrames(on) {
         C.running = on;
+        // Shown again (another slot, back from the hidden host): probe quickly and snap to what it finds.
+        if (on) { C.probes = 0; C.lastProbe = 0; C.srcAt = Date.now(); }
         if (on) raw.st(() => { if (C.running) { drawOnce(); scheduleFrame(); } }, 0);
         else if (C.handle && C.v && C.v.cancelVideoFrameCallback) { C.v.cancelVideoFrameCallback(C.handle); C.handle = 0; }
       }
@@ -173,7 +233,10 @@ enum QTWebPlaybackBridgeScript {
           if (C.running && v && C.v !== v) { C.handle = 0; scheduleFrame(); }
           if (C.running && v && !paused && !C.handle) scheduleFrame();
         },
-        info() { return { letterbox: C.bar, canvas: C.canvas ? C.canvas.width + 'x' + C.canvas.height : '' }; },
+        info() { return { bars: C.raw, crop: C.crop.map(x => Math.round(x * 1000) / 1000), picture: C.pic,
+                         canvas: C.canvas ? C.canvas.width + 'x' + C.canvas.height : '' }; },
+        // Bars still visible around the picture (left, top, right, bottom; fractions of the slot), while presented.
+        pictureBars() { return C.running ? C.pic : [0, 0, 0, 0]; },
       };
     })();
     """
@@ -220,6 +283,12 @@ enum QTWebPlaybackBridgeScript {
                   hold: !!init.hold, endedGen: -1, vol: init.vol == null ? 1 : init.vol, muted: !!init.muted,
                   last: null, lastPost: 0, attached: false, low: init.lowQuality !== false, errGen: -1,
                   qualityGen: -1, qualityKey: '', present: !!init.present, quality: init.quality || 'tiny', nav: true };
+      // A Song⇄Video standby page stays muted at the source until its crossfade starts (`fade` unmutes): the
+      // player may start before the bridge has attached and applied the volume.
+      if (init.standby) {
+        const hush = (e) => { if (S.muted) try { e.target.muted = true; } catch (_) {} };
+        for (const ev of ['loadstart', 'loadedmetadata', 'play', 'playing']) document.addEventListener(ev, hush, true);
+      }
       // The video surface lives in `videoSurface` (window.__qtVideo); the bridge only says when it shows.
       const present = () => { if (window.__qtVideo) window.__qtVideo.present(S.present); };
       present();
@@ -275,13 +344,15 @@ enum QTWebPlaybackBridgeScript {
                  buffering: !paused && (ps === 3 || (v && v.readyState < 3)),
                  ad: ad ? adInfo(v) : null, vol: S.vol, muted: S.muted,
                  vw: v ? num(v.videoWidth) : 0, vh: v ? num(v.videoHeight) : 0, rs: v ? num(v.readyState) : 0,
-                 pip: !!v && v.webkitPresentationMode === 'picture-in-picture' };
+                 pip: !!v && v.webkitPresentationMode === 'picture-in-picture',
+                 pic: window.__qtVideo ? window.__qtVideo.pictureBars() : [0, 0, 0, 0] };
       }
       function changed(a, b) {
         if (!b) return true;
         if (a.vid !== b.vid || a.paused !== b.paused || a.ps !== b.ps || a.buffering !== b.buffering || a.d !== b.d) return true;
         if (a.pip !== b.pip || (a.vw > 0) !== (b.vw > 0) || (a.rs >= 2) !== (b.rs >= 2)) return true;
         if (!!a.ad !== !!b.ad) return true;
+        if (a.pic.some((x, i) => Math.abs(x - b.pic[i]) > 0.01)) return true;
         if (a.ad && (Math.ceil(a.ad.remaining) !== Math.ceil(b.ad.remaining) || a.ad.skippableIn !== b.ad.skippableIn)) return true;
         return Math.abs(a.t - b.t) > 1.2;
       }
@@ -395,6 +466,22 @@ enum QTWebPlaybackBridgeScript {
           present();
           const p = player(); if (p && p.setPlaybackQualityRange) applyQuality(p);
           report(true); return true;
+        },
+        // Song⇄Video crossfade between two pages: ramps the player's volume along an equal-power curve over `ms`;
+        // 'in' rises from silence to `to`, 'out' falls from `to` to silence. `muted` is the app's mute.
+        fade(to, ms, dir, muted) {
+          thaw(); const p = player(); if (!p || !p.setVolume) return false;
+          if (S.fade) raw.ci(S.fade);
+          S.muted = !!muted;
+          const t0 = Date.now(), set = (x) => { try { p.setVolume(Math.max(0, Math.min(100, Math.round(x * 100)))); } catch (_) {} };
+          set(dir === 'in' ? 0 : to);
+          try { S.muted ? p.mute() : p.unMute(); } catch (_) {}
+          S.fade = raw.si(() => {
+            const k = Math.min(1, (Date.now() - t0) / Math.max(1, ms));
+            set(to * (dir === 'in' ? Math.sin(k * Math.PI / 2) : Math.cos(k * Math.PI / 2)));
+            if (k >= 1) { raw.ci(S.fade); S.fade = 0; if (dir === 'in') S.vol = to; }
+          }, 16);
+          return true;
         },
         // WebKit's native Picture in Picture for the page's video.
         pip(on) {

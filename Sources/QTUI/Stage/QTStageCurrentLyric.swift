@@ -32,7 +32,7 @@ struct QTStageCurrentLyric: View {
             let index = current?.index
             // Art only, before the first line (intro) or an instrumental track: "Instrumental", like the prototype.
             let isInstrumental = style == .artOnly && matches && resolved.isInstrumental(atPlaybackTime: now)
-            ZStack {
+            ZStack(alignment: style == .videoOverlay ? .bottomLeading : .top) {
             VStack(alignment: alignment, spacing: style == .videoOverlay ? 6 : 4) {
                 if isInstrumental {
                     Text(QTLoc.tr("Instrumental"))
@@ -53,8 +53,7 @@ struct QTStageCurrentLyric: View {
             .multilineTextAlignment(textAlignment)
             .frame(maxWidth: style == .videoOverlay ? 1000 : 560, alignment: Alignment(horizontal: alignment, vertical: .center))
             .id(isInstrumental ? -2 : index ?? -1)
-            .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: reduceMotion ? 0 : 10)),
-                                    removal: .opacity.combined(with: .offset(y: reduceMotion ? 0 : -10))))
+            .transition(QTStageLyricLineTransition.make(reduceMotion: reduceMotion))
             }
             .animation(QTTheme.Motion.animation(QTTheme.Motion.lyricSpring, reduceMotion: reduceMotion), value: index)
         }
@@ -80,5 +79,43 @@ struct QTStageCurrentLyric: View {
             out.append(piece)
         }
         return out
+    }
+}
+
+/// How one current line hands over to the next. The two lines never share a baseline at full strength: the old
+/// one lifts up and out quickly (fading and softening), and the new one rises into place only once the old one has
+/// mostly gone — over a moving video two overlapping lines read as garbled text. Reduce Motion: a short fade out,
+/// then a fade in, no movement.
+enum QTStageLyricLineTransition {
+    /// Outgoing line: lift, fade, soften (fast, accelerating away).
+    static let exit: TimeInterval = 0.2
+    /// The incoming line starts when the outgoing one is ~70 % gone.
+    static let entryDelay: TimeInterval = 0.12
+
+    static func make(reduceMotion: Bool) -> AnyTransition {
+        if reduceMotion {
+            return .asymmetric(insertion: .opacity.animation(.easeOut(duration: 0.16).delay(0.12)),
+                               removal: .opacity.animation(.easeIn(duration: 0.12)))
+        }
+        let insertion = AnyTransition.modifier(active: QTStageLyricLineMotion(opacity: 0, y: 18, blur: 6),
+                                               identity: QTStageLyricLineMotion(opacity: 1, y: 0, blur: 0))
+            .animation(QTTheme.Motion.lyricSpring.delay(entryDelay))
+        let removal = AnyTransition.modifier(active: QTStageLyricLineMotion(opacity: 0, y: -30, blur: 8),
+                                             identity: QTStageLyricLineMotion(opacity: 1, y: 0, blur: 0))
+            .animation(.timingCurve(0.4, 0, 0.9, 0.6, duration: exit))
+        return .asymmetric(insertion: insertion, removal: removal)
+    }
+}
+
+private struct QTStageLyricLineMotion: ViewModifier {
+    let opacity: Double
+    let y: CGFloat
+    let blur: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .blur(radius: blur)
+            .offset(y: y)
+            .opacity(opacity)
     }
 }

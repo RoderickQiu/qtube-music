@@ -264,7 +264,15 @@ Coordinators (one per process, `@MainActor`):
   `QTCounterpartMatcher` search; read-only; current + next track — `next` carries the session, the search fallback is
   always anonymous, see *Signed-in requests*) and owns ⇧⌘P
   (`togglePictureInPicture()`, `canTogglePictureInPicture`, `isPictureInPictureActive`). `QTQueueController.preferredMode`
-  carries the choice across tracks; `setMode` reloads the counterpart at the current position (queue untouched).
+  carries the choice across tracks; `setMode` loads the counterpart at the current position (queue untouched).
+  **Seamless switch (video-polish):** while content plays, `QTWebPlaybackEngine` prepares the counterpart in a second,
+  muted standby page a little ahead of the current position (`QTWebPlaybackEngine+ModeSwitch.swift`,
+  `QTWebStandbySwitch`), holds it once buffered, plays it when the old page's clock gets there and crossfades the two
+  (equal power, 0.4 s, bridge `fade`), then promotes it to the engine's page (`QTWebVideoOutput.engineDidSwapPage`) and
+  closes the old one — no gap, measured drift ≤ 0.08 s, handover 2–4 s after the click (the Song | Video switch and the
+  slots' placeholder change at once; the old rendition keeps playing until then). Paused, ads on the standby (free
+  accounts), errors, a 12 s timeout, near the end, offline, pause/seek mid-switch → the old in-page reload (short gap).
+  `Configuration.seamlessModeSwitch` (default on); `lastSeamlessFallback` says why one fell back.
 - **Live video:** `QTLiveVideoView(kind: .panel | .stage, cornerRadius:) { placeholder }` (NowPlaying/) shows the web
   engine's real video with the placeholder (artwork / MV still) on top until the first frame, then crossfades
   (0.32 s); ads, PiP and the simulated engine show the placeholder (PiP adds a quiet `pip` glyph).
@@ -274,11 +282,18 @@ Coordinators (one per process, `@MainActor`):
   works: the WKWebView moves into the slot (one reparent, window to window; the engine resumes playback if WebKit
   pauses the page on the way back into the hidden host); the `videoSurface` script hides all page UI and draws each
   decoded frame on one canvas (WebKit's inline video layer stays blank after the view changes windows), cropping
-  burned-in letterbox bars; the page never takes clicks, focus or VoiceOver (`QTWebPlaybackView`); content insets
+  burned-in letterbox **and pillarbox** bars (side bars first, then top/bottom between them; soft film-gate edges
+  and sprocket notches included; adopted when three probes agree, then the smallest bar seen; glides, never jumps;
+  capped at a square picture — vertical videos keep part of their bars and report them as
+  `QTWebVideoOutput.pictureBars`, which the Stage's lyric line keeps clear of); the page never takes clicks, focus or VoiceOver (`QTWebPlaybackView`); content insets
   are zeroed so the video runs under the title bar. Native PiP is WebKit's (`_allowsPictureInPictureMediaPlayback`).
 - `QTStageVideoSurfaceProvider.shared.source` (Stage/) — a native engine can still hand the Stage its own
   `.layer(AVPlayerLayer)` / `.view(NSView)`; otherwise the Stage's Video background is `QTLiveVideoView(kind: .stage)`.
   Lyrics over the video are optional (Appearance popover › "Lyrics over video", `@AppStorage("qt.stage.videoLyrics")`).
+  Line changes never overlap (`QTStageLyricLineTransition`): the old line lifts out and softens in 0.2 s, the new one
+  rises in 0.12 s later; Reduce Motion fades out, then in. The panel's video tile widens towards 16:9 only as far as
+  the panel's width allows (the panel never grows on Song⇄Video). WebKit's PiP shows the raw `<video>` (baked-in bars
+  stay there).
 - In-window Stage keeps the window's own title bar and SwiftUI toolbar (so the traffic lights stay put and the
   inspector's toolbar plumbing stays consistent): Shell drops its toolbar items while `surface == .stage`, and
   `QTStageTitlebar` (Stage/) hides every remaining toolbar item (`NSToolbarItem.isHidden`, also items SwiftUI adds
@@ -562,10 +577,12 @@ InnerTube fixtures), `QT_DUMP=1` (print parser output), `QT_KEYCHAIN_TEST=1` (Ke
   alone, headless. `spectrum` (web-audio): polls `spectrum(bandCount: 96)` at 60 fps like the visualizer — signal, motion,
   mute, seek, release — and logs WebContent + app CPU with the visualizer hidden / visible / hidden again. `switch` (M5 acceptance): for each of `--queries "a|b|c"` (default Ed Sheeran Perfect, Adele Hello,
   Coldplay Yellow) finds the song + music video anonymously, plays muted from 0:30 and switches Song → Video → Song,
-  logging asked / requested / landed position, offset and latency of every switch (pass: |offset| ≤ 0.5 s).
+  logging asked / requested / landed position, offset, latency, gap and seamless/in-page of every switch (pass:
+  |offset| ≤ 0.5 s, gap < 0.05 s).
 - DEBUG playback hooks (`QTPlaybackDebugHooks`) also take `pip` and `eval:<js>`; the status file adds `audio`
-  (spectrum tap: status, active, frames, pulls), `video`
-  (presenting, hasFrame, pip, size, container) and `modeSwitches` (every measured Song⇄Video switch).
+  (spectrum tap: status, active, frames, pulls), `video` (presenting, hasFrame, pip, size, container), `modeSwitches`
+  (every measured Song⇄Video switch, with `gap` and `seamless`) and `seamlessFallback`; `media.surface` shows the
+  measured `bars`, the `crop` and the visible `picture` bars.
 - `swift run --scratch-path .build/<you> QTNativeSpike bench [--signed-in] [--count N] [--clients A,B]` (also
   `clients`, `cipher`, `avplayer`) — the M5 native-engine spike, headless and muted; appends one line per bench run
   to `~/Library/Caches/com.roderickqiu.qtube.native-spike/runs.jsonl` for breakage tracking. Findings, numbers and

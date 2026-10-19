@@ -17,18 +17,44 @@ public struct QTModeSwitchReport: Sendable, Hashable {
     public var landed: TimeInterval
     /// Switch request → new rendition playing, in seconds.
     public var latency: TimeInterval
+    /// How long no music played. An in-page switch stops the old rendition at once (gap = latency); a seamless
+    /// switch keeps it playing until the new one, prepared in a second page, crossfades in (gap 0).
+    public var gap: TimeInterval
+    /// The new rendition was prepared in a second page and crossfaded in.
+    public var isSeamless: Bool
     /// `landed - requested`.
     public var offset: TimeInterval { landed - requested }
 
     public init(videoID: String, from: QTPlaybackMode, to: QTPlaybackMode, requested: TimeInterval, landed: TimeInterval,
-                latency: TimeInterval) {
+                latency: TimeInterval, gap: TimeInterval? = nil, isSeamless: Bool = false) {
         self.videoID = videoID
         self.from = from
         self.to = to
         self.requested = requested
         self.landed = landed
         self.latency = latency
+        self.gap = gap ?? latency
+        self.isSeamless = isSeamless
     }
+}
+
+/// Black bars that stay visible around the music video's picture in its slot after burned-in bars are cropped
+/// (only vertical or very narrow pictures keep some), as fractions of the slot's width (left/right) and height
+/// (top/bottom). Overlays such as the Stage's lyric line keep to the picture.
+public struct QTVideoPictureBars: Sendable, Hashable {
+    public var left: Double
+    public var top: Double
+    public var right: Double
+    public var bottom: Double
+
+    public init(left: Double, top: Double, right: Double, bottom: Double) {
+        self.left = left
+        self.top = top
+        self.right = right
+        self.bottom = bottom
+    }
+
+    public static let zero = QTVideoPictureBars(left: 0, top: 0, right: 0, bottom: 0)
 }
 
 /// The web engine's music video, shown in the app's own views (M5).
@@ -56,6 +82,8 @@ public final class QTWebVideoOutput {
     public private(set) var isVideoItem = false
     /// The video floats in WebKit's Picture in Picture window.
     public private(set) var isPictureInPictureActive = false
+    /// Bars still visible around the picture in the slot showing it (zero while nothing presents it).
+    public private(set) var pictureBars = QTVideoPictureBars.zero
 
     /// The app view showing the video (nil = the hidden host).
     @ObservationIgnored public private(set) weak var container: NSView?
@@ -138,14 +166,26 @@ public final class QTWebVideoOutput {
         }
     }
 
-    func update(hasFrame frame: Bool, size: CGSize) {
+    func update(hasFrame frame: Bool, size: CGSize, pictureBars bars: QTVideoPictureBars = .zero) {
         let value = frame && isVideoItem
         if hasFrame != value { hasFrame = value }
         if videoSize != size { videoSize = size }
+        let shown = isPresenting && value ? bars : .zero
+        if pictureBars != shown { pictureBars = shown }
     }
 
     func update(isPictureInPicture: Bool) {
         if isPictureInPictureActive != isPictureInPicture { isPictureInPictureActive = isPictureInPicture }
+    }
+
+    /// The engine's page changed (a seamless Song⇄Video switch promoted its standby page): the slot showing the
+    /// video takes the new page; the old one is the engine's to close.
+    func engineDidSwapPage(from old: WKWebView) {
+        (old as? QTWebPlaybackView)?.isPresentedInApp = false
+        if old.superview === container { old.removeFromSuperview() }
+        sentPresentation = nil
+        attachIfPossible()
+        sendPresentation()
     }
 
     func engineWillTearDown() {

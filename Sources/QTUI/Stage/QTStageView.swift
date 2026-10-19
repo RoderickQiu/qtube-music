@@ -274,10 +274,20 @@ public struct QTStageView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if showsVideoLyrics {
             // `VideoLyricsOverlay`: left 64, right 64, bottom 150 (the content area already ends 128 above the bottom).
+            // A picture that keeps part of its bars (vertical videos): the line starts over the picture, not in
+            // the bar beside it.
+            let bars = QTVideoModeService.shared.videoOutput?.pictureBars ?? .zero
+            let inset = QTTheme.Metrics.stageInset
+            let stageWidth = area.width + inset * 2 + drawerReserve
+            let leading = max(0, CGFloat(bars.left) * stageWidth + 32 - inset)
+            let trailing = max(0, CGFloat(bars.right) * stageWidth + 32 - inset - drawerReserve)
             QTStageCurrentLyric(document: player.lyrics, time: player.timeline, style: .videoOverlay,
                                 showsTranslation: showsTranslation)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                .padding(.leading, leading)
+                .padding(.trailing, trailing)
                 .padding(.bottom, 22)
+                .animation(motion, value: bars)
                 .transition(.opacity)
         } else {
             Color.clear

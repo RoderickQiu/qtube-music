@@ -143,10 +143,14 @@ struct QTNowPlayingHero: View {
 
     var body: some View {
         let track = player.nowPlaying
-        let artSize = CGSize(width: showsVideo ? 156 : QTTheme.Metrics.panelHeroArtwork, height: QTTheme.Metrics.panelHeroArtwork)
+        let side = QTTheme.Metrics.panelHeroArtwork
         HStack(spacing: 18) {
+            // Video mode widens the tile towards 16:9 only as far as the panel's current width allows: the text
+            // column keeps its room and the panel never grows on Song⇄Video (the video is cropped to fill).
             artwork(track)
-                .frame(width: artSize.width, height: artSize.height)
+                .frame(minWidth: side, idealWidth: showsVideo ? 156 : side, maxWidth: showsVideo ? 156 : side)
+                .frame(height: side)
+                .layoutPriority(1)
                 .shadow(color: .black.opacity(0.28), radius: 12, y: 6)
             VStack(alignment: .leading, spacing: 0) {
                 Text(track?.title ?? "")
