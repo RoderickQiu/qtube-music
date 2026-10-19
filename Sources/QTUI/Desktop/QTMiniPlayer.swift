@@ -47,7 +47,15 @@ final class QTMiniPlayerPanel: NSPanel, NSWindowDelegate {
         qtLocalizedAccessibility("Mini Player")
         let host = QTFirstMouseHostingView(rootView: content)
         host.sizingOptions = []
-        contentView = host
+        // Not the content view itself: as a window's content view, NSHostingView keeps the window at least as
+        // tall as the SwiftUI minimum *plus* the (hidden) title bar, so the 72 pt strip became a 104 pt window that
+        // grew downwards past the bottom of the screen, with the progress line floating under the strip. In a
+        // plain container it just fills the frame the panel's own constraints allow.
+        let container = NSView(frame: NSRect(origin: .zero, size: QTTheme.Metrics.miniCompact))
+        host.frame = container.bounds
+        host.autoresizingMask = [.width, .height]
+        container.addSubview(host)
+        contentView = container
         applyConstraints()
     }
 

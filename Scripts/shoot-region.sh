@@ -7,6 +7,7 @@
 #
 # Only ever on the test display: QT_SCREEN, else U270CA when connected, else the built-in display (Scripts/lib.sh
 # qt_screen; a QT_SCREEN that isn't connected stops the run). Saves screenshots/<outname>.png in the main checkout.
+# Same launch-argument checks and demo-catalog default as shoot.sh.
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 [[ $# -ge 2 ]] || { sed -n '2,8p' "$0"; exit 2; }
@@ -14,6 +15,13 @@ OUT="$1"; TITLE="$2"; shift 2
 [[ "$OUT" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "error: outname must be a plain file name" >&2; exit 2; }
 MARGIN=40
 if [[ "${1:-}" == "--margin" ]]; then MARGIN="$2"; shift 2; fi
+qt_launch_args "$@" || exit 2
+set -- ${QT_ARGS[@]+"${QT_ARGS[@]}"}
+# Like shoot.sh: the demo (mock) catalog and its bundled lyrics unless the caller picks a catalog / lyrics source.
+if [[ " $* " != *" -qt.catalog "* ]]; then
+  set -- -qt.catalog mock "$@"
+  if [[ " $* " != *" -qt.lyrics.engine "* && " $* " != *" -qt.lyrics.unofficial "* ]]; then set -- -qt.lyrics.engine mock "$@"; fi
+fi
 
 APP="$(qt_app_path)"
 EXE="$APP/Contents/MacOS/QTubeMusic"
@@ -26,11 +34,7 @@ for _ in $(seq 1 50); do pgrep -f "^$EXE" >/dev/null || break; sleep 0.1; done
 
 READY="$(mktemp -t qtshoot).json"; rm -f "$READY"
 open -g -n "$APP" --args -ApplePersistenceIgnoreState YES -qt.screen "$SCREEN" -qt.readyFile "$READY" "$@"
-DEADLINE=$(( $(date +%s) + ${QT_TIMEOUT:-45} ))
-until [[ -s "$READY" ]]; do
-  (( $(date +%s) > DEADLINE )) && { echo "error: not ready" >&2; pkill -f "^$EXE" || true; exit 1; }
-  sleep 0.1
-done
+qt_wait_ready "$READY" "$EXE" "${QT_TIMEOUT:-45}" || { pkill -f "^$EXE" || true; rm -f "$READY"; exit 1; }
 if qt_ready_error "$READY" >&2; then rm -f "$READY"; exit 1; fi
 sleep "${QT_SETTLE:-0.6}"
 PID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["pid"])' "$READY")"

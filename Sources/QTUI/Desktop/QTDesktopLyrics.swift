@@ -87,7 +87,7 @@ final class QTDesktopLyricsPanel: NSPanel, NSWindowDelegate {
     static func panelSize(prefs: QTDesktopLyricsPrefs, screenWidth: CGFloat) -> NSSize {
         let font = QTLyricsFontOverride(mainSize: prefs.fontSize, design: prefs.fontDesign)
         let lines = QTDesktopLyricsView.linesHeight(font: font, lineCount: prefs.lineCount)
-        let chrome = 2 * QTDesktopLyricsView.verticalPadding + toolbarHeight(prefs)
+        let chrome = 2 * QTDesktopLyricsView.verticalPadding(fontSize: prefs.fontSize) + toolbarHeight(prefs)
         return NSSize(width: min(max(screenWidth * 0.72, 720), 1500), height: (lines + chrome).rounded())
     }
 
@@ -106,8 +106,9 @@ final class QTDesktopLyricsPanel: NSPanel, NSWindowDelegate {
 }
 
 /// The overlay's content: the current line (word fill from `QTLyricsView`'s desktop style) and a second line
-/// (translation when there is one, otherwise the next line), with the renderer's baked shadow and outline so it
-/// reads on any wallpaper; Increase Contrast / Reduce Transparency add a soft dark backdrop.
+/// (translation when there is one, otherwise the next line), with the renderer's baked glow, shadow, outline and
+/// glyph underlay so it reads on any wallpaper — dark, white or busy; Increase Contrast / Reduce Transparency add a
+/// soft dark backdrop.
 public struct QTDesktopLyricsView: View {
     @Environment(QTAppModel.self) private var model
     @Environment(QTPlayerModel.self) private var player
@@ -129,7 +130,7 @@ public struct QTDesktopLyricsView: View {
             }
             lines(font: font)
                 .padding(.horizontal, 28)
-                .padding(.vertical, Self.verticalPadding)
+                .padding(.vertical, Self.verticalPadding(fontSize: prefs.fontSize))
                 .background {
                     if prefs.isLocked && (contrast == .increased || reduceTransparency) {
                         RoundedRectangle(cornerRadius: 18, style: .continuous)
@@ -174,7 +175,12 @@ public struct QTDesktopLyricsView: View {
         }
     }
 
-    static let verticalPadding: CGFloat = 10
+    /// Room above and below the lines for the renderer's soft glow (`QTLyricsMetrics.glow`, ≈ 0.5 × the main size
+    /// plus its spread, partly inside the line box), so the panel's edge never cuts it off in a visible line on a
+    /// pale wallpaper.
+    static func verticalPadding(fontSize: Double) -> CGFloat {
+        max(12, (CGFloat(fontSize) * 0.6).rounded())
+    }
 
     /// Main line plus, in two-line mode, the second line (same ratios as `QTDesktopLyricsPanel.panelSize`).
     static func linesHeight(font: QTLyricsFontOverride, lineCount: Int) -> CGFloat {

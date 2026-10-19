@@ -107,7 +107,9 @@ public final class QTDesktopCoordinator {
     /// `-qt.surface mini` (the prototype's "desktop" surface): no main window, like after ⇧⌘M. Waits for the window
     /// to appear first so its launch work (playback, readiness) runs as usual.
     private func hideMainWindowAfterLaunch() {
+        isLaunchingIntoMini = true
         Task { @MainActor in
+            defer { isLaunchingIntoMini = false }
             for _ in 0..<100 {
                 if let w = mainWindow, w.isVisible {
                     try? await Task.sleep(for: .milliseconds(200))
@@ -118,6 +120,12 @@ public final class QTDesktopCoordinator {
             }
         }
     }
+
+    /// True while a `-qt.surface mini` launch waits to hide the main window. If the app is activated meanwhile
+    /// (a Dock click, `open` without -g, a script), the window SwiftUI just opened becomes key — that is not the
+    /// user asking for the window, so it must not end the mini player (which used to be ordered out: the launch
+    /// showed neither the mini player nor, after the hide, any window: onScreen=false).
+    private var isLaunchingIntoMini = false
 
     /// Called from scenes (Commands, menu bar label) so AppKit code paths can reopen the main window.
     public func register(openWindow: OpenWindowAction) {
@@ -253,8 +261,11 @@ public final class QTDesktopCoordinator {
             let window = note.object as? NSWindow
             QTMainActorHop.onMainThread {
                 // ⌘0 / Window › QTube Music / Dock click while in the mini player: back to the window.
+                let c = QTDesktopCoordinator.shared
                 guard window?.identifier == QTWindowID.main.identifier,
-                      let model = QTDesktopCoordinator.shared.model, model.surface == .mini else { return }
+                      let model = c.model, model.surface == .mini else { return }
+                // hideMainWindowAfterLaunch orders it out in a moment.
+                guard !c.isLaunchingIntoMini else { return }
                 model.surface = .window
             }
         })

@@ -219,7 +219,11 @@ Views:
   and get their level from `QTLyricsMetrics.laneOpacity(rowOpacity:)`: `QTLyricsLaneLevel.current` (0.66, Increase
   Contrast 0.8) beside the current line (secondary), rising to `QTLyricsLaneLevel.inactive` (0.86) of a dimmed row's
   own opacity (≈ tertiary) — never lane alpha × row alpha. **One level on every surface**: panel / Stage rails, mini,
-  desktop lyrics (baked into the fill so the outline + shadow stay full), the Stage's single current line and the
+  desktop lyrics (baked into the fill so the outline + shadow stay full; R6: plus `QTLyricsMetrics.glow`, a wide soft
+  dark cloud cast by the spread glyphs — invisible on dark wallpapers, shade behind the words on white pages and
+  busy wallpapers, never a box — and `glyphUnderlay`, dark ink inside the glyphs under the dimmed unsung / lane
+  fills so they read as grey, not see-through, on white; the overlay's vertical padding grows with the size so the
+  panel edge never cuts the cloud), the Stage's single current line and the
   menu bar popover (`QTLyricsLaneLevel.current(_ contrast:)` in SwiftUI). One exception: the current line over the
   music video keeps its translation at ≥ 0.86 (legibility on bright frames, with its shadow and scrim).
 - `QTLyricsOptionsButton(overArt:)` → system popover with `QTLyricsOptionsPopover()` (source + timing kind of what is
@@ -373,7 +377,10 @@ Coordinators (one per process, `@MainActor`):
   takes no hits and is disabled (after the fade-in), so VoiceOver and Full Keyboard Access only reach the Stage.
 - `QTDesktopCoordinator.shared` (Desktop/) — mini player, desktop lyrics (hidden while the Stage is up, inline or
   detached; until the user moves it, its default spot steps out of the main window's way), menu bar title, Dock
-  menu, `showMainWindow()` (user-initiated only).
+  menu, `showMainWindow()` (user-initiated only). The mini player's SwiftUI host sits in a plain container view:
+  as the panel's content view, `NSHostingView` grew the window by the hidden title bar's height (72 → 104 pt, past
+  the bottom of the screen). A `-qt.surface mini` launch ignores the main window becoming key until it has hidden
+  it (activation during launch used to end the mini player before it was ever seen).
 - `QTLyricsTiming.nudge(model, by:)` (Lyrics/) — offset change + toast; `QTLyricsVersionStore.shared`.
 - `QTLyricsSession` (AppModel/QTLyricsSessionService.swift, lyrics-live) — **the one lyrics source of truth**, one per
   app (`model.lyricsSession` = `player.lyricsSession`; `player.lyrics`/`isLoadingLyrics` forward to it). Publishes
@@ -658,9 +665,13 @@ InnerTube fixtures), `QT_DUMP=1` (print parser output), `QT_KEYCHAIN_TEST=1` (Ke
   checkout's `screenshots/<outname>.png` (+ `<outname>-<window>.png`), quits, restores the frontmost app if it
   moved. Retakes a capture that Stage Manager shrank or caught mid-animation (narrower than the window, wrong
   aspect, transparent corners, nearly empty, or not yet stable across two captures). Passes `-qt.catalog mock`
-  unless the caller gives `-qt.catalog`. `QT_SETTLE` (default 1 s) waits before capturing. `QT_KEEP=1` leaves it
+  unless the caller gives `-qt.catalog`. Launch arguments are checked first (`qt_launch_args` in lib.sh: `-key value`
+  pairs; a one-string `"-qt.a x -qt.b y"` is split; a missing value or a stray word exits 2 with a message), and an
+  app that quits before writing the ready file fails the run at once (`qt_wait_ready`) instead of after
+  `QT_TIMEOUT`. `QT_SETTLE` (default 1 s) waits before capturing. `QT_KEEP=1` leaves it
   running; `QT_BUILD=1` builds first. Prefix outnames with your area.
-- `Scripts/shoot-region.sh` — screen-region capture on the test display (same choice as shoot.sh; mini player, unlocked desktop lyrics), clamped to that display (`qt-window-id --display-bounds`) so a margin never reaches the user’s screen; other
+- `Scripts/shoot-region.sh` — screen-region capture on the test display (same display choice, argument checks and
+  demo-catalog default as shoot.sh; mini player, unlocked desktop lyrics), clamped to that display (`qt-window-id --display-bounds`) so a margin never reaches the user’s screen; other
   windows on that display can show at the edges. `Scripts/tools/qt-composite.swift` composites a transparent
   window capture over system wallpapers (desktop-lyrics shots).
 - `Scripts/make-app-icon.sh` (`Scripts/tools/qt-make-icon.swift`) — renders `Assets/AppIcon.icns` (macOS 15–25)

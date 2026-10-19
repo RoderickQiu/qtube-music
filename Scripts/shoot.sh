@@ -11,7 +11,8 @@
 # always in the MAIN checkout's screenshots/ folder. Uses the app for $QT_VARIANT (build it first with
 # Scripts/build-app.sh, or set QT_BUILD=1). Env: QT_SCREEN (default: U270CA when connected, else the built-in display;
 # a QT_SCREEN that isn't connected stops the run), QT_TIMEOUT (seconds, default 45),
-# QT_KEEP=1 to leave the instance running.
+# QT_KEEP=1 to leave the instance running. Launch arguments are checked first (-key value pairs; a one-string
+# "-qt.surface stage -qt.paused YES" is split), and a launch the app quits on fails at once, not after QT_TIMEOUT.
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 
@@ -22,9 +23,15 @@ OUT="$1"; shift
 KINDS=()
 ARGS=()
 while [[ $# -gt 0 ]]; do
-  if [[ "$1" == "--window" ]]; then KINDS+=("$2"); shift 2; else ARGS+=("$1"); shift; fi
+  if [[ "$1" == "--window" ]]; then
+    [[ $# -ge 2 ]] || { echo "error: --window needs a name (main, mini, desktopLyrics, menuBarPopover, settings)" >&2; exit 2; }
+    KINDS+=("$2"); shift 2
+  else ARGS+=("$1"); shift; fi
 done
 [[ ${#KINDS[@]} -gt 0 ]] || KINDS=(main)
+# Fail fast on malformed launch arguments (and split a one-string "-qt.a x -qt.b y").
+qt_launch_args ${ARGS[@]+"${ARGS[@]}"} || exit 2
+ARGS=(${QT_ARGS[@]+"${QT_ARGS[@]}"})
 
 SHOW=()
 for k in "${KINDS[@]}"; do
@@ -61,11 +68,7 @@ if [[ " ${ARGS[*]-} " != *" -qt.catalog "* ]]; then
 fi
 open -g -n "$APP" --args "${LAUNCH[@]}" ${ARGS[@]+"${ARGS[@]}"}
 
-DEADLINE=$(( $(date +%s) + ${QT_TIMEOUT:-45} ))
-until [[ -s "$READY" ]]; do
-  if (( $(date +%s) > DEADLINE )); then echo "error: app did not become ready" >&2; pkill -f "^$EXE" || true; exit 1; fi
-  sleep 0.1
-done
+qt_wait_ready "$READY" "$EXE" "${QT_TIMEOUT:-45}" || { pkill -f "^$EXE" || true; rm -f "$READY"; exit 1; }
 if qt_ready_error "$READY" >&2; then rm -f "$READY"; exit 1; fi
 PID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["pid"])' "$READY")"
 

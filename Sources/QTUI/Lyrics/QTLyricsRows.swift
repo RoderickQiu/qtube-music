@@ -52,6 +52,16 @@ struct QTLyricsMetrics {
     /// Desktop overlay: baked shadow + outline so it reads on any wallpaper.
     var shadow: NSShadow?
     var outline: (width: CGFloat, color: NSColor)?
+    /// Desktop overlay: a wide, soft dark cloud under the words (`QTLyricGlow`).
+    var glow: QTLyricGlow? = nil
+    /// Desktop overlay: dark ink inside the glyphs under the dimmed (unsung / lane) fills, so they read as a solid
+    /// grey on a white wallpaper instead of letting it show through.
+    var glyphUnderlay: NSColor? = nil
+    /// Room around each text image for the shadow / glow.
+    var shadowRoom: CGFloat {
+        guard shadow != nil || glow != nil else { return 0 }
+        return max(12, ceil(glow.map { $0.radius * 1.1 + $0.spread } ?? 0))
+    }
     var dotSize: CGFloat
     /// Translation / romanization lanes beside the current line, as a fraction of the main ink: the secondary level
     /// of the lyric hierarchy, `QTLyricsLaneLevel.current` on every surface.
@@ -136,7 +146,11 @@ struct QTLyricsMetrics {
             shadow.shadowColor = NSColor.black.withAlphaComponent(0.55)
             shadow.shadowBlurRadius = 6
             shadow.shadowOffset = NSSize(width: 0, height: -1)
-            return QTLyricsMetrics(
+            // The cloud that keeps white words readable on a white page or a busy wallpaper (R6): soft and wide
+            // enough to read as shade, not as a box; on a dark wallpaper it disappears.
+            let glow = QTLyricGlow(radius: (main * 0.5).rounded(), spread: (main * 0.14).rounded(),
+                                   color: NSColor.black.withAlphaComponent(increaseContrast ? 0.8 : 0.6))
+            var m = QTLyricsMetrics(
                 main: .init(size: main, weight: .bold, lineHeight: 1.2, centered: true),
                 romanization: .init(size: main * 0.5, weight: .semibold, lineHeight: 1.3, centered: true),
                 translation: .init(size: main * s.translation / s.main, weight: .semibold, lineHeight: 1.3, centered: true),
@@ -144,9 +158,12 @@ struct QTLyricsMetrics {
                 // The unsung fill dims, its outline + shadow (`mainHalo`) don't: legible on pale and busy wallpapers.
                 farOpacity: nil, unsungOpacity: 0.7, inactiveScale: 1, futureBlur: 0, farBlur: 0, edge: 16,
                 fadeTop: 0, fadeBottom: 1, overArt: true, shadow: shadow,
-                outline: (width: max(2, main / 13), color: NSColor.black.withAlphaComponent(0.5)), dotSize: 10,
+                outline: (width: max(1.5, main / 16), color: NSColor.black.withAlphaComponent(0.45)), dotSize: 10,
                 // The shared level in the fill; the outline + shadow stay full so it reads on any wallpaper.
                 laneOpacity: lane, inactiveLaneOpacity: 1, bakesLaneLevelIntoFill: true)
+            m.glow = glow
+            m.glyphUnderlay = NSColor.black.withAlphaComponent(0.5)
+            return m
         }
     }
 }
@@ -244,7 +261,7 @@ enum QTLyricsRowBuilder {
                      includeGaps: Bool) -> [QTLyricsRowModel] {
         var rows: [QTLyricsRowModel] = []
         let synced = doc.syncKind != .plain
-        let shadowRoom: CGFloat = m.shadow != nil ? 12 : 0
+        let shadowRoom = m.shadowRoom
         for (i, line) in doc.lines.enumerated() {
             if includeGaps, synced {
                 let gapStart: Double? = i == 0 ? 0 : end(of: doc.lines[i - 1])
@@ -361,8 +378,8 @@ enum QTLyricsRowBuilder {
 final class QTLyricsRowNode {
     let container = CALayer()
     let selection = CALayer()
-    /// Desktop overlay only: the outline + shadow at full strength under the (dimmed) unsung text, so the halo
-    /// that keeps it legible doesn't fade with the unsung opacity, and the sung fill stays crisp.
+    /// Desktop overlay only: the glow, outline, shadow and glyph underlay at full strength under the (dimmed) unsung
+    /// text, so the halo that keeps it legible doesn't fade with the unsung opacity, and the sung fill stays crisp.
     let mainHalo = CALayer()
     let mainBase = CALayer()
     let mainFill = CALayer()
@@ -425,14 +442,20 @@ final class QTLyricsRowNode {
         appearance.performAsCurrentDrawingAppearance {
             if m.outline != nil || m.shadow != nil {
                 // Halo (stroke + shadow, no fill) on its own layer; the glyphs (and so the karaoke mask) stay clean.
-                haloImage = model.main?.render(color: .clear, scale: scale, shadow: m.shadow, outline: m.outline)
+                haloImage = model.main?.render(color: .clear, scale: scale, shadow: m.shadow, outline: m.outline,
+                                               glow: m.glow, underlay: m.glyphUnderlay)
                 mainImage = model.main?.render(color: m.mainColor, scale: scale)
             } else {
                 mainImage = model.main?.render(color: m.mainColor, scale: scale)
             }
             let laneOutline = m.outline.map { (width: max(1, $0.width * 0.7), color: $0.color) }
-            romaImage = model.romanization?.render(color: m.laneColor, scale: scale, shadow: m.shadow, outline: laneOutline)
-            trImage = model.translation?.render(color: m.laneColor, scale: scale, shadow: m.shadow, outline: laneOutline)
+            let laneGlow = m.glow.map { g in
+                QTLyricGlow(radius: (g.radius * 0.75).rounded(), spread: (g.spread * 0.75).rounded(), drop: g.drop, color: g.color)
+            }
+            romaImage = model.romanization?.render(color: m.laneColor, scale: scale, shadow: m.shadow, outline: laneOutline,
+                                                   glow: laneGlow, underlay: m.glyphUnderlay)
+            trImage = model.translation?.render(color: m.laneColor, scale: scale, shadow: m.shadow, outline: laneOutline,
+                                                glow: laneGlow, underlay: m.glyphUnderlay)
         }
         func place(_ layer: CALayer, _ layout: QTLyricTextLayout?, _ origin: CGPoint, _ image: CGImage?) {
             guard let layout, let image else {

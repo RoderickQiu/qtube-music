@@ -49,3 +49,66 @@ if "error" in d:
     sys.exit(0)
 sys.exit(1)' "$1" 2>/dev/null
 }
+
+# qt_launch_args <arg>… → sets the array QT_ARGS to the launch arguments, checked so a typo fails at once instead of
+# after the ready-file timeout. An argument that arrived as one string ("-qt.surface stage -qt.paused YES", an
+# unsplit shell variable) is split into words (with a note). Then every argument must be a `-key value` pair: a key
+# is `-name` (letters, digits, '.', '_', '-'), and its value must be there and must not itself look like a `-qt.` key.
+# Values may contain spaces (-qt.live.open "album:Some Title"). Returns 2 with a message otherwise.
+qt_launch_args() {
+  QT_ARGS=()
+  local a w
+  for a in "$@"; do
+    if [[ "$a" == -* && "$a" =~ [[:space:]] ]]; then
+      echo "note: splitting one-string launch arguments '$a'" >&2
+      local words=()
+      # Shell-word split without evaluating anything (quotes honoured; no globbing, no expansion).
+      while IFS= read -r -d '' w; do words+=("$w"); done < <(python3 -c 'import shlex,sys
+for w in shlex.split(sys.argv[1]): sys.stdout.write(w + "\0")' "$a")
+      [[ ${#words[@]} -gt 0 ]] || { echo "error: can't split launch arguments '$a'" >&2; return 2; }
+      QT_ARGS+=("${words[@]}")
+    else
+      QT_ARGS+=("$a")
+    fi
+  done
+  local i=0 n=${#QT_ARGS[@]} key value
+  while (( i < n )); do
+    key="${QT_ARGS[$i]}"
+    if [[ ! "$key" =~ ^-[A-Za-z][A-Za-z0-9._-]*$ ]]; then
+      echo "error: launch argument '$key' is not a -key (launch arguments are -key value pairs, e.g. -qt.surface stage)" >&2
+      return 2
+    fi
+    if (( i + 1 >= n )); then
+      echo "error: launch argument $key has no value (e.g. $key YES)" >&2
+      return 2
+    fi
+    value="${QT_ARGS[$((i + 1))]}"
+    if [[ "$value" =~ ^-qt\.[A-Za-z] ]]; then
+      echo "error: launch argument $key has no value (the next argument is the key $value)" >&2
+      return 2
+    fi
+    i=$((i + 2))
+  done
+}
+
+# qt_wait_ready <ready file> <executable path> <timeout s> → waits for the app's ready file. Fails early (status 1,
+# with a message) when the app quits or crashes before writing it, instead of waiting out the whole timeout.
+qt_wait_ready() {
+  local ready="$1" exe="$2" timeout="$3" started gone=0
+  started=$(date +%s)
+  until [[ -s "$ready" ]]; do
+    if (( $(date +%s) - started > timeout )); then echo "error: app did not become ready within $timeout s" >&2; return 1; fi
+    if pgrep -f "^$exe" >/dev/null; then
+      gone=0
+    elif (( $(date +%s) - started >= 3 )); then
+      # Not running 3 s after `open` (or gone since) for a whole second: it quit or crashed.
+      gone=$((gone + 1))
+      if (( gone >= 10 )); then
+        [[ -s "$ready" ]] && return 0
+        echo "error: the app quit before it was ready (crashed, or refused its launch arguments; see Console)" >&2
+        return 1
+      fi
+    fi
+    sleep 0.1
+  done
+}

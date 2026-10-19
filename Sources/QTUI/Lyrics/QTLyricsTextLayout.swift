@@ -88,6 +88,15 @@ struct QTLyricFragment {
     let baseline: CGFloat
 }
 
+/// A wide, soft dark cloud under desktop lyrics (points): the blurred shadow of the glyphs grown by `spread`.
+/// Invisible on a dark wallpaper; on a pale or busy one it darkens just the area around the words — no box.
+struct QTLyricGlow: Equatable {
+    var radius: CGFloat
+    var spread: CGFloat
+    var drop: CGFloat = 1
+    var color: NSColor
+}
+
 /// Core Text layout of a text block at a given width. Coordinates are top-left origin (flipped).
 final class QTLyricTextLayout {
     let string: String
@@ -200,8 +209,11 @@ final class QTLyricTextLayout {
         return spans
     }
 
-    /// Rasterises the block in one colour. `outline`/`shadow` are for the desktop overlay (any wallpaper).
-    func render(color: NSColor, scale: CGFloat, shadow: NSShadow? = nil, outline: (width: CGFloat, color: NSColor)? = nil) -> CGImage? {
+    /// Rasterises the block in one colour. `outline`/`shadow`/`glow`/`underlay` are for the desktop overlay (any
+    /// wallpaper): `glow` is a wide, soft dark cloud under the words, `underlay` is ink laid inside the glyphs
+    /// before `color`, so a translucent fill never shows a pale wallpaper through itself.
+    func render(color: NSColor, scale: CGFloat, shadow: NSShadow? = nil, outline: (width: CGFloat, color: NSColor)? = nil,
+                glow: QTLyricGlow? = nil, underlay: NSColor? = nil) -> CGImage? {
         let img = imageSize
         let pw = Int(ceil(img.width * scale)), ph = Int(ceil(img.height * scale))
         guard pw > 0, ph > 0,
@@ -224,7 +236,41 @@ final class QTLyricTextLayout {
                 CTLineDraw(f.line, ctx)
             }
         }
-        if let outline {
+        if glow != nil || underlay != nil {
+            // Desktop overlay. The glow: only the blurred shadow of the glyphs (fattened by `spread`), drawn from a
+            // copy placed far outside the image. Shadow geometry is in device space, not scaled by the CTM.
+            if let glow {
+                ctx.saveGState()
+                let far: CGFloat = 8192
+                ctx.setShadow(offset: CGSize(width: -far * scale, height: -glow.drop * scale), blur: glow.radius * scale,
+                              color: glow.color.cgColor)
+                ctx.translateBy(x: far, y: 0)
+                ctx.setFillColor(NSColor.black.cgColor)
+                ctx.setStrokeColor(NSColor.black.cgColor)
+                ctx.setLineJoin(.round)
+                ctx.setLineWidth(glow.spread * 2)
+                ctx.setTextDrawingMode(glow.spread > 0 ? .fillStroke : .fill)
+                drawLines()
+                ctx.restoreGState()
+            }
+            if let outline {
+                if let shadow, let c = shadow.shadowColor {
+                    ctx.setShadow(offset: CGSize(width: shadow.shadowOffset.width, height: shadow.shadowOffset.height),
+                                  blur: shadow.shadowBlurRadius, color: c.cgColor)
+                }
+                ctx.setLineJoin(.round)
+                ctx.setLineWidth(outline.width)
+                ctx.setStrokeColor(outline.color.cgColor)
+                ctx.setTextDrawingMode(.stroke)
+                drawLines()
+                ctx.setShadow(offset: .zero, blur: 0, color: nil)
+            }
+            if let underlay {
+                ctx.setFillColor(underlay.cgColor)
+                ctx.setTextDrawingMode(.fill)
+                drawLines()
+            }
+        } else if let outline {
             ctx.setLineJoin(.round)
             ctx.setLineWidth(outline.width)
             ctx.setStrokeColor(outline.color.cgColor)
