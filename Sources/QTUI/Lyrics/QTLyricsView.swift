@@ -63,6 +63,7 @@ public struct QTLyricsView: View {
     private let desktopLineCount: Int
     private let desktopFontSize: CGFloat?
     private let onSeek: (TimeInterval) -> Void
+    @Environment(\.qtLyricsFontOverride) private var fontOverride
 
     @Environment(QTAppModel.self) private var model: QTAppModel?
     @Environment(QTPlayerModel.self) private var player: QTPlayerModel?
@@ -123,7 +124,10 @@ public struct QTLyricsView: View {
             QTLyricsFocusRepresentable(configuration: QTLyricsFocusConfiguration(
                 document: doc, lanes: lanes, clock: clock, style: style, textScale: textScale,
                 increaseContrast: contrast == .increased, reduceMotion: reduceMotion,
-                lineCount: desktopLineCount, desktopFontSize: desktopFontSize))
+                lineCount: desktopLineCount,
+                // An explicit size wins; otherwise the desktop overlay's \.qtLyricsFontOverride (Settings).
+                desktopFontSize: desktopFontSize ?? fontOverride?.mainSize,
+                fontDesign: fontOverride?.design ?? .standard))
         }
     }
 

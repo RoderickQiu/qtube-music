@@ -68,6 +68,9 @@ struct QTLyricTextStyle: Hashable {
     var balanced = true
     /// Tracking in em for Latin text (CSS `letter-spacing`); ignored for CJK.
     var tracking: CGFloat = 0
+    /// System font design (desktop lyrics: Rounded / Serif from Settings). Always the system family, so SF Pro
+    /// leads in every locale and Han text falls back through the system cascade.
+    var design: NSFontDescriptor.SystemDesign = .default
 }
 
 /// One wrapped visual line inside a block.
@@ -107,7 +110,11 @@ final class QTLyricTextLayout {
         self.maxWidth = max(40, maxWidth)
         let script = QTLyricScript.detect(string)
         self.script = script
-        let nsFont = NSFont.systemFont(ofSize: style.size, weight: style.weight)
+        var nsFont = NSFont.systemFont(ofSize: style.size, weight: style.weight)
+        if style.design != .default, let descriptor = nsFont.fontDescriptor.withDesign(style.design),
+           let designed = NSFont(descriptor: descriptor, size: style.size) {
+            nsFont = designed
+        }
         font = nsFont as CTFont
         var attrs: [NSAttributedString.Key: Any] = [
             .font: nsFont,

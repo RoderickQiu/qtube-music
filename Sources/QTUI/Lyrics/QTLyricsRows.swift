@@ -44,6 +44,15 @@ struct QTLyricsMetrics {
     var mainColor: NSColor { overArt ? .white : .labelColor }
     var laneColor: NSColor { overArt ? NSColor.white.withAlphaComponent(0.62) : .secondaryLabelColor }
 
+    /// Same metrics with every lane in the given system font design.
+    func withDesign(_ design: NSFontDescriptor.SystemDesign) -> QTLyricsMetrics {
+        var m = self
+        m.main.design = design
+        m.romanization.design = design
+        m.translation.design = design
+        return m
+    }
+
     static func make(_ style: QTLyricsStyle, textScale: CGFloat = 1, increaseContrast: Bool = false,
                      desktopFontSize: CGFloat? = nil) -> QTLyricsMetrics {
         let dim: Float = increaseContrast ? 0.5 : 0.32

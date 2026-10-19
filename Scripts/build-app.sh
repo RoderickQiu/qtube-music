@@ -52,11 +52,29 @@ else
   echo "warning: no mock catalog; the app will start empty" >&2
 fi
 
-# App icon (builder "desktop" adds Assets/AppIcon.icns).
+# App icon (Scripts/make-app-icon.sh renders both when missing):
+#  - Assets/AppIcon.icon → Assets.car via actool: the macOS 26+ Liquid Glass icon (CFBundleIconName), so Tahoe
+#    doesn't shrink a legacy icon into its grey container;
+#  - Assets/AppIcon.icns: the hand-drawn legacy squircle for macOS 15–25 (CFBundleIconFile).
 ICON_KEY=""
+if [[ ! -f "$QT_REPO/Assets/AppIcon.icns" || ! -f "$QT_REPO/Assets/AppIcon.icon/Assets/record.png" ]]; then
+  "$QT_REPO/Scripts/make-app-icon.sh" >&2 || true
+fi
 if [[ -f "$QT_REPO/Assets/AppIcon.icns" ]]; then
   cp "$QT_REPO/Assets/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
   ICON_KEY="<key>CFBundleIconFile</key><string>AppIcon</string>"
+fi
+if [[ -d "$QT_REPO/Assets/AppIcon.icon" ]]; then
+  ICON_WORK="$(mktemp -d -t qticoncar)"
+  if xcrun actool "$QT_REPO/Assets/AppIcon.icon" --compile "$ICON_WORK" --platform macosx \
+       --minimum-deployment-target 15.0 --app-icon AppIcon --output-partial-info-plist "$ICON_WORK/partial.plist" \
+       >/dev/null 2>&1 && [[ -f "$ICON_WORK/Assets.car" ]]; then
+    cp "$ICON_WORK/Assets.car" "$APP/Contents/Resources/Assets.car"
+    ICON_KEY="$ICON_KEY<key>CFBundleIconName</key><string>AppIcon</string>"
+  else
+    echo "warning: actool couldn't compile Assets/AppIcon.icon; using the legacy .icns only" >&2
+  fi
+  rm -rf "$ICON_WORK"
 fi
 
 BUILD_NUMBER="$(git -C "$QT_REPO" rev-list --count HEAD 2>/dev/null || echo 1)"

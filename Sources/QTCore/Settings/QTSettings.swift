@@ -119,7 +119,27 @@ public struct QTDesktopLyricsPrefs: Codable, Sendable, Hashable {
     public var verticalPosition: Double = 0.14
     /// Localized name of the display it lives on; nil = the main window's screen.
     public var screenName: String?
+    /// Locked = click-through (default). Unlocked = drag to move, with a lock button to finish.
+    public var isLocked = true
+    /// System font design for the overlay (SF Pro, SF Pro Rounded, New York). CJK falls back via the system cascade.
+    public var fontDesign: QTLyricsFontDesign = .standard
+    /// Horizontal centre as a fraction of the screen's visible width, relative to its centre (-0.5…0.5).
+    public var horizontalOffset: Double = 0
     public init() {}
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = QTDesktopLyricsPrefs()
+        isShown = (try? c.decodeIfPresent(Bool.self, forKey: .isShown)) ?? d.isShown
+        fontSize = (try? c.decodeIfPresent(Double.self, forKey: .fontSize)) ?? d.fontSize
+        showsTranslation = (try? c.decodeIfPresent(Bool.self, forKey: .showsTranslation)) ?? d.showsTranslation
+        lineCount = (try? c.decodeIfPresent(Int.self, forKey: .lineCount)) ?? d.lineCount
+        verticalPosition = (try? c.decodeIfPresent(Double.self, forKey: .verticalPosition)) ?? d.verticalPosition
+        screenName = try? c.decodeIfPresent(String.self, forKey: .screenName)
+        isLocked = (try? c.decodeIfPresent(Bool.self, forKey: .isLocked)) ?? d.isLocked
+        fontDesign = (try? c.decodeIfPresent(QTLyricsFontDesign.self, forKey: .fontDesign)) ?? d.fontDesign
+        horizontalOffset = (try? c.decodeIfPresent(Double.self, forKey: .horizontalOffset)) ?? d.horizontalOffset
+    }
 }
 
 /// Every user preference. Codable with defaults for missing keys, so adding a field never breaks old data.
@@ -138,6 +158,11 @@ public struct QTSettings: Codable, Sendable, Hashable {
     public var closeWindowKeepsPlaying = true
     public var showsTitleInMenuBar = true
     public var desktopLyrics = QTDesktopLyricsPrefs()
+    /// Scroll long titles in the menu bar item (off by default; calm).
+    public var menuBarScrollsTitle = false
+    public var miniPlayer = QTMiniPlayerPrefs()
+    /// Premium-engine features (greyed out for free accounts).
+    public var playbackEffects = QTPlaybackEffectsPrefs()
 
     public init() {}
 
@@ -155,6 +180,9 @@ public struct QTSettings: Codable, Sendable, Hashable {
         closeWindowKeepsPlaying = (try? c.decodeIfPresent(Bool.self, forKey: .closeWindowKeepsPlaying)) ?? d.closeWindowKeepsPlaying
         showsTitleInMenuBar = (try? c.decodeIfPresent(Bool.self, forKey: .showsTitleInMenuBar)) ?? d.showsTitleInMenuBar
         desktopLyrics = (try? c.decodeIfPresent(QTDesktopLyricsPrefs.self, forKey: .desktopLyrics)) ?? d.desktopLyrics
+        menuBarScrollsTitle = (try? c.decodeIfPresent(Bool.self, forKey: .menuBarScrollsTitle)) ?? d.menuBarScrollsTitle
+        miniPlayer = (try? c.decodeIfPresent(QTMiniPlayerPrefs.self, forKey: .miniPlayer)) ?? d.miniPlayer
+        playbackEffects = (try? c.decodeIfPresent(QTPlaybackEffectsPrefs.self, forKey: .playbackEffects)) ?? d.playbackEffects
     }
 }
 

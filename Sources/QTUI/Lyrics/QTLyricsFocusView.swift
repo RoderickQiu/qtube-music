@@ -17,6 +17,8 @@ struct QTLyricsFocusConfiguration: Equatable {
     /// Desktop: 1 = current line only; 2 = current line + its translation, or + the next line when there is none.
     var lineCount: Int
     var desktopFontSize: CGFloat?
+    /// Desktop / mini: Settings › Desktop Lyrics font (System, Rounded, Serif).
+    var fontDesign: QTLyricsFontDesign = .standard
 }
 
 @MainActor
@@ -53,9 +55,11 @@ final class QTLyricsFocusView: NSView {
         config = new
         metrics = QTLyricsMetrics.make(new.style, textScale: new.textScale, increaseContrast: new.increaseContrast,
                                        desktopFontSize: new.desktopFontSize)
+            .withDesign(new.fontDesign.systemDesign)
         setAccessibilityIdentifier(new.style.railIdentifier)
         if old == nil || old?.document.lines != new.document.lines || old?.lanes != new.lanes || old?.style != new.style
-            || old?.textScale != new.textScale || old?.desktopFontSize != new.desktopFontSize || old?.lineCount != new.lineCount {
+            || old?.textScale != new.textScale || old?.desktopFontSize != new.desktopFontSize || old?.lineCount != new.lineCount
+            || old?.fontDesign != new.fontDesign {
             rebuild()
         }
         refresh(animated: old != nil && window != nil)
