@@ -1,0 +1,51 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "Couldn’t play “%@”" : {
+      "localizations" : {
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "无法播放“%@”" } }
+      }
+    },
+    "Couldn’t play “%@” — skipped" : {
+      "localizations" : {
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "无法播放“%@”，已跳过" } }
+      }
+    },
+    "Loading" : {
+      "localizations" : {
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "正在载入" } }
+      }
+    },
+    "Playback stopped — the next songs couldn’t play" : {
+      "localizations" : {
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "已停止播放：接下来的歌曲无法播放" } }
+      }
+    },
+    "You’re offline — playback continues when you reconnect" : {
+      "localizations" : {
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "网络已断开，重新连接后将继续播放" } }
+      }
+    },
+    "“%@” didn’t load — skipped" : {
+      "localizations" : {
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "“%@”未能载入，已跳过" } }
+      }
+    },
+    "“%@” is age-restricted — skipped" : {
+      "localizations" : {
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "“%@”有年龄限制，已跳过" } }
+      }
+    },
+    "“%@” isn’t available in your region — skipped" : {
+      "localizations" : {
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "“%@”在你所在的地区不可用，已跳过" } }
+      }
+    },
+    "“%@” isn’t available — skipped" : {
+      "localizations" : {
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "“%@”不可用，已跳过" } }
+      }
+    }
+  },
+  "version" : "1.0"
+}

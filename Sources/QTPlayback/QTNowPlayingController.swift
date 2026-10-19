@@ -168,7 +168,7 @@ public final class QTNowPlayingController {
         if let previous = snapshot, previous.differsOnlyInTiming(from: next) {
             // The system interpolates elapsed time from the rate; only re-publish when it would drift.
             let predicted = previous.elapsed + previous.rate * (now - publishedAt)
-            if abs(predicted - next.elapsed) < 1 { return }
+            if abs(predicted - next.elapsed) < 0.5 { return }
         }
         snapshot = next
         publishedAt = now
@@ -208,12 +208,10 @@ public final class QTNowPlayingController {
         guard let cc = commandCenter else { return }
         func on(_ command: MPRemoteCommand, _ make: @escaping @MainActor (MPRemoteCommandEvent) -> QTRemoteCommand?) {
             command.isEnabled = true
-            let target = command.addTarget { [weak self] event in
-                QTNowPlayingController.onMain {
-                    guard let self, let mapped = make(event) else { return .commandFailed }
-                    return self.handle(mapped) ? .success : .noActionableNowPlayingItem
-                }
-            }
+            let target = command.addTarget(handler: Self.makeHandler { [weak self] event in
+                guard let self, let mapped = make(event) else { return .commandFailed }
+                return self.handle(mapped) ? .success : .noActionableNowPlayingItem
+            })
             commandTargets.append((command, target))
         }
         on(cc.playCommand) { _ in .play }
@@ -247,6 +245,37 @@ public final class QTNowPlayingController {
         }
     }
 
+    #if DEBUG
+    /// DEBUG: delivers a command *through `MPRemoteCommandCenter`* exactly as a media key or Control Center would —
+    /// MediaPlayer builds the event (`-[MPRemoteCommand newCommandEvent]`) and dispatches it to the registered
+    /// targets (`-invokeCommandWithEvent:completion:`). Real media keys need physical input; this exercises the
+    /// same handlers in-process. Returns false when the command has no target (Now Playing not active yet) or
+    /// MediaPlayer's internals changed.
+    @discardableResult
+    public func debugSimulateSystemCommand(_ name: String) -> Bool {
+        guard isActive, let cc = commandCenter else { return false }
+        let command: MPRemoteCommand
+        switch name {
+        case "play": command = cc.playCommand
+        case "pause": command = cc.pauseCommand
+        case "toggle", "togglePlayPause": command = cc.togglePlayPauseCommand
+        case "next": command = cc.nextTrackCommand
+        case "previous": command = cc.previousTrackCommand
+        default: return false
+        }
+        let make = NSSelectorFromString("newCommandEvent")
+        let invoke = NSSelectorFromString("invokeCommandWithEvent:completion:")
+        guard command.responds(to: make), command.responds(to: invoke),
+              let event = command.perform(make)?.takeRetainedValue() else { return false }
+        typealias Completion = @convention(block) (UnsafeRawPointer?) -> Void
+        typealias Invoke = @convention(c) (AnyObject, Selector, AnyObject, Completion?) -> Void
+        let imp = unsafeBitCast(command.method(for: invoke), to: Invoke.self)
+        let completion: Completion = { _ in }
+        imp(command, invoke, event, completion)
+        return true
+    }
+    #endif
+
     private func deactivate() {
         guard isActive else { return }
         isActive = false
@@ -258,6 +287,24 @@ public final class QTNowPlayingController {
         guard let cc = commandCenter else { return }
         cc.changePlaybackPositionCommand.isEnabled = !s.isAd && s.duration > 0
         cc.likeCommand.isActive = s.isLiked
+    }
+
+    /// Builds the block MediaPlayer calls. Made outside the main actor on purpose: a closure formed in a
+    /// `@MainActor` method inherits that isolation and traps if MediaPlayer ever calls it from its own queue.
+    nonisolated private static func makeHandler(
+        _ body: @escaping @MainActor (MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus
+    ) -> (MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus {
+        { event in
+            nonisolated(unsafe) let event = event  // immutable once delivered
+            return onMain { body(event) }
+        }
+    }
+
+    /// The artwork callback runs on MediaPlayer's queue (`-jpegDataWithSize:`), so it must not be main-actor
+    /// isolated — it only hands back an immutable image.
+    nonisolated private static func makeArtwork(_ image: NSImage) -> MPMediaItemArtwork {
+        let box = QTSendableImage(image)
+        return MPMediaItemArtwork(boundsSize: image.size) { _ in box.image }
     }
 
     /// MediaPlayer calls handlers on the main thread on macOS; hop explicitly if that ever changes.
@@ -278,8 +325,7 @@ public final class QTNowPlayingController {
         artworkTask = Task { @MainActor [weak self] in
             guard let data = await loader(url), !Task.isCancelled, let image = NSImage(data: data) else { return }
             guard let self, self.snapshot?.artworkURL == url else { return }
-            let box = QTSendableImage(image)
-            let value = MPMediaItemArtwork(boundsSize: image.size) { _ in box.image }
+            let value = Self.makeArtwork(image)
             self.artwork = (url, value)
             var info = self.center.nowPlayingInfo ?? [:]
             info[MPMediaItemPropertyArtwork] = value

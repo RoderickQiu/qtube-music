@@ -62,7 +62,12 @@ public actor QTQueueStore {
     }
 
     public func save(_ snapshot: QTQueueSnapshot) throws {
-        let data = try Self.encoder.encode(snapshot)
+        try Self.write(snapshot, to: fileURL)
+    }
+
+    /// Synchronous write for app termination (the actor's queue may not get another turn).
+    public nonisolated static func write(_ snapshot: QTQueueSnapshot, to fileURL: URL) throws {
+        let data = try encoder.encode(snapshot)
         try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try data.write(to: fileURL, options: .atomic)
     }
@@ -71,13 +76,13 @@ public actor QTQueueStore {
         try? FileManager.default.removeItem(at: fileURL)
     }
 
-    private static let encoder: JSONEncoder = {
+    private nonisolated static let encoder: JSONEncoder = {
         let e = JSONEncoder()
         e.dateEncodingStrategy = .iso8601
         return e
     }()
 
-    private static let decoder: JSONDecoder = {
+    private nonisolated static let decoder: JSONDecoder = {
         let d = JSONDecoder()
         d.dateDecodingStrategy = .iso8601
         return d

@@ -92,11 +92,18 @@ public final class QTAppModel {
                                                                       qq: mockSources.contains(QTLyricsSource.qq.id))
             }
         }
-        let engine = QTSimulatedPlaybackEngine(account: launch.account == .free ? .free : .premium)
-        let player = QTPlayerModel(engine: engine, lyricsProvider: QTMockLyricsProvider(catalog: catalog),
-                                   likedTrackIDs: Set(catalog.liked.tracks?.map(\.videoId) ?? []))
+        // Engine, Now Playing ownership and queue persistence: QTPlaybackSetup. The user's library (data-live,
+        // `QTLiveCatalogStore.wantsLive`) plays through the web engine; the demo catalog through the simulated one
+        // unless `-qt.engine web` (its tracks' real music videos, silently).
+        let tier: QTPlaybackAccountTier = launch.account == .free ? .free : .premium
+        let source: QTPlaybackDataSource = QTLiveCatalogStore.wantsLive(launch) ? .live : .mock
+        let playbackSetup = QTPlaybackSetup.resolve(launch: launch, source: source, tier: tier)
+        let player = QTPlayerModel(engine: playbackSetup.makeEngine(tier: tier), lyricsProvider: QTMockLyricsProvider(catalog: catalog),
+                                   likedTrackIDs: Set(catalog.liked.tracks?.map(\.videoId) ?? []),
+                                   nowPlaying: playbackSetup.makeNowPlaying(), queueStore: playbackSetup.makeQueueStore())
         player.lyricsSession = QTLyricsSession.makeDefault(settings: settings, catalog: catalog, launch: launch)
         let model = QTAppModel(settings: settings, player: player, catalog: catalog, launch: launch)
+        QTPlaybackServices.shared.install(model: model, setup: playbackSetup)
         model.account = launch.account ?? .premium
         model.surface = launch.surface ?? .window
         model.sidebarSelection = launch.section ?? .home
@@ -114,6 +121,7 @@ public final class QTAppModel {
     /// Loads the launch track (`qt.track`, default: first Liked song) at `qt.time` (default 31.5 s, just before the
     /// hero track's first lyric), paused unless `-qt.paused NO`; `-qt.ad YES` forces the ad state.
     public func applyLaunchPlayback() async {
+        if launch.trackID == nil, await QTPlaybackServices.shared.restoreSavedQueue(into: player) { return }
         let liked = catalog.liked.tracks ?? catalog.tracks
         guard !liked.isEmpty else { return }
         let index = launch.trackID.flatMap { id in liked.firstIndex { $0.videoId == id } } ?? 0

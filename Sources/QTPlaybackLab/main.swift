@@ -2,7 +2,7 @@
 // YouTube Music web player. Anonymous (non-persistent data store) and silent (media volume pinned to 0).
 // Never activates: no Dock icon, no windows on screen, no focus change.
 //
-//   swift run --scratch-path .build/playback QTPlaybackLab [--ids a,b,c] [--scenario basic|advance] [--count N]
+//   swift run --scratch-path .build/playback QTPlaybackLab [--ids a,b,c] [--scenario basic|advance|cue|power|errors] [--count N]
 //
 // Prints one line per engine state change and a PASS/FAIL summary per check.
 
@@ -28,7 +28,7 @@ struct LabOptions {
             case "--scenario": scenario = it.next() ?? scenario
             case "--count": count = Int(it.next() ?? "") ?? count
             case "--help", "-h":
-                print("QTPlaybackLab [--ids a,b,c] [--scenario basic|advance] [--count N]")
+                print("QTPlaybackLab [--ids a,b,c] [--scenario basic|advance|cue|power|errors] [--count N]")
                 exit(0)
             default: break
             }
@@ -300,9 +300,72 @@ final class Lab {
               String(format: "t=%.1f", engine.state.time))
     }
 
+    /// Power: WebContent CPU while playing (lowest video quality), just after pausing, and once the page is frozen.
+    func power() async {
+        await controller.play(options.ids.map(track), startingAt: 0)
+        guard await waitForContent() else { return check("content plays", false) }
+        try? await Task.sleep(for: .seconds(4))
+        let media = await engine.debugMediaInfo()
+        log("media \(media.map { String(describing: $0) } ?? "nil")")
+        let height = (media?["height"] as? Double) ?? Double((media?["height"] as? Int) ?? 0)
+        check("lowest video rendition while no video is shown", height > 0 && height <= 240,
+              "\(media?["quality"] ?? "?") \(Int(height))p, volume \(media?["volume"] ?? "?")")
+        check("media volume pinned to 0 (silent)", (media?["volume"] as? Double) == 0)
+        let playing = await measureCPU("playing", seconds: 10) ?? 100
+        controller.pause()
+        try? await Task.sleep(for: .seconds(1))
+        let unfrozen = await measureCPU("paused, not yet frozen", seconds: 4) ?? 100
+        _ = await wait(15, "freeze") { self.engine.isPageFrozen }
+        check("page freezes while paused", engine.isPageFrozen)
+        try? await Task.sleep(for: .seconds(3))
+        let frozen = await measureCPU("paused, frozen", seconds: 20) ?? 100
+        check("paused engine idles under 1% CPU", frozen < 1, String(format: "playing %.1f%%, paused %.1f%% → frozen %.2f%%", playing, unfrozen, frozen))
+        let t = engine.state.time
+        controller.play()
+        let resumed = await wait(10, "resume after freeze") { self.engine.state.status == .playing && self.engine.state.time > t + 1 }
+        check("resumes from a frozen page", resumed, String(format: "t=%.1f", engine.state.time))
+        engine.seek(to: engine.state.duration - 3)
+        let advanced = await wait(30, "advance after thaw") { self.controller.nowPlayingTrack?.videoId == self.options.ids[1] }
+        check("track end still advances after a freeze", advanced)
+    }
+
+    /// Unplayable ids fail fast with a specific error and the queue skips to the next playable track.
+    func errors() async {
+        var failures: [QTPlaybackFailureEvent] = []
+        controller.onFailure = { failures.append($0) }
+        let bad = ["xxxxxxxxxxx", "ne3372368359"]  // made-up id (mock catalog style), well-formed but nonexistent
+        let ids = bad + [options.ids[0]]
+        let t0 = now
+        await controller.play(ids.map(track), startingAt: 0)
+        let reached = await wait(60, "skip to a playable track") { self.controller.nowPlayingTrack?.videoId == ids[2] }
+        check("unplayable items are skipped", reached && failures.count == 2,
+              String(format: "%.1f s; ", now - t0) + failures.map { "\($0.track.videoId): \($0.error) skipped=\($0.skipped)" }.joined(separator: "; "))
+        let content = await waitForContent()
+        check("the next playable track plays", content)
+    }
+
+    /// Diagnostics: what the page looks like a few seconds into loading `--ids` first id.
+    func probe() async {
+        let id = options.ids[0]
+        Task { await controller.play([track(id)], startingAt: 0) }
+        for _ in 0..<4 {
+            try? await Task.sleep(for: .seconds(4))
+            let r = await engine.debugEvaluate("""
+            const p = document.getElementById('movie_player');
+            let st = null; try { st = p && p.getPlayerResponse && p.getPlayerResponse(); st = st && st.playabilityStatus; } catch (e) { st = 'err ' + e; }
+            return JSON.stringify({ href: location.href, player: !!p, api: !!(p && p.getPlayerState), ps: p && p.getPlayerState ? p.getPlayerState() : null,
+              playability: st, bridge: !!window.__qtBridge, title: document.title });
+            """)
+            log("probe \(r ?? "nil")")
+        }
+    }
+
     func run() async -> Int32 {
         watchState()
         switch options.scenario {
+        case "probe": await probe()
+        case "power": await power()
+        case "errors": await errors()
         case "cue": await cued()
         case "advance": await advanceMany()
         default: await basic()

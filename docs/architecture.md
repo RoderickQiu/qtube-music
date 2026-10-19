@@ -13,7 +13,7 @@ SwiftPM package `QTubeMusic` (`Package.swift`, tools 6.2, Swift 6 language mode,
 | `QTCore` | — | Models (`QTTrack`, `QTAlbum`, `QTArtist`, `QTPlaylist`, `QTShelf`/`QTHomeFeed`, `QTArtworkPalette`), `QTQueue`, `QTLyricsDocument`, `QTSettings` + `QTSettingsStore`, `QTMockCatalog` + `QTCatalogService`, `QTFormat`, `QTLoc` localization, **all String Catalogs** | shared (scaffold) |
 | `QTInnerTube` | QTCore | `QTInnerTubeClient` (actor: ytcfg scrape, WEB_REMIX context, hl/gl, SAPISIDHASH, TTL+LRU cache, retries, session-loss detection; account writes gated by `setAllowsAccountWrites`), parsers → QTCore models (music-only filter), `QTCounterpartResolver` (Song⇄Video), `QTInnerTubeCatalog` (`QTCatalogService`), `QTInnerTubeConfiguration`; `Lyrics/QTInnerTubeLyricsClient` (anonymous ANDROID_MUSIC `post(_:payload:)` for timed lyrics, follows a client's hl/gl/visitor id — lyrics-live) | data-layer |
 | `QTAuth` | QTInnerTube | `QTAuthController` (`restore()`, `beginSignIn(hl:over:)`, `signOut()`, DEBUG-only session import), `QTSessionStore` (actor, Keychain `com.roderickqiu.qtube`), `QTAuthSession`/`QTCookie` (auth-cookie allowlist), `QTWebCookieStore`, `QTAuthState` | data-layer |
-| `QTPlayback` | QTCore, QTInnerTube | `QTPlaybackEngine` protocol, `QTSimulatedPlaybackEngine`, `QTQueueController` (queue + context, shuffle/repeat, autoplay continuation, persistence via `QTQueueStore`, holds a process activity while playing), `QTNowPlayingController` (sole owner of Now Playing + remote commands), `Web/QTWebPlaybackEngine` (hidden WKWebView, JS bridge, ads), `QTPlaybackEngineSelector`, `QTNativePlaybackEngine` stub (M5) | playback |
+| `QTPlayback` | QTCore, QTInnerTube | `QTPlaybackEngine` protocol, `QTSimulatedPlaybackEngine`, `QTQueueController` (queue + context, shuffle/repeat, autoplay continuation, persistence via `QTQueueStore`, holds a process activity while playing), `QTNowPlayingController` (sole owner of Now Playing + remote commands), `Web/QTWebPlaybackEngine` (hidden WKWebView, JS bridge, ads, playability errors, offline recovery, 144p decode, page freeze while paused; `QTWebKitTuning` keeps the hidden page scheduled), `QTPlaybackEngineSelector`, `QTNativePlaybackEngine` stub (M5) | playback |
 | `QTDevSession` | QTAuth | DEBUG-only executable: import the dev session from CDP cookie JSON on stdin; read-only `status` / `summary` / `probe` / `ytcfg` (never prints cookie values) | data-live |
 | `QTPlaybackLab` | QTPlayback | dev-only executable: drives the web engine live, muted and anonymous (`swift run --scratch-path .build/<you> QTPlaybackLab --scenario basic`) | playback |
 | `QTLyrics` | QTCore | `QTLyricsResolver` (actor, `QTLyricsProviding`): parsers (LRC, YRC, QRC, KRC, TTML), QRC/KRC decryption, providers (YouTube Music, LRCLIB, AMLL; NetEase/Kugou/QQ opt-in), matcher, `QTLyricsCache` (SQLite), romanization, translation plan; `QTMockLyricsProvider` | lyrics |
@@ -29,15 +29,41 @@ without asking the user (Sparkle comes later).
 
 ### What runs today (after integration)
 
-The catalog is **live** (data-live, M3): `QTLiveCatalogStore` (QTUI/AppModel) restores the saved session and
-loads the user's YouTube Music library through `QTInnerTubeClient` / `QTInnerTubeCatalog` / `QTAuthController`,
-folding Home, Liked Songs, library playlists and every track it sees into `QTAppModel.catalog`, so the existing
-Home / Liked / playlist / sidebar views show real data. Signed out (and no demo chosen) the content column shows a
-native signed-out state with Sign In; `-qt.catalog mock` (the default in `Scripts/shoot.sh`) keeps the mock catalog
-and never touches the Keychain. Playback is still `QTSimulatedPlaybackEngine` and lyrics `QTMockLyricsProvider`;
-`QTPlayerModel` is a façade over `QTQueueController` with `nowPlaying: nil` and no queue store, so screenshot runs
-never take the user's media keys or overwrite a saved queue. Built and tested but not yet wired into the app:
-`QTWebPlaybackEngine` + `QTPlaybackEngineSelector`, `QTNowPlayingController`, `QTQueueStore`, `QTLyricsResolver`.
+Everything is wired (integration of M1 polish + M2–M4):
+
+- **Catalog:** live by default (data-live, M3). `QTLiveCatalogStore` restores the saved session and loads the user's
+  YouTube Music library; signed out, the content column shows a native signed-out state with Sign In / Use Demo
+  Library. `-qt.catalog mock` (the default in `Scripts/shoot.sh`) keeps `QTMockCatalog` and never touches the
+  Keychain. `QTLiveCatalogStore.wantsLive(launch)` is the one decision; bootstrap also uses it for playback.
+- **Lyrics:** `QTLyricsSession` (M2, below) resolves every track through `QTLyricsResolver` — the one source every
+  surface reads (`player.lyrics` forwards to it; `QTAppModel.resolvedLyrics` adds the translation lane). Mock tracks
+  are matched by title/artist/duration; bundled mock lyrics are the offline fallback, or the whole source with
+  `-qt.lyrics.engine mock` (shoot.sh's default with the mock catalog). Unofficial sources are opt-in, so a default
+  live launch shows no lyrics for the mock hero track; the mock-source settings override applies only with
+  `-qt.lyrics.engine mock`.
+- **Playback:** `QTPlaybackSetup` / `QTPlaybackServices` (`QTUI/AppModel/QTPlaybackSetup.swift`, builder "playback"),
+  with `source: .live` whenever the live catalog is wanted. Live playback is **anonymous by default**
+  (`-qt.playback.anonymous NO` would use the user's session, which writes watch history — user-gated).
+- **Account:** `model.authController` is the live store's `QTAuthController`; Settings › Account (desktop) shows its
+  state and signs in/out through the store.
+
+- **Engine:** `QTPlaybackSetup.resolve(launch:source:tier:)` — mock data → `QTSimulatedPlaybackEngine`; real data
+  (`source: .live`) → `QTWebPlaybackEngine` for free *and* Premium until the native engine ships (M5).
+  `-qt.engine web` plays the mock catalog through the web engine using each track's real MV id
+  (`catalog.mv.videoId`); tracks without one keep their made-up id and fail like a removed video (toast + skip).
+  Mock data through the web engine is always anonymous (non-persistent data store) and silent (media volume pinned
+  to 0) unless `-qt.playback.silent NO`.
+- **Now Playing:** `QTNowPlayingController` is created for any real engine (sole owner; stays inactive until
+  playback actually starts). Media runs in the WebContent process so WebKit never adds a second entry
+  (verified: `Scripts/now-playing.sh clients`).
+- **Queue persistence:** `QTQueueStore` only for real data in unscripted runs (`-qt.readyFile` / status-file runs
+  never persist); flushed synchronously on quit; `applyLaunchPlayback` restores it when there's no `-qt.track`.
+- **Failures:** `QTQueueController.onFailure` → toast (`Playback` table): age-restricted / not available in your
+  region / not available / didn't load / couldn't play — skipped; "Playback stopped" after 3 in a row. Offline →
+  one toast; the engine resumes the item when the network returns.
+- **Buffering:** `QTPlayerModel.isBuffering` → `qtBufferingIndicator` (Shared/) swaps the play glyph for a system
+  spinner after 0.45 s.
+
 
 **Live data (data-live).** `QTLiveCatalogStore.shared` (attached in `QTAppModel.bootstrap`) owns the client and
 `QTAuthController`, a `QTCatalogMode` (`mock` / `restoring` / `signedOut` / `live`) and per-page `QTLivePhase`s.
@@ -71,7 +97,7 @@ through pipes. `QTDevSession` (DEBUG executable) imports CDP cookie JSON from st
 | `Stage/` | stage | `QTStageView` (layouts × backgrounds, chrome, drawer) |
 | `Desktop/`, `Commands/`, `Settings/`, `Sources/QTubeMusicApp`, `Assets/AppIcon.icns` | desktop | mini player, desktop lyrics, menu bar, `QTDesktopCoordinator`, menus, Settings, app icon |
 | `Theme/`, `Shared/`, `AppModel/` | shared | builders may **add**; don't rename, repurpose or break existing API |
-| `AppModel/QTLiveCatalogStore.swift`, `AppModel/Live/` | data-live | live catalog wiring, signed-out / skeleton / failure states, live Home, Explore, search, album and artist pages, account row |
+| `AppModel/QTLiveCatalogStore.swift`, `AppModel/Live/` | data-live | live catalog wiring, signed-out / skeleton / failure states, live Home, Explore, search, album and artist pages, live mood page |
 
 Edit only your folders and your String Catalog table. Need a change in someone else's area or in a shared
 signature? Add a defaulted parameter or a new type in your own folder, and say so in your report.
@@ -213,6 +239,7 @@ The prototype defines layout, hierarchy, copy and states; the app must look like
   | `.stage` | `Stage.xcstrings` | stage builder |
   | `.desktop` | `Desktop.xcstrings` | desktop builder |
   | `.live` | `Live.xcstrings` | data-live builder |
+  | `.playback` | `Playback.xcstrings` | playback builder (failure/offline toasts, "Loading") |
 
   A table lookup falls back to `.shared`, so existing keys work from any table. Add entries as JSON:
   `"Key" : { "localizations" : { "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "…" } } } }`.
@@ -261,6 +288,7 @@ Builders add their own as `qt.<area>.<name>` (e.g. `qt.stage.chrome hidden`, `qt
 | desktop | `qt.desktop.miniMode compact\|art` · `qt.desktop.miniLyric` · `qt.desktop.miniHover` · `qt.desktop.lyricsUnlocked` · `qt.desktop.menuBarScroll` · `qt.desktop.lyricsSize <pt>` · `qt.settingsTab general\|playback\|lyrics\|account\|advanced`; DEBUG: `qt.desktop.switchLanguage`, `qt.desktop.popUpMenu <index>`, `qt.desktop.showShortcuts`, `qt.desktop.accountPreview signedIn\|premium\|signingIn\|expired\|signedOut` (Settings › Account without Keychain access) |
 | lyrics-live | `qt.lyrics.unofficial all\|none\|netease,kugou,qq` (session-only Settings override) · `qt.lyrics.engine live\|mock` (default live) · `qt.lyrics.cache memory\|<path>` (fresh lookup; default Application Support/<bundle id>/Lyrics.sqlite) · `qt.lyrics.offline YES` (every source unreachable → fallback path) |
 | data-live | `qt.live.open album:<id\|title>` · `artist:<id\|name>` · `playlist:<id>` (once the library has loaded) · `qt.live.state skeleton\|offline\|unavailable\|expired` (pins every live page's state) · `qt.live.signedOut YES` (signed-out screen, no Keychain read) · with it `qt.live.signIn YES` (Google sign-in window in a throwaway WebKit store; a login there is never kept) |
+| playback | `qt.engine auto\|simulated\|web` · `qt.playback.silent` · `qt.playback.persist` · `qt.playback.nowPlaying` · `qt.playback.anonymous` · `qt.playback.readyWhen playing\|ad\|buffering\|failed\|toast` (+ `qt.playback.readyTimeout <s>`, default 120) · `qt.playback.loadDelay <s>` (slow-network look) · DEBUG: `qt.playback.statusFile <path>` (JSON status twice a second) and distributed-notification commands (`QTPlaybackDebugHooks`) |
 
 Env-gated test suites: `QT_LIVE=1` (live anonymous InnerTube / lyrics / playback), `QT_RECORD=1` (re-record
 InnerTube fixtures), `QT_DUMP=1` (print parser output), `QT_KEYCHAIN_TEST=1` (Keychain round trip).
@@ -289,6 +317,16 @@ InnerTube fixtures), `QT_DUMP=1` (print parser output), `QT_KEYCHAIN_TEST=1` (Ke
   window capture over system wallpapers (desktop-lyrics shots).
 - `Scripts/make-app-icon.sh` (`Scripts/tools/qt-make-icon.swift`) — renders `Assets/AppIcon.icns` (macOS 15–25)
   and the Icon Composer `Assets/AppIcon.icon` that `build-app.sh` compiles with actool (`Assets.car`).
+- `Scripts/now-playing.sh clients|item|info|send <cmd> <bundle id>` — the system's Now Playing state through
+  MediaRemote (a dylib, `Scripts/tools/qt-nowplaying.m`, loaded into Apple-signed `/usr/bin/perl`, since macOS 15.4
+  MediaRemote only answers entitled processes). `clients` lists every entry (WebKit's GPU process shows up as
+  `com.apple.WebKit.GPU/<bundle id>`); `send` refuses unless the given bundle owns the active player.
+- `Scripts/playback-acceptance.py [--plays 10] [--lang en-US] [--shots <prefix>]` (`QT_VARIANT=…`) — M4 acceptance in
+  the bundled app, silent and anonymous: N tracks in a row without a stall, one Now Playing entry, elapsed/artwork,
+  remote commands in-process (MPRemoteCommandCenter dispatch) and through the system, CPU playing/paused; report in
+  `.build/playback-acceptance.json`. While it runs the test app is the system's Now Playing app.
+- `swift run --scratch-path .build/<you> QTPlaybackLab --scenario basic|advance|cue|power|errors|probe` — the engine
+  alone, headless.
 - `Scripts/contact-sheet.sh <outname> [--title T] [--columns N] <img> <caption>…` — one captioned PNG in
   `screenshots/` (AppKit, offline).
 

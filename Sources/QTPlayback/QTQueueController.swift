@@ -11,6 +11,23 @@ public struct QTAutoplayRequest: Sendable, Hashable {
     public var excludingVideoIDs: Set<String>
 }
 
+/// A track that couldn't play. `skipped` is false when the queue gave up (too many failures in a row, or the
+/// failure came while paused) — the app tells the user either way.
+public struct QTPlaybackFailureEvent: Sendable, Hashable {
+    public var track: QTTrack
+    public var error: QTPlaybackError
+    public var skipped: Bool
+    /// Consecutive failures including this one.
+    public var consecutive: Int
+
+    public init(track: QTTrack, error: QTPlaybackError, skipped: Bool, consecutive: Int) {
+        self.track = track
+        self.error = error
+        self.skipped = skipped
+        self.consecutive = consecutive
+    }
+}
+
 /// Fetches more Autoplay tracks (InnerTube `next` radio, M3). Injected by the app; nil = no continuation.
 public typealias QTAutoplayContinuation = @MainActor (QTAutoplayRequest) async throws -> [QTTrack]
 
@@ -55,6 +72,8 @@ public final class QTQueueController {
     @ObservationIgnored public var isLiked: @MainActor (QTTrack) -> Bool = { _ in false }
     /// Remote "like" (Control Center / Touch Bar). The app decides what liking means (local until writes are approved).
     @ObservationIgnored public var onRemoteLike: (@MainActor (QTTrack, Bool) -> Void)?
+    /// A track failed to play (and was skipped, unless `skipped` is false). The app shows a toast.
+    @ObservationIgnored public var onFailure: (@MainActor (QTPlaybackFailureEvent) -> Void)?
     @ObservationIgnored public let nowPlaying: QTNowPlayingController?
 
     @ObservationIgnored private let store: QTQueueStore?
@@ -72,6 +91,8 @@ public final class QTQueueController {
     @ObservationIgnored private var loadsInFlight = 0
     @ObservationIgnored private var consecutiveFailures = 0
     @ObservationIgnored private var lastAnnouncedTrackID: String?
+    /// The user's intent: true after play/autoplaying load, false after pause. Decides whether a failure skips.
+    @ObservationIgnored private var wantsPlayback = false
     /// Held while playing or loading so App Nap never throttles track ends, ad countdowns or the
     /// simulated engine's clock when the app is in the background or occluded (real audio output already
     /// exempts the process; this covers silent engines and the gaps between tracks).
@@ -142,9 +163,19 @@ public final class QTQueueController {
 
     // MARK: Transport
 
-    public func play() { engine.play() }
-    public func pause() { engine.pause() }
-    public func togglePlayPause() { engine.togglePlayPause() }
+    public func play() {
+        wantsPlayback = true
+        engine.play()
+    }
+
+    public func pause() {
+        wantsPlayback = false
+        engine.pause()
+    }
+
+    public func togglePlayPause() {
+        engine.state.isPlaying ? pause() : play()
+    }
     public func seek(to time: TimeInterval) { engine.seek(to: time) }
     public func setVolume(_ volume: Double) { engine.setVolume(volume) }
     public func setMuted(_ muted: Bool) { engine.setMuted(muted) }
@@ -161,7 +192,7 @@ public final class QTQueueController {
         guard queue.nowPlaying != nil else { return }
         if currentTime > Self.restartThreshold || queue.history.isEmpty {
             engine.seek(to: 0)
-            if engine.state.status != .playing { engine.play() }
+            if engine.state.status != .playing { play() }
             return
         }
         let previous = queue.history.removeLast()
@@ -320,7 +351,15 @@ public final class QTQueueController {
                         position: queue.nowPlaying == nil ? 0 : currentTime)
     }
 
-    /// Writes now (app termination). Normal edits are saved debounced.
+    /// Writes synchronously on the calling thread (app termination, where awaiting isn't possible).
+    public func flushNow() {
+        saveTask?.cancel()
+        saveTask = nil
+        guard let store else { return }
+        try? QTQueueStore.write(snapshot(), to: store.fileURL)
+    }
+
+    /// Writes now. Normal edits are saved debounced.
     public func flush() async {
         saveTask?.cancel()
         saveTask = nil
@@ -382,7 +421,7 @@ public final class QTQueueController {
     private func handleEnded() async {
         if repeatMode == .one {
             engine.seek(to: 0)
-            engine.play()
+            play()
             return
         }
         await advance(userInitiated: false)
@@ -421,6 +460,7 @@ public final class QTQueueController {
         defer { loadsInFlight -= 1 }
         let track = item.track
         mode = (newMode == .video && track.hasVideo) ? .video : .song
+        wantsPlayback = autoplay
         announceTrackChange()
         scheduleSave()
         do {
@@ -433,14 +473,20 @@ public final class QTQueueController {
             return
         } catch {
             guard token == loadToken else { return }
-            lastFailure = (error as? QTPlaybackError) ?? .engine(String(describing: error))
-            await skipAfterFailure(wasPlaying: autoplay)
+            let failure = (error as? QTPlaybackError) ?? .engine(String(describing: error))
+            lastFailure = failure
+            await skipAfterFailure(track, failure)
         }
     }
 
-    private func skipAfterFailure(wasPlaying: Bool) async {
+    /// Skips an unplayable item when the user meant to be listening; stops after `maxConsecutiveFailures`.
+    private func skipAfterFailure(_ track: QTTrack, _ error: QTPlaybackError) async {
         consecutiveFailures += 1
-        guard wasPlaying, consecutiveFailures < Self.maxConsecutiveFailures else { return }
+        let hasNext = !queue.upNext.isEmpty || (queue.isAutoplayEnabled && (!queue.autoplay.isEmpty || autoplayContinuation != nil))
+            || (repeatMode == .all && !context.isEmpty)
+        let skip = wantsPlayback && consecutiveFailures < Self.maxConsecutiveFailures && hasNext
+        onFailure?(QTPlaybackFailureEvent(track: track, error: error, skipped: skip, consecutive: consecutiveFailures))
+        guard skip else { return }
         await advance(userInitiated: false)
     }
 
@@ -513,9 +559,10 @@ public final class QTQueueController {
         guard loadsInFlight == 0, s.item?.track.videoId == queue.nowPlaying?.track.videoId else { return }
         if s.status == .ended, previous.status != .ended {
             Task { await self.handleEnded() }
-        } else if case .failed(let error) = s.status, previous.status != s.status, previous.item != nil {
+        } else if case .failed(let error) = s.status, previous.status != s.status, previous.item != nil,
+                  let track = queue.nowPlaying?.track {
             lastFailure = error
-            Task { await self.skipAfterFailure(wasPlaying: previous.status == .playing) }
+            Task { await self.skipAfterFailure(track, error) }
         } else if s.status != previous.status, s.status == .paused {
             scheduleSave()
         }

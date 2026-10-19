@@ -24,6 +24,32 @@ enum QTWebKitTuning {
         setFeature(gpuProcessForMediaFeature, enabled: false, on: preferences)
     }
 
+    /// The player's page is never visible (its window is never ordered in), so by default WebKit treats it as a
+    /// hidden page: process suppression, RunningBoard throttling of the WebContent process and ever-growing timer
+    /// throttling. While audio is audible WebKit exempts it, but a silent stretch (an ad's first frames, the gap
+    /// between tracks, or the engine's silent test mode) lets the process get suspended mid-load — playback then
+    /// stalls until something pokes the page. Keep it scheduled normally; the engine freezes the page's timers
+    /// itself while paused (see `QTWebPlaybackBridgeScript`), which is what keeps a paused engine near 0% CPU.
+    /// Returns the keys that couldn't be applied (WebKit changed).
+    @discardableResult
+    static func keepHiddenPageRunning(_ preferences: WKPreferences) -> [String] {
+        if #available(macOS 14.0, *) { preferences.inactiveSchedulingPolicy = .none }
+        let off = ["InterruptAudioOnPageVisibilityChangeEnabled", "InterruptVideoOnPageVisibilityChangeEnabled",
+                   "RequiresPageVisibilityToPlayAudio"]
+        return off.filter { !setFeature($0, enabled: false, on: preferences) }
+            + setHiddenPageThrottling(false, on: preferences)
+    }
+
+    /// Hidden-page throttling (process suppression, RunningBoard throttling, growing timer throttling): off while
+    /// the engine works, back on once a paused page is frozen so the WebContent process can idle completely.
+    /// Commands to the page resume it. Returns the keys that couldn't be applied.
+    @discardableResult
+    static func setHiddenPageThrottling(_ enabled: Bool, on preferences: WKPreferences) -> [String] {
+        let keys = ["PageVisibilityBasedProcessSuppressionEnabled", "BackgroundWebContentRunningBoardThrottlingEnabled",
+                    "HiddenPageDOMTimerThrottlingAutoIncreases"]
+        return keys.filter { !setFeature($0, enabled: enabled, on: preferences) }
+    }
+
     @discardableResult
     static func setFeature(_ key: String, enabled: Bool, on preferences: WKPreferences) -> Bool {
         let featuresSelector = NSSelectorFromString("_features")

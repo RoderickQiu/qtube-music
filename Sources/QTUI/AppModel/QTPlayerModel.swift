@@ -68,6 +68,9 @@ public final class QTPlayerModel {
     public var timeline: QTPlaybackTimeline { state.timeline }
     public var isPlaying: Bool { state.isPlaying }
     public var ad: QTAdState? { state.ad }
+    /// Waiting for media: loading an item, or stalled mid-play (network). Views debounce it
+    /// (`qtBufferingIndicator`) so quick loads never flash a spinner.
+    public var isBuffering: Bool { state.status == .loading || (state.isBuffering && state.status == .playing) }
     public var duration: TimeInterval { state.duration }
     public var capabilities: QTPlaybackCapabilities { playback.capabilities }
 

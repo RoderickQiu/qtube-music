@@ -120,14 +120,7 @@ public final class QTLiveCatalogStore {
         self.model = model
         // Settings › Account (desktop) reads the app's one auth controller from the model.
         model.authController = auth
-        let arg = model.launch.string("qt.catalog")
-        let wantsLive: Bool
-        switch arg {
-        case "live"?: wantsLive = true
-        case "mock"?: wantsLive = false
-        case let path? where !path.isEmpty: wantsLive = false // legacy: a mock catalog folder
-        default: wantsLive = !UserDefaults.standard.bool(forKey: Self.demoDefaultsKey)
-        }
+        let wantsLive = Self.wantsLive(model.launch)
         guard wantsLive else {
             mode = .mock
             return
@@ -150,6 +143,17 @@ public final class QTLiveCatalogStore {
     }
 
     public var isLive: Bool { mode == .live }
+
+    /// Whether this launch tries the user's library (`-qt.catalog live`, or no `-qt.catalog` and the demo library
+    /// not chosen) rather than the mock catalog. Bootstrap also uses it to pick the playback engine.
+    public static func wantsLive(_ launch: QTLaunchOptions) -> Bool {
+        switch launch.string("qt.catalog") {
+        case "live"?: return true
+        case "mock"?: return false
+        case let path? where !path.isEmpty: return false // legacy: a mock catalog folder
+        default: return !UserDefaults.standard.bool(forKey: demoDefaultsKey)
+        }
+    }
 
     /// Whether live pages replace the mock-era pages for this destination.
     public func handles(_ destination: QTDestination) -> Bool {

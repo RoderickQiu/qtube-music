@@ -58,8 +58,16 @@ public struct QTAdState: Sendable, Hashable {
 
 public enum QTPlaybackError: Error, Sendable, Hashable {
     case unavailable(QTAvailability)
+    /// Age-gated (or behind a content warning) — needs a signed-in, verified account.
+    case ageRestricted
     case network(String)
     case engine(String)
+
+    /// Network trouble rather than a problem with the item: retry later instead of skipping for good.
+    public var isNetwork: Bool {
+        if case .network = self { return true }
+        return false
+    }
 }
 
 public enum QTPlaybackStatus: Sendable, Hashable {

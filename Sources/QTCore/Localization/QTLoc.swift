@@ -28,6 +28,8 @@ public enum QTStringTable: String, Sendable, CaseIterable {
     case desktop = "Desktop"
     /// Live YouTube Music data: sign-in, signed-out / loading / error states, search, artist pages (builder "data-live").
     case live = "Live"
+    /// Real playback: engine errors, network, buffering (builder "playback").
+    case playback = "Playback"
 }
 
 /// Runtime-switchable localization. Thread-safe; observable so SwiftUI bodies that call `QTLoc.tr`

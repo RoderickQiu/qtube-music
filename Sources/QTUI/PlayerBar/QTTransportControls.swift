@@ -18,6 +18,7 @@ public enum QTTransportStyle: Hashable, Sendable {
 public struct QTTransportControls: View {
     private let style: QTTransportStyle
     @Environment(QTPlayerModel.self) private var player
+    @Environment(\.colorScheme) private var colorScheme
 
     public init(style: QTTransportStyle) {
         self.style = style
@@ -141,6 +142,10 @@ public struct QTTransportControls: View {
                 }
             }
             .contentTransition(.symbolEffect(.replace.downUp))
+            // Debounced system spinner while the engine waits for media (also on the Stage's white disc, where it
+            // is drawn in the light appearance so it stays visible).
+            .qtBufferingIndicator(player.isBuffering, controlSize: style == .stage ? .regular : .small)
+            .environment(\.colorScheme, style == .stage ? .light : colorScheme)
         }
         .help("\(QTLoc.tr(player.isPlaying ? "Pause" : "Play"))  Space")
         .accessibilityIdentifier("qt.transport.playPause")
