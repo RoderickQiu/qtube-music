@@ -9,8 +9,10 @@ import WebKit
 // - `QTAuthController` (@MainActor, @Observable): state for the UI, sign-in window, sign-out, session restore,
 //   session-loss handling, DEBUG-only session import.
 // - `QTSessionStore` (actor): Keychain persistence + `QTInnerTubeCredentialsProvider` for `QTInnerTubeClient`.
-// - Cookies live in the Keychain (service `com.roderickqiu.qtube`) and in `WKWebsiteDataStore.default()` (shared
-//   with the web playback engine). Never in files, logs or fixtures.
+// - Cookies live in the Keychain (service `com.roderickqiu.qtube`) and, in memory only, in the non-persistent WebKit
+//   jar `QTWebKitCookieStore.session` that the web playback engine plays in. Never in a persistent WebKit store (WebKit
+//   saves those as plain-text `.binarycookies`), files, logs or fixtures. Sign-in runs in a throwaway non-persistent
+//   store; its cookies move to the Keychain and the throwaway is cleared.
 // Writing to the user's account is gated: ask the user first (`QTInnerTubeClient.setAllowsAccountWrites`).
 
 /// Signed-in state as the UI sees it.
@@ -34,6 +36,9 @@ public final class QTAuthController {
     @ObservationIgnored private let client: QTInnerTubeClient?
     @ObservationIgnored private var signInWindow: QTSignInWindowController?
     @ObservationIgnored private var eventsTask: Task<Void, Never>?
+    @ObservationIgnored private var foldTask: Task<Void, Never>?
+    /// How long cookie changes in the web jar settle before they're folded into the Keychain session.
+    @ObservationIgnored var foldDelay: Duration = .seconds(2)
 
     /// - Parameters:
     ///   - client: gets this controller's session store as its credentials provider.
@@ -41,9 +46,15 @@ public final class QTAuthController {
                 cookieStore: (any QTWebCookieStore)? = nil,
                 client: QTInnerTubeClient? = nil) {
         self.sessionStore = sessionStore
-        self.cookieStore = cookieStore ?? QTWebKitCookieStore()
+        self.cookieStore = cookieStore ?? QTWebKitCookieStore.session
         self.client = client
         observeSessionEvents()
+        self.cookieStore.onChange = { [weak self] in self?.webCookiesChanged() }
+    }
+
+    /// The WebKit data store signed-in playback uses (the session jar), nil when the jar isn't WebKit's (tests).
+    public var webDataStore: WKWebsiteDataStore? {
+        (cookieStore as? QTWebKitCookieStore)?.dataStore
     }
 
     public var isSignedIn: Bool {
@@ -84,13 +95,10 @@ public final class QTAuthController {
         }
         let previous = state
         state = .signingIn
-        var dataStore = (cookieStore as? QTWebKitCookieStore)?.dataStore ?? .default()
-        var windowCookies: any QTWebCookieStore = cookieStore
-        if isEphemeral {
-            dataStore = .nonPersistent()
-            windowCookies = QTWebKitCookieStore(dataStore: dataStore)
-        }
-        let controller = QTSignInWindowController(dataStore: dataStore, cookieStore: windowCookies, hl: hl) {
+        // Always a throwaway, memory-only store: the login is harvested into the Keychain (and the session jar)
+        // and the throwaway cleared, so Google's cookies never reach a persistent WebKit store.
+        let windowCookies = Self.makeSignInCookieStore()
+        let controller = QTSignInWindowController(dataStore: windowCookies.dataStore, cookieStore: windowCookies, hl: hl) {
             [weak self] result in
             guard let self else { return }
             self.signInWindow = nil
@@ -98,8 +106,12 @@ public final class QTAuthController {
             case .success(let cookies):
                 if isEphemeral {
                     self.state = previous == .signingIn ? .signedOut : previous
+                    Task { await windowCookies.removeGoogleCookies() }
                 } else {
-                    Task { await self.completeSignIn(cookies: cookies) }
+                    Task {
+                        await self.completeSignIn(cookies: cookies)
+                        await windowCookies.removeGoogleCookies()
+                    }
                 }
             case .failure(let error):
                 self.lastError = error
@@ -113,6 +125,11 @@ public final class QTAuthController {
     /// Posted when an ephemeral (screenshot) sign-in window has loaded Google's page and appeared.
     public static let ephemeralSignInDidShow = QTSignInWindowController.didShowQuietly
 
+    /// The sign-in window's jar: a fresh non-persistent store per attempt.
+    static func makeSignInCookieStore() -> QTWebKitCookieStore {
+        QTWebKitCookieStore(dataStore: .nonPersistent())
+    }
+
     public func cancelSignIn() {
         signInWindow?.close()
     }
@@ -121,6 +138,7 @@ public final class QTAuthController {
         do {
             try await sessionStore.save(QTAuthSession(cookies: cookies))
             await client?.setCredentialsProvider(sessionStore)
+            if let saved = await sessionStore.current { await seedWebCookies(saved.cookies) }
             state = .signedIn(accountName: "", isPremium: false)
             await refreshAccount()
         } catch let error as QTAuthError {
@@ -156,6 +174,7 @@ public final class QTAuthController {
     /// Signs out: Keychain item, WebKit Google/YouTube cookies and the response cache are all cleared.
     public func signOut() async {
         signInWindow?.close()
+        foldTask?.cancel()
         try? await sessionStore.clear()
         await cookieStore.removeGoogleCookies()
         await client?.clearCache()
@@ -184,21 +203,49 @@ public final class QTAuthController {
             if state != .signingIn { state = .signedOut }
         case .signedIn:
             break
+        case .cookiesRotated(let cookies):
+            // API responses rotated the session: the player page must present the same cookies.
+            Task { await seedWebCookies(cookies) }
         }
     }
 
     // MARK: WebKit sync
 
-    /// Puts the Keychain cookies into WebKit when WebKit lost them (e.g. website data cleared), so the web
-    /// playback engine is signed in too.
+    /// Puts the Keychain cookies into the session jar (empty at launch: it lives in memory only), so the web
+    /// playback engine is signed in too. When the jar already holds the same login (a second restore), its rotated
+    /// cookies are folded back into the Keychain instead.
     private func syncWebCookies(from session: QTAuthSession) async {
         let web = QTAuthSession(cookies: QTAuthSession.filtered(await cookieStore.allCookies()))
         if web.sapisid != session.sapisid {
-            await cookieStore.set(session.cookies)
+            await seedWebCookies(session.cookies)
         } else {
-            // WebKit has the same login, possibly with fresher rotated cookies: fold those back in.
             await sessionStore.merge(web.cookies)
         }
+    }
+
+    /// The only way session cookies enter WebKit. Refuses a persistent jar: WebKit would save them in plain text.
+    private func seedWebCookies(_ cookies: [QTCookie]) async {
+        guard !cookieStore.isPersistent else { return }
+        await cookieStore.set(cookies)
+    }
+
+    /// The player page rotated cookies (Google's `RotateCookies`, `SIDCC` on every response): after they settle,
+    /// fold the auth cookies of the same login back into the Keychain session.
+    private func webCookiesChanged() {
+        guard isSignedIn else { return }
+        foldTask?.cancel()
+        foldTask = Task { @MainActor [weak self, foldDelay] in
+            try? await Task.sleep(for: foldDelay)
+            guard let self, !Task.isCancelled, self.isSignedIn else { return }
+            await self.foldWebCookies()
+        }
+    }
+
+    /// Exposed for tests (skips the settle delay).
+    func foldWebCookies() async {
+        let web = QTAuthSession(cookies: QTAuthSession.filtered(await cookieStore.allCookies()))
+        guard let current = await sessionStore.current, web.sapisid != nil, web.sapisid == current.sapisid else { return }
+        await sessionStore.merge(web.cookies)
     }
 
     // MARK: Debug import
@@ -212,7 +259,7 @@ public final class QTAuthController {
                                     brandAccountId: brandAccountId)
         guard session.isComplete else { throw QTAuthError.incompleteSession }
         try await sessionStore.save(session)
-        await cookieStore.set(session.cookies)
+        await seedWebCookies(session.cookies)
         await client?.setCredentialsProvider(sessionStore)
         state = .signedIn(accountName: "", isPremium: false)
     }
@@ -225,6 +272,8 @@ public final class QTAuthController {
     #endif
 }
 
+#if DEBUG
+/// DEBUG ONLY (the dev cookie import): not in the shipping binary.
 extension QTCookie {
     /// Cookies in Chrome DevTools Protocol form: `name`, `value`, `domain`, `path`, `expires` (Unix seconds, -1 for
     /// session cookies), `secure`, `httpOnly`, `sameSite`.
@@ -254,3 +303,4 @@ extension QTCookie {
         }
     }
 }
+#endif

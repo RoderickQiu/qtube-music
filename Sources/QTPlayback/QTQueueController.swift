@@ -82,9 +82,10 @@ public final class QTQueueController {
     @ObservationIgnored public var onRemoteLike: (@MainActor (QTTrack, Bool) -> Void)?
     /// A track failed to play (and was skipped, unless `skipped` is false). The app shows a toast.
     @ObservationIgnored public var onFailure: (@MainActor (QTPlaybackFailureEvent) -> Void)?
-    @ObservationIgnored public let nowPlaying: QTNowPlayingController?
+    /// The process's single Now Playing owner (nil: none). Attached later when the app switches to real data.
+    @ObservationIgnored public private(set) var nowPlaying: QTNowPlayingController?
 
-    @ObservationIgnored private let store: QTQueueStore?
+    @ObservationIgnored private var store: QTQueueStore?
     @ObservationIgnored private var random: QTRandomSource
     /// The context in original order. Autoplay items share ids with these.
     @ObservationIgnored private var context: [QTQueueItem] = []
@@ -342,6 +343,23 @@ public final class QTQueueController {
         if queue.nowPlaying != nil {
             await loadCurrent(startTime: position, autoplay: wasPlaying, mode: mode)
         }
+    }
+
+    /// Takes over Now Playing + remote commands (the app switched from demo to real data mid-session).
+    public func attachNowPlaying(_ controller: QTNowPlayingController) {
+        guard nowPlaying !== controller else { return }
+        nowPlaying?.clear()
+        nowPlaying = controller
+        controller.commandHandler = { [weak self] command in self?.handleRemote(command) ?? false }
+        publishNowPlaying()
+    }
+
+    /// Starts or stops persisting the queue (nil = in-memory only). Pending saves to the old store are dropped, so
+    /// a demo-library queue never overwrites the saved real one.
+    public func setStore(_ newStore: QTQueueStore?) {
+        saveTask?.cancel()
+        saveTask = nil
+        store = newStore
     }
 
     // MARK: Persistence

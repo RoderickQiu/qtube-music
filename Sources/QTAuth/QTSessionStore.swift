@@ -7,6 +7,9 @@ public enum QTSessionEvent: Sendable, Equatable {
     case signedOut
     /// YouTube answered a signed-in request as signed out; the user needs to sign in again.
     case expired
+    /// Google rotated cookies on an API response (`Set-Cookie`); the controller copies them into the web jar so the
+    /// player page and the API client keep using the same, current session.
+    case cookiesRotated([QTCookie])
 }
 
 /// Owns the current session: Keychain persistence, credentials for `QTInnerTubeClient`, cookie rotation and
@@ -89,17 +92,20 @@ public actor QTSessionStore: QTInnerTubeCredentialsProvider {
     }
 
     /// Rotated cookies (Set-Cookie on API responses, WebKit cookie changes).
-    public func merge(_ cookies: [QTCookie]) {
-        guard let s = session, !isExpired else { return }
+    /// - Returns: the cookies that changed (empty when nothing did).
+    @discardableResult
+    public func merge(_ cookies: [QTCookie]) -> [QTCookie] {
+        guard let s = session, !isExpired else { return [] }
         let merged = s.merging(cookies, now: now())
-        guard merged.cookies != s.cookies, merged.isComplete else { return }
+        guard merged.cookies != s.cookies, merged.isComplete else { return [] }
         session = merged
+        let changedCookies = Array(Set(merged.cookies).subtracting(s.cookies))
         // `SIDCC`-family cookies change on nearly every response; they're kept in memory and written at most every
         // ten minutes. Anything else (PSIDTS rotation, a new SID) is written at once.
         let changed = Set(merged.cookies).symmetricDifference(Set(s.cookies)).map(\.name)
         let onlyCC = changed.allSatisfy { $0.hasSuffix("SIDCC") }
-        guard !onlyCC || now().timeIntervalSince(lastPersist) > 600 else { return }
-        try? persist(merged)
+        if !onlyCC || now().timeIntervalSince(lastPersist) > 600 { try? persist(merged) }
+        return changedCookies
     }
 
     /// One stream per subscriber.
@@ -143,6 +149,7 @@ public actor QTSessionStore: QTInnerTubeCredentialsProvider {
     }
 
     public func didReceive(cookies: [HTTPCookie]) async {
-        merge(cookies.map(QTCookie.init))
+        let changed = merge(cookies.map(QTCookie.init))
+        if !changed.isEmpty { emit(.cookiesRotated(changed)) }
     }
 }

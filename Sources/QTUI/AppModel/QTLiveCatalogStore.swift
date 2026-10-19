@@ -29,12 +29,26 @@ public enum QTLiveFailure: Sendable, Hashable {
     case sessionExpired
     case unavailable
 
+    /// Only connectivity errors read as offline; TLS, bad-server and other network errors are "couldn't load".
     init(_ error: any Error) {
-        switch error as? QTInnerTubeError {
-        case .network?: self = .offline
-        case .sessionExpired?, .notSignedIn?: self = .sessionExpired
-        default: self = .unavailable
+        if let e = error as? QTInnerTubeError {
+            switch e {
+            case .sessionExpired, .notSignedIn: self = .sessionExpired
+            default: self = e.isConnectivity ? .offline : .unavailable
+            }
+        } else if let u = error as? URLError, QTInnerTubeError.connectivityCodes.contains(u.code) {
+            self = .offline
+        } else {
+            self = .unavailable
         }
+    }
+
+    /// A cancelled load (an account switch cancels in-flight pages) isn't a failure to show.
+    static func isCancellation(_ error: any Error) -> Bool {
+        if error is CancellationError { return true }
+        if let e = error as? QTInnerTubeError { return e.isCancellation }
+        if let u = error as? URLError { return u.code == .cancelled }
+        return false
     }
 }
 
@@ -42,6 +56,11 @@ public enum QTLiveFailure: Sendable, Hashable {
 public enum QTLivePhase: Sendable, Hashable {
     case idle, loading, loaded
     case failed(QTLiveFailure)
+
+    /// The phase after a load threw: the failure state, or idle for a cancellation (the page loads again on demand).
+    static func failure(_ error: any Error) -> QTLivePhase {
+        QTLiveFailure.isCancellation(error) ? .idle : .failed(QTLiveFailure(error))
+    }
 
     public var isSettled: Bool {
         switch self {
@@ -64,7 +83,9 @@ public final class QTLiveCatalogStore {
     @ObservationIgnored private weak var model: QTAppModel?
     @ObservationIgnored private var hl: String
     @ObservationIgnored private var didApplyLaunchPlayback = false
-    @ObservationIgnored private var tasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var tasks: [String: (id: UUID, task: Task<Void, Never>)] = [:]
+    @ObservationIgnored private var isObservingAuth = false
+    @ObservationIgnored private var isObservingLanguage = false
 
     // MARK: Pages
 
@@ -103,26 +124,49 @@ public final class QTLiveCatalogStore {
     /// UserDefaults key: the user picked the demo library on the signed-out screen.
     static let demoDefaultsKey = "qt.data.demoLibrary"
 
-    public init() {
-        hl = QTInnerTubeConfiguration.hl(for: QTLoc.language)
+    /// Where the demo-library choice is remembered (tests pass their own suite).
+    @ObservationIgnored let defaults: UserDefaults
+    /// Engine / Now Playing / queue persistence switching (tests pass an unattached instance).
+    @ObservationIgnored let playbackServices: QTPlaybackServices
+
+    public convenience init() {
+        let hl = QTInnerTubeConfiguration.hl(for: QTLoc.language)
         let client = QTInnerTubeClient(configuration: QTInnerTubeConfiguration(hl: hl, gl: QTInnerTubeConfiguration.gl()))
+        self.init(client: client, auth: QTAuthController(client: client))
+    }
+
+    /// Tests: an injected client (fake transport) and auth controller (memory Keychain + memory cookie jar).
+    init(client: QTInnerTubeClient, auth: QTAuthController, defaults: UserDefaults = .standard,
+         playbackServices: QTPlaybackServices = .shared) {
+        hl = QTInnerTubeConfiguration.hl(for: QTLoc.language)
         self.client = client
-        auth = QTAuthController(client: client)
+        self.auth = auth
+        self.defaults = defaults
+        self.playbackServices = playbackServices
         service = QTInnerTubeCatalog(client: client, homePages: 3, maxPlaylistPages: 50)
     }
 
     // MARK: Mode
 
     /// Called once from `QTAppModel.bootstrap`. `-qt.catalog mock` (or a mock catalog path) keeps the demo catalog
-    /// and never touches the Keychain; `-qt.catalog live` or no argument restores the saved session.
+    /// and never touches the Keychain; `-qt.catalog live` or no argument restores the saved session. When the user
+    /// chose the demo library, the demo catalog shows but the account still restores (Settings › Account shows it)
+    /// and a session — restored or a new sign-in — switches to the user's library.
     public func attach(_ model: QTAppModel) {
         guard self.model == nil else { return }
         self.model = model
         // Settings › Account (desktop) reads the app's one auth controller from the model.
         model.authController = auth
-        let wantsLive = Self.wantsLive(model.launch)
+        // Earlier builds left the session in WebKit's plain-text persistent cookie jar; the app keeps none.
+        QTLegacyWebStorage.purge()
+        model.liveCatalog = self
+        let wantsLive = Self.wantsLive(model.launch, defaults: defaults)
         guard wantsLive else {
             mode = .mock
+            guard !Self.isDemoOnly(model.launch) else { return }
+            Task { await client.setAllowsAccountWrites(false) }
+            observeLanguage()
+            Task { @MainActor in await self.restoreInDemo() }
             return
         }
         mode = .restoring
@@ -144,14 +188,26 @@ public final class QTLiveCatalogStore {
 
     public var isLive: Bool { mode == .live }
 
+    /// Reading the saved session; launch playback waits for it (the player page must start signed in).
+    public var isRestoringSession: Bool { mode == .restoring }
+
+    /// `-qt.catalog mock` or a mock catalog folder: the demo catalog only, the Keychain is never read.
+    public static func isDemoOnly(_ launch: QTLaunchOptions) -> Bool {
+        switch launch.string("qt.catalog") {
+        case "mock"?: return true
+        case let path? where !path.isEmpty && path != "live": return true
+        default: return false
+        }
+    }
+
     /// Whether this launch tries the user's library (`-qt.catalog live`, or no `-qt.catalog` and the demo library
     /// not chosen) rather than the mock catalog. Bootstrap also uses it to pick the playback engine.
-    public static func wantsLive(_ launch: QTLaunchOptions) -> Bool {
+    public static func wantsLive(_ launch: QTLaunchOptions, defaults: UserDefaults = .standard) -> Bool {
         switch launch.string("qt.catalog") {
         case "live"?: return true
         case "mock"?: return false
         case let path? where !path.isEmpty: return false // legacy: a mock catalog folder
-        default: return !UserDefaults.standard.bool(forKey: demoDefaultsKey)
+        default: return !defaults.bool(forKey: demoDefaultsKey)
         }
     }
 
@@ -173,14 +229,38 @@ public final class QTLiveCatalogStore {
             await enterLive()
         } else {
             mode = .signedOut
+            await model?.applyLaunchPlayback()
         }
+    }
+
+    /// Demo library chosen earlier: restore the account anyway; a saved session means the user has signed in since.
+    private func restoreInDemo() async {
+        await auth.restore()
+        observeAuth()
+        if auth.isSignedIn { await switchToLive() }
+    }
+
+    /// Demo catalog → the user's library (a sign-in, or a session restored in demo mode): the web engine with the
+    /// session, Now Playing, queue persistence, then the library.
+    private func switchToLive() async {
+        guard mode == .mock, let model else { return }
+        mode = .restoring
+        defaults.removeObject(forKey: Self.demoDefaultsKey)
+        resetPages()
+        model.catalog = Self.emptyCatalog
+        model.player.likedTrackIDs = []
+        await playbackServices.switchSource(to: .live)
+        model.resetLaunchPlayback()
+        await enterLive()
     }
 
     private func enterLive() async {
         mode = .live
-        UserDefaults.standard.removeObject(forKey: Self.demoDefaultsKey)
+        defaults.removeObject(forKey: Self.demoDefaultsKey)
         let hold = QTReadiness.shared.hold("live.initial")
         defer { QTReadiness.shared.release(hold) }
+        // The session is in the player's jar now: the saved queue (if any) cues signed in.
+        await model?.applyLaunchPlayback()
         // Premium + account region first: `gl` shapes Home.
         await auth.refreshAccount()
         applyAccount()
@@ -257,15 +337,25 @@ public final class QTLiveCatalogStore {
         model.account = premium ? .premium : .free
     }
 
-    /// Signed-out screen › "Use Demo Library": the mock catalog, remembered until the user signs in.
+    /// Signed-out screen › "Use Demo Library": the mock catalog, remembered until the user signs in (a sign-in from
+    /// Settings › Account switches back). The demo plays through the simulated engine, like a `-qt.catalog mock`
+    /// launch. An expired session is dropped: it can't come back, and a later sign-in starts clean.
     public func useDemoLibrary() {
-        UserDefaults.standard.set(true, forKey: Self.demoDefaultsKey)
-        guard let model else { return }
+        defaults.set(true, forKey: Self.demoDefaultsKey)
+        guard let model, mode != .mock else { return }
+        let wasExpired = auth.state == .sessionExpired
+        resetPages()
         if let url = QTMockCatalog.locate(explicitPath: nil), let loaded = try? QTMockCatalog.load(from: url) {
             model.catalog = loaded
             model.player.likedTrackIDs = Set(loaded.liked.tracks?.map(\.videoId) ?? [])
         }
         mode = .mock
+        Task { @MainActor in
+            if wasExpired { await auth.signOut() }
+            await playbackServices.switchSource(to: .mock)
+            model.resetLaunchPlayback()
+            await model.applyLaunchPlayback()
+        }
     }
 
     /// Opens Google's sign-in window over the main window.
@@ -283,37 +373,75 @@ public final class QTLiveCatalogStore {
     }
 
     private func observeAuth() {
+        guard !isObservingAuth else { return }
+        isObservingAuth = true
+        trackAuth()
+    }
+
+    private func trackAuth() {
         withObservationTracking { _ = auth.state } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
                 self.authStateChanged()
-                self.observeAuth()
+                self.trackAuth()
             }
         }
     }
 
-    private func authStateChanged() {
+    /// The one place auth transitions change the catalog mode. Exposed for tests.
+    func authStateChanged() {
+        lastAuthState = auth.state
         switch auth.state {
-        case .signedIn where mode != .live && !(mode == .restoring):
-            resetPages()
-            Task { await enterLive() }
         case .signedIn:
-            applyAccount()
-        case .signedOut where mode == .live:
+            switch mode {
+            case .live:
+                applyAccount()
+            case .restoring:
+                break
+            case .signedOut:
+                // Signed in from the signed-out screen, Settings, or again after the session expired.
+                resetPages()
+                playbackServices.sessionDidChange()
+                Task { await enterLive() }
+            case .mock:
+                guard let model, !Self.isDemoOnly(model.launch) else { return }
+                Task { await switchToLive() }
+            }
+        case .signedOut:
+            playbackServices.sessionDidChange()
+            guard mode == .live || mode == .restoring else { return }
             resetPages()
             model?.catalog = Self.emptyCatalog
+            model?.player.likedTrackIDs = []
             mode = .signedOut
-        default:
+        case .sessionExpired:
+            // YouTube no longer sees the login: the signed-out screen ("Signed out of YouTube Music" + Sign In)
+            // instead of every page failing on its own. A new sign-in reloads everything.
+            guard mode == .live else { return }
+            resetPages()
+            model?.catalog = Self.emptyCatalog
+            model?.player.likedTrackIDs = []
+            mode = .signedOut
+        case .signingIn:
             break
         }
     }
 
+    /// The auth state the last transition handled (tests).
+    @ObservationIgnored private(set) var lastAuthState: QTAuthState?
+
     private func observeLanguage() {
+        guard !isObservingLanguage else { return }
+        isObservingLanguage = true
+        trackLanguage()
+    }
+
+    private func trackLanguage() {
         withObservationTracking { _ = QTLocalizer.shared.language } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
                 self.languageChanged()
-                self.observeLanguage()
+                self.trackLanguage()
             }
         }
     }
@@ -341,7 +469,7 @@ public final class QTLiveCatalogStore {
     }
 
     private func resetPages() {
-        for t in tasks.values { t.cancel() }
+        for t in tasks.values { t.task.cancel() }
         tasks = [:]
         homePhase = .idle; homeMood = nil; moodFeeds = [:]; moodPhases = [:]
         likedPhase = .idle; isLoadingMoreLiked = false; libraryPhase = .idle
@@ -362,12 +490,14 @@ public final class QTLiveCatalogStore {
 
     /// Runs `work` once per key at a time; readiness waits for it during launch.
     private func run(_ key: String, _ work: @escaping @MainActor () async -> Void) async {
-        if let running = tasks[key] { await running.value; return }
+        if let running = tasks[key] { await running.task.value; return }
         let hold = QTReadiness.shared.hold("live.\(key)")
+        let id = UUID()
         let task = Task { @MainActor in await work() }
-        tasks[key] = task
+        tasks[key] = (id, task)
         await task.value
-        tasks[key] = nil
+        // A reset may have started a new task under the same key meanwhile; keep that one.
+        if tasks[key]?.id == id { tasks[key] = nil }
         QTReadiness.shared.release(hold)
     }
 
@@ -399,7 +529,7 @@ public final class QTLiveCatalogStore {
                 remember(feed.shelves.flatMap { $0.items.compactMap(\.track) })
                 homePhase = .loaded
             } catch {
-                homePhase = .failed(QTLiveFailure(error))
+                homePhase = .failure(error)
             }
         }
     }
@@ -420,7 +550,7 @@ public final class QTLiveCatalogStore {
                 remember(page.feed.shelves.flatMap { $0.items.compactMap(\.track) })
                 moodPhases[id] = .loaded
             } catch {
-                moodPhases[id] = .failed(QTLiveFailure(error))
+                moodPhases[id] = .failure(error)
             }
         }
     }
@@ -450,7 +580,7 @@ public final class QTLiveCatalogStore {
                 }
                 isLoadingMoreLiked = false
             } catch {
-                likedPhase = .failed(QTLiveFailure(error))
+                likedPhase = .failure(error)
             }
         }
     }
@@ -485,7 +615,7 @@ public final class QTLiveCatalogStore {
                 }
                 libraryPhase = .loaded
             } catch {
-                libraryPhase = .failed(QTLiveFailure(error))
+                libraryPhase = .failure(error)
             }
         }
     }
@@ -509,7 +639,7 @@ public final class QTLiveCatalogStore {
                 }
                 remember(tracks)
             } catch {
-                songsPhase = .failed(QTLiveFailure(error))
+                songsPhase = .failure(error)
             }
         }
     }
@@ -531,7 +661,7 @@ public final class QTLiveCatalogStore {
                 libraryAlbums = albums
                 albumsPhase = .loaded
             } catch {
-                albumsPhase = .failed(QTLiveFailure(error))
+                albumsPhase = .failure(error)
             }
         }
     }
@@ -556,7 +686,7 @@ public final class QTLiveCatalogStore {
                     pages += 1
                 }
             } catch {
-                artistsPhase = .failed(QTLiveFailure(error))
+                artistsPhase = .failure(error)
             }
         }
     }
@@ -620,7 +750,7 @@ public final class QTLiveCatalogStore {
                 }
                 remember(tracks)
             } catch {
-                playlistPhases[id] = .failed(QTLiveFailure(error))
+                playlistPhases[id] = .failure(error)
             }
         }
     }
@@ -673,7 +803,7 @@ public final class QTLiveCatalogStore {
                 remember(page.album.tracks ?? [])
                 albumPhases[key] = .loaded
             } catch {
-                albumPhases[key] = .failed(QTLiveFailure(error))
+                albumPhases[key] = .failure(error)
             }
         }
     }
@@ -695,7 +825,7 @@ public final class QTLiveCatalogStore {
                 remember(page.songs + page.videos)
                 artistPhases[key] = .loaded
             } catch {
-                artistPhases[key] = .failed(QTLiveFailure(error))
+                artistPhases[key] = .failure(error)
             }
         }
     }
@@ -724,7 +854,7 @@ public final class QTLiveCatalogStore {
                 remember(page.shelves.flatMap { $0.items.compactMap(\.track) })
                 explorePhase = .loaded
             } catch {
-                explorePhase = .failed(QTLiveFailure(error))
+                explorePhase = .failure(error)
             }
         }
     }
@@ -746,7 +876,7 @@ public final class QTLiveCatalogStore {
                 remember((exploreSections[section] ?? []).flatMap { $0.items.compactMap(\.track) })
                 exploreSectionPhases[section] = .loaded
             } catch {
-                exploreSectionPhases[section] = .failed(QTLiveFailure(error))
+                exploreSectionPhases[section] = .failure(error)
             }
         }
     }
@@ -761,7 +891,7 @@ public final class QTLiveCatalogStore {
                 moodFeeds[key] = QTHomeFeed(shelves: try await client.moodPage(chip))
                 moodPhases[key] = .loaded
             } catch {
-                moodPhases[key] = .failed(QTLiveFailure(error))
+                moodPhases[key] = .failure(error)
             }
         }
     }
@@ -780,7 +910,7 @@ public final class QTLiveCatalogStore {
                 remember(results.songs + results.videos + (results.topResult?.track.map { [$0] } ?? []))
                 searchPhases[q] = .loaded
             } catch {
-                searchPhases[q] = .failed(QTLiveFailure(error))
+                searchPhases[q] = .failure(error)
             }
         }
     }

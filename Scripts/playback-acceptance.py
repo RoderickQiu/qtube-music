@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
-"""M4 acceptance for real playback, in the bundled app, silent and anonymous.
+"""M4 acceptance for real playback, in the bundled app, silent.
 
     QT_VARIANT=<name> Scripts/build-app.sh
-    QT_VARIANT=<name> Scripts/playback-acceptance.py [--plays 10] [--lang en-US] [--shots PREFIX] [--keep]
+    QT_VARIANT=<name> Scripts/playback-acceptance.py [--plays 10] [--lang en-US] [--shots PREFIX] [--keep] [--signed-in]
+
+--signed-in: the user's library with the saved session (`-qt.catalog live`, signed-in playback — plays are recorded in
+the account's YouTube Music history); also checks that the player page is signed in (Premium: no ads), that the
+queue survives a relaunch (`-qt.playback.persist YES`, graceful quit) and that closing and reopening the main window
+doesn't disturb playback. Without it the app plays whatever the default launch picks, anonymous only if the session
+is missing.
 
 Launches the app variant in the background on U270CA with the web engine playing the mock catalog's real
 music videos (`-qt.engine web`, media volume pinned to 0 — never audible), then:
@@ -117,12 +123,19 @@ class Run:
 
     # MARK: launch / quit
 
-    def launch(self):
+    def launch(self, relaunch=False):
+        for stale in (self.ready_path, self.status_path):
+            if os.path.exists(stale):
+                os.remove(stale)
         sh("pkill", "-f", f"^{EXE}")
         time.sleep(0.5)
         args = ["-ApplePersistenceIgnoreState", "YES", "-qt.screen", "U270CA", "-qt.readyFile", self.ready_path,
-                "-qt.engine", "web", "-qt.paused", "NO", "-qt.time", "20", "-qt.player.repeat", "all",
-                "-qt.playback.statusFile", self.status_path, "-qt.lang", self.args.lang, "-qt.panelTab", "now-playing"]
+                "-qt.engine", "web", "-qt.playback.statusFile", self.status_path, "-qt.lang", self.args.lang,
+                "-qt.panelTab", "now-playing"]
+        if not relaunch:
+            args += ["-qt.paused", "NO", "-qt.time", "20", "-qt.player.repeat", "all"]
+        if self.args.signed_in:
+            args += ["-qt.catalog", "live", "-qt.playback.persist", "YES"]
         subprocess.run(["open", "-g", "-n", APP, "--args", *args], check=True)
         end = time.time() + 90
         while time.time() < end and not os.path.exists(self.ready_path):
@@ -131,6 +144,14 @@ class Run:
         with open(self.ready_path) as f:
             self.pid = json.load(f)["pid"]
         self.log(f"launched pid {self.pid} ({BUNDLE})")
+
+    def quit_gracefully(self):
+        """Quit through the app (an Apple Event, no activation) so it flushes the queue like a real quit."""
+        sh("osascript", "-e", f'tell application id "{BUNDLE}" to quit')
+        end = time.time() + 15
+        while time.time() < end and sh("ps", "-p", str(self.pid), "-o", "pid="):
+            time.sleep(0.3)
+        self.restore_focus()
 
     def quit(self):
         if self.pid and not self.args.keep:
@@ -243,6 +264,13 @@ class Run:
             if n == 1:
                 media = s.get("media") or {}
                 self.check("silent: page media volume is 0", media.get("volume") == 0, f"media={media}")
+                if self.args.signed_in:
+                    st = self.wait(10, "page account", lambda x: "page" in x) or self.status()
+                    page = st.get("page") or {}
+                    self.check("signed in: app session, signed-in player page (not anonymous)",
+                               st.get("signedIn") and not st.get("anonymousPlayback") and page.get("loggedIn") is True,
+                               f"signedIn={st.get('signedIn')} anonymous={st.get('anonymousPlayback')} page={page}")
+                    self.check("Premium: the player page is a subscriber's", page.get("premium") is True, f"page={page}")
                 time.sleep(2)
                 self.check_now_playing("track 1", s)
                 self.shot("playing-panel")
@@ -294,11 +322,51 @@ class Run:
 
         self.check(f"{self.args.plays} tracks played in a row without a stall", len(plays) >= self.args.plays,
                    f"{len(plays)} plays, {len(distinct)} distinct")
+        if self.args.signed_in:
+            ads = [p["title"] for p in plays if p["ad"]]
+            self.check("no ads (Premium, signed-in playback)", not ads, f"{len(ads)} of {len(plays)} plays had an ad {ads}")
+            self.check_reopen()
         st = self.status()
         failures = [c for c in st.get("commands", []) if not c.get("ok")]
         self.check("debug commands accepted", not failures, json.dumps(failures)[:200])
         self.measure_cpu()
+        if self.args.signed_in:
+            self.check_relaunch()
         self.report = {"plays": plays, "transitions": transitions, "results": self.results}
+
+    def check_reopen(self):
+        """Close the main window while playing, bring it back the Dock's way: same track, still playing, time moved on."""
+        s0, _ = self.wait_for_content()
+        if not s0:
+            self.check("reopening the main window keeps playback", False, "nothing playing")
+            return
+        send("window:close")
+        closed = self.wait(5, "window closed", lambda x: not x.get("mainWindowVisible"))
+        time.sleep(2)
+        send("window:reopen")
+        reopened = self.wait(8, "window reopened", lambda x: x.get("mainWindowVisible"))
+        time.sleep(3)
+        self.restore_focus()
+        s1 = self.status()
+        ok = bool(closed and reopened) and s1.get("videoID") == s0.get("videoID") and s1.get("isPlaying") \
+            and s1.get("time", 0) > s0.get("time", 0) + 2
+        self.check("reopening the main window keeps playback (same track, still playing, time advancing)", ok,
+                   f"“{s0.get('title')}” {s0.get('time', 0):.1f}s → “{s1.get('title')}” {s1.get('time', 0):.1f}s, "
+                   f"playing={s1.get('isPlaying')} closed={bool(closed)} reopened={bool(reopened)}")
+
+    def check_relaunch(self):
+        """Quit (paused), relaunch without a launch track: the saved queue comes back at the same track and position."""
+        before = self.status()
+        self.quit_gracefully()
+        self.launch(relaunch=True)
+        after = self.wait(60, "queue restored", lambda x: x.get("videoID") and x.get("status") in ("paused", "playing"))
+        after = after or self.status()
+        drift = abs(after.get("time", 0) - before.get("time", 0))
+        self.check("queue survives a relaunch (same track and position, paused)",
+                   after.get("videoID") == before.get("videoID") and drift < 3 and after.get("status") == "paused",
+                   f"before “{before.get('title')}” {before.get('time', 0):.1f}s ({before.get('historyCount')} played) → "
+                   f"after “{after.get('title')}” {after.get('time', 0):.1f}s status={after.get('status')} "
+                   f"upNext+autoplay={after.get('upNextCount', 0) + after.get('autoplayCount', 0)}")
 
     def measure_cpu(self):
         s = self.status()
@@ -328,9 +396,15 @@ def main():
     ap.add_argument("--lang", default="en-US")
     ap.add_argument("--shots", default="", help="screenshot name prefix (e.g. playback-live-en)")
     ap.add_argument("--keep", action="store_true")
+    ap.add_argument("--signed-in", action="store_true", help="the user's library, signed-in playback, relaunch + reopen checks")
     args = ap.parse_args()
     if not os.path.exists(EXE):
         sys.exit(f"error: {APP} not built (QT_VARIANT={VARIANT} Scripts/build-app.sh)")
+    if args.signed_in:
+        # Start from a clean queue (a saved one would restore paused and win over -qt.paused NO).
+        saved = os.path.expanduser(f"~/Library/Application Support/{BUNDLE}/Playback/Queue.json")
+        if os.path.exists(saved):
+            os.remove(saved)
     run = Run(args)
     try:
         run.run()

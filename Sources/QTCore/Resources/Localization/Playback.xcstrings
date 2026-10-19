@@ -1,6 +1,26 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "%lld songs · %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "%#@songs@ · %2$@" },
+          "substitutions" : {
+            "songs" : {
+              "argNum" : 1,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "one" : { "stringUnit" : { "state" : "translated", "value" : "%arg song" } },
+                  "other" : { "stringUnit" : { "state" : "translated", "value" : "%arg songs" } }
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "%1$lld 首 · %2$@" } }
+      }
+    },
     "Couldn’t play “%@”" : {
       "localizations" : {
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "无法播放“%@”" } }

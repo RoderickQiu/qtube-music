@@ -220,6 +220,8 @@ actor FakeCredentials: QTInnerTubeCredentialsProvider {
     @Test func http401WithSessionMeansExpired() async throws {
         let t = FakeTransport()
         t.enqueue("browse", status: 401, data: Data())
+        // …confirmed by the signed-in web client page (SessionLossTests covers the unconfirmed cases).
+        t.enqueue("/", data: SessionLossTests.page(loggedIn: false))
         let creds = FakeCredentials(Self.fakeCredentials)
         let client = makeClient(t, credentials: creds)
         await #expect(throws: QTInnerTubeError.sessionExpired) { try await client.libraryPlaylists() }

@@ -19,9 +19,17 @@ public enum QTFormat {
         Int((seconds / 60).rounded())
     }
 
-    /// "12 songs · 50 min" / "12 首 · 50 分钟" via the catalog's plural variations.
-    public static func songCountAndMinutes(count: Int, seconds: TimeInterval) -> String {
-        QTLoc.tr("%lld songs · %lld min", count, totalMinutes(seconds))
+    /// "12 songs · 50 min" / "12 首 · 50 分钟" via the catalog's plural variations; an hour or more reads like
+    /// Music.app: "80 songs · 5 hr, 12 min" / "80 首 · 5小时12分钟" (the interface locale's duration units).
+    public static func songCountAndMinutes(count: Int, seconds: TimeInterval, locale: Locale = QTLoc.locale) -> String {
+        let minutes = totalMinutes(seconds)
+        guard minutes >= 60 else { return QTLoc.tr("%lld songs · %lld min", count, minutes) }
+        return QTLoc.tr("%lld songs · %@", table: .playback, count, totalDuration(minutes: minutes, locale: locale))
+    }
+
+    /// "5 hr, 12 min" / "5小时12分钟" (hours and minutes; zero minutes are left out).
+    public static func totalDuration(minutes: Int, locale: Locale = QTLoc.locale) -> String {
+        Duration.seconds(minutes * 60).formatted(.units(allowed: [.hours, .minutes], width: .abbreviated).locale(locale))
     }
 
     /// Lyrics offset "+0.1 s"-style number: "+0.1", "-0.3", "0.0".

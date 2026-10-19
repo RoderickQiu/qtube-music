@@ -43,6 +43,11 @@ public final class QTAppModel {
     public var searchText = ""
     public private(set) var toast: QTToast?
     @ObservationIgnored private var toastTask: Task<Void, Never>?
+    /// Launch playback ran (it runs once per process — reopening the main window must not touch playback).
+    @ObservationIgnored public private(set) var didApplyLaunchPlayback = false
+    @ObservationIgnored private var isApplyingLaunchPlayback = false
+    /// The live-library wiring this model is attached to (`QTLiveCatalogStore.attach`).
+    @ObservationIgnored weak var liveCatalog: QTLiveCatalogStore?
 
     // MARK: Account
     /// Google sign-in for YouTube Music (Settings › Account reads its `state`). Set by whoever wires the live
@@ -98,7 +103,9 @@ public final class QTAppModel {
         let tier: QTPlaybackAccountTier = launch.account == .free ? .free : .premium
         let source: QTPlaybackDataSource = QTLiveCatalogStore.wantsLive(launch) ? .live : .mock
         let playbackSetup = QTPlaybackSetup.resolve(launch: launch, source: source, tier: tier)
-        let player = QTPlayerModel(engine: playbackSetup.makeEngine(tier: tier), lyricsProvider: QTMockLyricsProvider(catalog: catalog),
+        let sessionStore = QTLiveCatalogStore.shared.auth.webDataStore
+        let player = QTPlayerModel(engine: playbackSetup.makeEngine(tier: tier, sessionDataStore: sessionStore),
+                                   lyricsProvider: QTMockLyricsProvider(catalog: catalog),
                                    likedTrackIDs: Set(catalog.liked.tracks?.map(\.videoId) ?? []),
                                    nowPlaying: playbackSetup.makeNowPlaying(), queueStore: playbackSetup.makeQueueStore())
         player.lyricsSession = QTLyricsSession.makeDefault(settings: settings, catalog: catalog, launch: launch)
@@ -120,21 +127,49 @@ public final class QTAppModel {
         return model
     }
 
-    /// Loads the launch track (`qt.track`, default: first Liked song) at `qt.time` (default 31.5 s, just before the
-    /// hero track's first lyric), paused unless `-qt.paused NO`; `-qt.ad YES` forces the ad state.
+    /// Launch playback, **once per process**: the saved queue (real data), else the launch track (`qt.track`,
+    /// default: first Liked song) at `qt.time`, paused unless `-qt.paused NO`; `-qt.ad YES` forces the ad state.
+    /// Without `-qt.time` the track is cued at 0 — scripted runs (`-qt.readyFile`) default to 31.5 s, just before the
+    /// hero track's first lyric. Callable any number of times (the main window's first appearance, the live store
+    /// once the session is restored and once Liked arrives): it does nothing while the session is being restored,
+    /// waits for Liked when there is nothing to cue yet, and never runs again after it cued something — so
+    /// reopening the main window doesn't disturb what is playing.
     public func applyLaunchPlayback() async {
-        if launch.trackID == nil, await QTPlaybackServices.shared.restoreSavedQueue(into: player) { return }
+        guard !didApplyLaunchPlayback, !isApplyingLaunchPlayback else { return }
+        // The live library is restoring the session: the player page must start signed in; the store calls again.
+        guard liveCatalog?.isRestoringSession != true else { return }
+        // Something is already playing (the user got there first).
+        guard player.nowPlaying == nil else { didApplyLaunchPlayback = true; return }
+        isApplyingLaunchPlayback = true
+        defer { isApplyingLaunchPlayback = false }
+        if launch.trackID == nil, await QTPlaybackServices.shared.restoreSavedQueue(into: player) {
+            didApplyLaunchPlayback = true
+            return
+        }
         let liked = catalog.liked.tracks ?? catalog.tracks
+        // The live library hasn't loaded Liked yet: QTLiveCatalogStore calls again when it arrives.
         guard !liked.isEmpty else { return }
+        didApplyLaunchPlayback = true
         let index = launch.trackID.flatMap { id in liked.firstIndex { $0.videoId == id } } ?? 0
         let paused = launch.paused ?? true
         await player.play(liked, startingAt: index, source: QTQueueSource(kind: .playlist, id: catalog.liked.id, title: catalog.liked.title),
-                          startTime: launch.time ?? 31.5, autoplay: !paused, mode: isVideoMode ? .video : .song)
+                          startTime: Self.launchStartTime(launch), autoplay: !paused, mode: isVideoMode ? .video : .song)
         QTPlayerLaunch.apply(launch, catalog: catalog, to: player)
         if launch.forceAd, let sim = player.engine as? QTSimulatedPlaybackEngine {
             sim.playAd()
             if paused { sim.pause() }
         }
+    }
+
+    /// Where the launch track is cued: `-qt.time`, else 31.5 s for scripted (screenshot) runs, else the start.
+    static func launchStartTime(_ launch: QTLaunchOptions) -> TimeInterval {
+        launch.time ?? (launch.readyFile != nil ? 31.5 : 0)
+    }
+
+    /// The catalog source changed mid-session (demo library ⇄ the user's library): launch playback may run again
+    /// for the new source.
+    func resetLaunchPlayback() {
+        didApplyLaunchPlayback = false
     }
 
     // MARK: Settings shortcuts (persisted)

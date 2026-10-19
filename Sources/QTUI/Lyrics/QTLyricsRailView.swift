@@ -778,8 +778,12 @@ extension QTLyricsStyle {
     }
 }
 
-/// `-qt.lyrics.debug YES`: appends renderer events to /tmp/qt-lyrics-ui-debug.log (development only).
+/// `-qt.lyrics.debug YES`: appends renderer events to /tmp/qt-lyrics-ui-debug.log. DEBUG builds only: release builds
+/// compile `log` to nothing (no fixed /tmp path in the shipping binary).
 enum QTLyricsDebug {
+    #if !DEBUG
+    @inline(__always) static func log(_ message: @autoclosure () -> String) {}
+    #else
     static let isEnabled = UserDefaults.standard.bool(forKey: "qt.lyrics.debug")
     static let path = "/tmp/qt-lyrics-ui-debug.log"
 
@@ -791,4 +795,5 @@ enum QTLyricsDebug {
         h.write(Data((message() + "\n").utf8))
         try? h.close()
     }
+    #endif
 }

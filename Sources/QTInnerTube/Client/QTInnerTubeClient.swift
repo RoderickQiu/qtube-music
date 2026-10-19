@@ -59,6 +59,11 @@ public actor QTInnerTubeClient {
     private var clientConfigValue: QTInnerTubeClientConfig?
     private var clientConfigTask: Task<QTInnerTubeClientConfig, Never>?
     private var visitorData: String?
+    /// The last session-loss probe (see `confirmSessionLoss`): when, and whether it found the session gone.
+    private var lastLossProbe: (date: Date, lost: Bool)?
+    private var lossProbeTask: Task<Bool, Never>?
+    /// A probe answer is reused this long (a burst of 403s costs one probe).
+    static let lossProbeTTL: TimeInterval = 60
 
     public init(configuration: QTInnerTubeConfiguration = QTInnerTubeConfiguration(),
                 transport: any QTHTTPTransport = QTURLSessionTransport(),
@@ -94,6 +99,7 @@ public actor QTInnerTubeClient {
 
     public func setCredentialsProvider(_ provider: (any QTInnerTubeCredentialsProvider)?) {
         credentialsProvider = provider
+        lastLossProbe = nil
         cache.removeAll()
     }
 
@@ -272,10 +278,15 @@ public actor QTInnerTubeClient {
         case 200..<300:
             break
         case 401, 403:
+            // Not every 401/403 is a lost session (bot checks, one endpoint refusing): only expire when a probe of
+            // the signed-in web client confirms YouTube no longer sees a login.
             if authenticated {
-                await credentialsProvider?.sessionDidExpire()
-                cache.removeAll()
-                throw QTInnerTubeError.sessionExpired
+                if await confirmSessionLoss() {
+                    await credentialsProvider?.sessionDidExpire()
+                    cache.removeAll()
+                    throw QTInnerTubeError.sessionExpired
+                }
+                throw QTInnerTubeError.http(status: response.statusCode)
             }
             throw response.statusCode == 401 ? QTInnerTubeError.notSignedIn : QTInnerTubeError.http(status: 403)
         case 429, 503:
@@ -545,6 +556,33 @@ public actor QTInnerTubeClient {
             throw QTInnerTubeError.sessionExpired
         }
         return context
+    }
+
+    /// Whether the session is really gone, after an authenticated request was refused with 401/403: a signed-in GET
+    /// of music.youtube.com whose `ytcfg` says `LOGGED_IN: false`. Anything else — the page loads signed in, the probe
+    /// itself fails, no answer — keeps the session. One probe at a time; an answer is reused for `lossProbeTTL`.
+    func confirmSessionLoss() async -> Bool {
+        if let last = lastLossProbe, now().timeIntervalSince(last.date) < Self.lossProbeTTL { return last.lost }
+        if let lossProbeTask { return await lossProbeTask.value }
+        guard let credentials = await credentialsProvider?.credentials() else { return false }
+        let transport = transport
+        let configuration = configuration
+        let task = Task<Bool, Never> {
+            var request = URLRequest(url: configuration.webClientURL)
+            request.httpShouldHandleCookies = false
+            request.timeoutInterval = 15
+            request.setValue(configuration.userAgent, forHTTPHeaderField: "User-Agent")
+            request.setValue(configuration.hl, forHTTPHeaderField: "Accept-Language")
+            request.setValue(credentials.cookieHeader + "; SOCS=CAI", forHTTPHeaderField: "Cookie")
+            guard let (data, response) = try? await transport.send(request), (200..<300).contains(response.statusCode)
+            else { return false }
+            return QTAccountContext.scrape(html: String(decoding: data, as: UTF8.self)).isLoggedIn == false
+        }
+        lossProbeTask = task
+        let lost = await task.value
+        lossProbeTask = nil
+        lastLossProbe = (now(), lost)
+        return lost
     }
 
     // MARK: Writes (gated: never exercised against a live account without the user's consent)

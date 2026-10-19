@@ -126,6 +126,24 @@ public enum QTInnerTubeError: Error, Sendable, Equatable, LocalizedError {
     }
 
     /// Whether retrying the same request may succeed.
+    /// URL errors that mean "no usable connection" (the app's offline state). TLS and server errors aren't.
+    public static let connectivityCodes: Set<URLError.Code> = [
+        .timedOut, .networkConnectionLost, .cannotConnectToHost, .dnsLookupFailed, .cannotFindHost,
+        .notConnectedToInternet, .internationalRoamingOff, .dataNotAllowed, .callIsActive,
+    ]
+
+    /// The device is offline or can't reach YouTube.
+    public var isConnectivity: Bool {
+        if case .network(let code) = self { return Self.connectivityCodes.contains(URLError.Code(rawValue: code)) }
+        return false
+    }
+
+    /// The request was cancelled (`NSURLErrorCancelled`, e.g. a page task cancelled on an account switch).
+    public var isCancellation: Bool {
+        if case .network(let code) = self { return code == URLError.Code.cancelled.rawValue }
+        return false
+    }
+
     public var isTransient: Bool {
         switch self {
         case .network(let code):

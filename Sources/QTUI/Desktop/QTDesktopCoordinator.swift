@@ -220,15 +220,16 @@ public final class QTDesktopCoordinator {
     }
 
     /// User-initiated: leaves the mini player and brings the main window forward.
-    public func showMainWindow() {
+    /// - Parameter activate: false only for DEBUG acceptance hooks (reopen the window without taking focus).
+    public func showMainWindow(activate: Bool = true) {
         guard let model else { return }
         if model.surface == .mini { model.surface = .window }
         if let window = mainWindow {
-            window.makeKeyAndOrderFront(nil)
+            if activate { window.makeKeyAndOrderFront(nil) } else { window.orderFront(nil) }
         } else {
             openWindowAction?(id: QTWindowID.main.sceneID)
         }
-        NSApp.activate()
+        if activate { NSApp.activate() }
     }
 
     private func observeMainWindowKey() {

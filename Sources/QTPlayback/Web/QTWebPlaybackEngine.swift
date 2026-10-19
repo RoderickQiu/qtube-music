@@ -71,7 +71,8 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
     public private(set) var state = QTPlaybackState(volume: 1)
 
     public let configuration: Configuration
-    /// Shared with QTAuth: the persistent store holding the signed-in session (anonymous when empty).
+    /// Where the page's cookies live. Always non-persistent: the app passes QTAuth's session jar
+    /// (`QTWebKitCookieStore.session`, seeded from the Keychain) for signed-in playback, or a throwaway store.
     public let dataStore: WKWebsiteDataStore
 
     /// The player page (internal: `QTWebVideoOutput` moves it between the hidden host and the app's video slots).
@@ -116,11 +117,14 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
     private var pathMonitor: NWPathMonitor?
     /// Fresh-page retries left for the current load after an online timeout.
     private var loadRetriesLeft = 0
+    /// The store's login changed: the next load navigates a fresh page instead of reusing the loaded player.
+    private var needsFreshPage = false
 
     /// - Parameters:
-    ///   - dataStore: pass `QTWebPlaybackEngine.sharedDataStore` in the app (persistent, shared with QTAuth);
-    ///     tests and the lab pass `.nonPersistent()` to stay anonymous.
+    ///   - dataStore: the app passes QTAuth's non-persistent session jar for signed-in playback; tests and the lab
+    ///     pass `.nonPersistent()` to stay anonymous. Never a persistent store (WebKit saves its cookies in plain text).
     public init(configuration: Configuration = Configuration(), dataStore: WKWebsiteDataStore = QTWebPlaybackEngine.sharedDataStore) {
+        precondition(!dataStore.isPersistent, "QTWebPlaybackEngine: persistent WebKit stores save cookies in plain text")
         self.configuration = configuration
         self.dataStore = dataStore
         video = QTWebVideoOutput()
@@ -132,8 +136,8 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         pathMonitor?.cancel()
     }
 
-    /// The app-wide persistent store (cookies from QTAuth's sign-in apply to playback).
-    public static var sharedDataStore: WKWebsiteDataStore { .default() }
+    /// A process-wide anonymous, non-persistent store (the default when no store is given).
+    public static let sharedDataStore: WKWebsiteDataStore = .nonPersistent()
 
     // MARK: Stream
 
@@ -206,7 +210,8 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 if let delay = self.configuration.debugLoadDelay, gen > 1 { try? await Task.sleep(for: delay) }
-                let sentToPage = self.isPageReady ? await self.command("load", videoID, item.startTime, autoplay, gen) : false
+                let sentToPage = self.isPageReady && !self.needsFreshPage
+                    ? await self.command("load", videoID, item.startTime, autoplay, gen) : false
                 guard gen == self.generation, self.pendingLoads[gen] != nil else { return }
                 if !sentToPage { self.navigate(videoID: videoID, start: item.startTime, autoplay: autoplay, generation: gen) }
             }
@@ -340,6 +345,23 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         isPageReady = false
     }
 
+    /// The data store's login changed (sign-in, sign-out, account switch). The loaded player page keeps the identity
+    /// it was loaded with, so the next load navigates a fresh page; a current item reloads now at its position,
+    /// keeping play/pause (a Premium sign-in drops a running ad at once).
+    public func sessionDidChange() {
+        guard webView != nil else { return }
+        needsFreshPage = true
+        guard let item = state.item, pendingLoads.isEmpty else { return }
+        switch state.status {
+        case .playing, .paused, .loading: break
+        default: return
+        }
+        var resume = item
+        resume.startTime = state.ad == nil ? state.timeline.currentTime : item.startTime
+        let autoplay = state.status == .playing || playIntentBeforeReady == true
+        Task { try? await self.load(resume, autoplay: autoplay) }
+    }
+
     // MARK: Song/Video ids
 
     /// YouTube video ids are 11 characters of `[A-Za-z0-9_-]`.
@@ -430,6 +452,7 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
 
     private func navigate(videoID: String, start: TimeInterval, autoplay: Bool, generation gen: Int) {
         isPageReady = false
+        needsFreshPage = false
         playIntentBeforeReady = nil
         let bootstrap = QTWebPlaybackBridgeScript.bootstrap(generation: gen, videoID: videoID, hold: !autoplay,
                                                             volume: state.volume, muted: state.isMuted,
@@ -743,6 +766,17 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         guard let webView, isPageReady else { return nil }
         return try? await webView.callAsyncJavaScript("return window.__qtBridge ? window.__qtBridge.media() : null",
                                                        arguments: [:], in: nil, contentWorld: .page) as? [String: Any]
+    }
+
+    /// Whether the player page is signed in, and Premium, as its own `ytcfg` says (acceptance runs). Never cookies.
+    public func debugPageAccount() async -> [String: Any]? {
+        guard let webView, isPageReady else { return nil }
+        let body = """
+        const c = window.ytcfg && window.ytcfg.get ? window.ytcfg : null;
+        if (!c) return null;
+        return {loggedIn: c.get('LOGGED_IN') ?? null, premium: c.get('IS_SUBSCRIBER') ?? null};
+        """
+        return try? await webView.callAsyncJavaScript(body, arguments: [:], in: nil, contentWorld: .page) as? [String: Any]
     }
 
     /// Raw page sample (lab).

@@ -24,11 +24,11 @@ import Testing
     @Test func realDataUsesTheWebEngineForEveryTierUntilNativeShips() {
         for tier in [QTPlaybackAccountTier.free, .premium] {
             let s = QTPlaybackSetup.resolve(launch: launch([:]), source: .live, tier: tier)
-            // Anonymous by default: signed-in playback writes watch history (an account write, user-gated).
-            #expect(s.engine == .web && !s.isSilent && s.isAnonymous && s.publishesNowPlaying && s.persistsQueue)
+            // Signed in by default (approved): the player page uses the session (Premium plays without ads).
+            #expect(s.engine == .web && !s.isSilent && !s.isAnonymous && s.publishesNowPlaying && s.persistsQueue)
         }
-        let signedIn = QTPlaybackSetup.resolve(launch: launch(["qt.playback.anonymous": "NO"]), source: .live, tier: .premium)
-        #expect(!signedIn.isAnonymous)
+        let anonymous = QTPlaybackSetup.resolve(launch: launch(["qt.playback.anonymous": "YES"]), source: .live, tier: .premium)
+        #expect(anonymous.isAnonymous)
         // Real ids play as they are; demo ids (switching to the demo library mid-session) map to their MV.
         var real = QTTrack(videoId: "dQw4w9WgXcQ", title: "T", artists: [], duration: 200)
         real.counterpart = QTCounterpart(videoId: "wYBeTZb2a0A", musicVideoType: .omv)

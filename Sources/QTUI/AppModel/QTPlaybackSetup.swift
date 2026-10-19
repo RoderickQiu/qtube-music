@@ -11,8 +11,9 @@ import WebKit
 //   -qt.engine auto|simulated|web      auto (default): mock catalog → simulated, real data → web
 //   -qt.playback.silent YES|NO         pin the web player's media volume to 0 (default YES for mock data and
 //                                      scripted runs — anything with -qt.readyFile / -qt.playback.statusFile)
-//   -qt.playback.anonymous YES|NO      play in a throwaway signed-out WebKit store (default YES; NO = the user's
-//                                      session, which writes watch history — ask the user first)
+//   -qt.playback.anonymous YES|NO      play in a throwaway signed-out WebKit store (default NO: real data plays with
+//                                      the user's session — approved; plays land in their YouTube Music history,
+//                                      Premium plays without ads)
 //   -qt.playback.persist YES|NO        save/restore the queue (default: real data, unscripted runs only)
 //   -qt.playback.nowPlaying YES|NO     own Now Playing + remote commands (default: any real engine)
 //   -qt.playback.readyWhen playing|ad|buffering|failed|toast   hold the ready file until playback gets there
@@ -33,7 +34,8 @@ public struct QTPlaybackSetup: Sendable, Equatable {
     public var engine: QTPlaybackEngineKind
     /// Web engine media pinned to volume 0 (tests, screenshots, mock data).
     public var isSilent: Bool
-    /// Web engine uses a throwaway, signed-out data store (always for mock data).
+    /// Web engine uses a throwaway, signed-out data store (always for mock data). Otherwise it plays in QTAuth's
+    /// session jar (non-persistent, seeded from the Keychain): signed in whenever the user is.
     public var isAnonymous: Bool
     public var publishesNowPlaying: Bool
     public var persistsQueue: Bool
@@ -62,17 +64,19 @@ public struct QTPlaybackSetup: Sendable, Equatable {
         var setup = QTPlaybackSetup(
             source: source, engine: engine,
             isSilent: launch.bool("qt.playback.silent") ?? (source == .mock || scripted),
-            // Signed-in playback (the user's session in the player page) records watch history on their account,
-            // which is an account write: anonymous until the user opts in (`-qt.playback.anonymous NO`).
-            isAnonymous: source == .mock || (launch.bool("qt.playback.anonymous") ?? true),
+            // Signed-in playback (the user's session in the player page) is approved: Premium plays without ads, and
+            // plays are recorded in the user's YouTube Music history. `-qt.playback.anonymous YES` opts out.
+            isAnonymous: source == .mock || (launch.bool("qt.playback.anonymous") ?? false),
             publishesNowPlaying: launch.bool("qt.playback.nowPlaying") ?? (engine != .simulated),
             persistsQueue: launch.bool("qt.playback.persist") ?? (source == .live && !scripted))
         setup.loadDelay = launch.double("qt.playback.loadDelay")
         return setup
     }
 
+    /// - Parameter sessionDataStore: QTAuth's non-persistent session jar (`QTAuthController.webDataStore`), used
+    ///   unless the setup is anonymous. A persistent store is never used (WebKit saves its cookies in plain text).
     @MainActor
-    public func makeEngine(tier: QTPlaybackAccountTier) -> any QTPlaybackEngine {
+    public func makeEngine(tier: QTPlaybackAccountTier, sessionDataStore: WKWebsiteDataStore? = nil) -> any QTPlaybackEngine {
         switch engine {
         case .simulated:
             return QTSimulatedPlaybackEngine(account: tier == .premium ? .premium : .free)
@@ -81,8 +85,8 @@ public struct QTPlaybackSetup: Sendable, Equatable {
                 isSilent: isSilent,
                 videoIDResolver: source == .mock ? Self.mockVideoID : Self.liveVideoID)
             configuration.debugLoadDelay = loadDelay.map { .milliseconds(Int($0 * 1000)) }
-            return QTWebPlaybackEngine(configuration: configuration,
-                                       dataStore: isAnonymous ? .nonPersistent() : QTWebPlaybackEngine.sharedDataStore)
+            let store = isAnonymous ? nil : sessionDataStore.flatMap { $0.isPersistent ? nil : $0 }
+            return QTWebPlaybackEngine(configuration: configuration, dataStore: store ?? .nonPersistent())
         }
     }
 
@@ -130,9 +134,7 @@ public final class QTPlaybackServices {
         self.setup = setup
         let playback = model.player.playback
         playback.onFailure = { [weak self] event in self?.report(event) }
-        if let web = playback.engine as? QTWebPlaybackEngine {
-            web.onNetworkChange = { [weak self] available in self?.networkChanged(available: available) }
-        }
+        hookEngine(playback.engine)
         terminationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { _ in
@@ -146,6 +148,38 @@ public final class QTPlaybackServices {
         #if DEBUG
         QTPlaybackDebugHooks.shared.install(model: model, setup: setup)
         #endif
+    }
+
+    private func hookEngine(_ engine: any QTPlaybackEngine) {
+        if let web = engine as? QTWebPlaybackEngine {
+            web.onNetworkChange = { [weak self] available in self?.networkChanged(available: available) }
+        }
+    }
+
+    /// The user signed in or out: a signed-in player page has to be reloaded to pick the new identity up.
+    public func sessionDidChange() {
+        (model?.player.playback.engine as? QTWebPlaybackEngine)?.sessionDidChange()
+    }
+
+    /// The catalog source changed mid-session (demo library ⇄ the user's library): the matching engine (simulated for
+    /// the demo, the signed-in web engine for real data), Now Playing and queue persistence, as a launch with that
+    /// source would have. The other source's queue is cleared; the saved real queue is never overwritten by the demo.
+    public func switchSource(to source: QTPlaybackDataSource) async {
+        guard let model, let current = setup, current.source != source else { return }
+        let tier: QTPlaybackAccountTier = model.launch.account == .free ? .free : .premium
+        let next = QTPlaybackSetup.resolve(launch: model.launch, source: source, tier: tier)
+        setup = next
+        let playback = model.player.playback
+        playback.setStore(nil)
+        playback.clearAll()
+        let old = playback.engine
+        let engine = next.makeEngine(tier: tier, sessionDataStore: QTLiveCatalogStore.shared.auth.webDataStore)
+        hookEngine(engine)
+        await playback.replaceEngine(engine)
+        (old as? QTWebPlaybackEngine)?.shutdown()
+        if let sim = engine as? QTSimulatedPlaybackEngine { sim.account = model.account == .free ? .free : .premium }
+        if next.publishesNowPlaying, playback.nowPlaying == nil { playback.attachNowPlaying(QTNowPlayingController()) }
+        playback.setStore(next.makeQueueStore())
     }
 
     /// Restores the saved queue (real sessions). Returns false when there's nothing to restore.

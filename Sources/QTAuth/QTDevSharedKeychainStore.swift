@@ -8,8 +8,14 @@ import Foundation
 /// Keychain item with its creator's partition (`cdhash:<hash>`). Any other build reading it — even with an
 /// "any application" ACL — needs the user's Keychain password (a dialog). So dev builds never touch the item through
 /// the Security framework. They go through Apple's `/usr/bin/security` tool, whose partition (`apple-tool:`) is
-/// stable, and create the item with `-A` (any application, no prompt). Release builds keep the normal per-app item
-/// (`QTKeychainStore`).
+/// stable. Release builds keep the normal per-app item (`QTKeychainStore`).
+///
+/// **Access list.** Items are created with `-T /usr/bin/security`: only that tool may read them without a prompt.
+/// The first format (`qt-dev-shared-v1`) used `-A` ("any application"), which let every process read the session
+/// silently through the Security framework too; v1 items are rewritten as v2 on the first read. What this does *not*
+/// stop: a process of the same user running `/usr/bin/security` itself. No prompt-free mechanism can stop that for
+/// ad-hoc signed builds — their code identity changes every build, so nothing can tell a dev build from any other
+/// process (see docs/architecture.md › Session storage for the options and why they don't hold).
 ///
 /// - Service `com.roderickqiu.qtube` (shared), account `youtube-music-session.dev` (the head) plus
 ///   `youtube-music-session.dev.<generation>.<n>` chunks: the tool's interactive mode reads lines of at most ~4 KB, so
@@ -21,7 +27,10 @@ import Foundation
 ///   the tool is never asked to decrypt something that would prompt.
 /// - Secrets travel through pipes only (stdin/stdout of the tool), never argv, files or logs.
 public struct QTDevSharedKeychainStore: QTSecureStore {
-    public static let marker = "qt-dev-shared-v1"
+    /// Current marker (`-T /usr/bin/security` items).
+    public static let marker = "qt-dev-shared-v2"
+    /// First format: `-A` (any application) items. Still read, then rewritten as v2.
+    static let legacyMarker = "qt-dev-shared-v1"
     public static let defaultAccount = "youtube-music-session.dev"
     static let tool = "/usr/bin/security"
     /// base64 characters per item; keeps every `security -i` line well under its 4 KB buffer.
@@ -67,7 +76,8 @@ public struct QTDevSharedKeychainStore: QTSecureStore {
     // MARK: QTSecureStore
 
     public func read() throws -> Data? {
-        guard let value = try secret(account: account) else { return nil }
+        guard let marker = try markerOfItem(account: account) else { return nil }
+        guard let value = try secret(account: account, verified: true) else { return nil }
         guard let head = Head(value) else { throw QTAuthError.encoding }
         var base64 = head.first
         for i in 1..<head.count {
@@ -79,6 +89,8 @@ public struct QTDevSharedKeychainStore: QTSecureStore {
         }
         guard let packed = Data(base64Encoded: base64),
               let data = try? (packed as NSData).decompressed(using: .zlib) as Data else { throw QTAuthError.encoding }
+        // An "any application" (v1) item: rewrite it with the tool-only access list.
+        if marker == Self.legacyMarker { try? write(data) }
         return data
     }
 
@@ -122,14 +134,23 @@ public struct QTDevSharedKeychainStore: QTSecureStore {
 
     private func addLine(account: String, value: String) -> String {
         // New items only (no -U). base64, ';' and hex need no quoting; the label is quoted.
-        "add-generic-password -A -s \(service) -a \(account) -j \(Self.marker) -l \"QTube Music dev session\" -w \(value)"
+        // `-T /usr/bin/security`: the tool is the only application on the item's access list (no `-A`).
+        "add-generic-password -T \(Self.tool) -s \(service) -a \(account) -j \(Self.marker) -l \"QTube Music dev session\" -w \(value)"
     }
 
     /// Whether an item exists and carries our marker (attributes only — never prompts).
     func hasMarkedItem(account: String) throws -> Bool {
+        try markerOfItem(account: account) != nil
+    }
+
+    /// The item's marker (current or legacy), nil when there's no item or it isn't ours. Attributes only.
+    func markerOfItem(account: String) throws -> String? {
         let result = try run(arguments: ["find-generic-password", "-s", service, "-a", account], allowFailure: true)
-        guard result.status == 0 else { return false }
-        return result.output.contains("\"icmt\"<blob>=\"\(Self.marker)\"")
+        guard result.status == 0 else { return nil }
+        for marker in [Self.marker, Self.legacyMarker] where result.output.contains("\"icmt\"<blob>=\"\(marker)\"") {
+            return marker
+        }
+        return nil
     }
 
     private func secret(account: String, verified: Bool = false) throws -> String? {

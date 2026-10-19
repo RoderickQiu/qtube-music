@@ -15,6 +15,8 @@ import QTPlayback
 //
 // Commands: play · pause · toggle · next · previous · skipAd · seek:<s> · seekEnd:<s before end> · mode:song|video
 //           · surface:window|stage · panel:now-playing|queue · offline · online
+//           · window:close|reopen — close the main window / bring it back the way a Dock click does (without
+//             activating the app), to check that reopening never disturbs playback
 //           · remote:play|pause|toggle|next|previous — through MPRemoteCommandCenter's own dispatch
 //             (QTNowPlayingController.debugSimulateSystemCommand), the path media keys and Control Center take.
 //           · stage-video: pip (⇧⌘P) · eval:<function body> (page diagnostics; result lands in the command log)
@@ -31,6 +33,7 @@ final class QTPlaybackDebugHooks {
     private var observer: NSObjectProtocol?
     private var statusTask: Task<Void, Never>?
     private var mediaInfo: [String: Any]?
+    private var pageAccount: [String: Any]?
     private var log: [[String: Any]] = []
 
     func install(model: QTAppModel, setup: QTPlaybackSetup) {
@@ -83,6 +86,12 @@ final class QTPlaybackDebugHooks {
                     self.log.append(["at": ProcessInfo.processInfo.systemUptime, "command": "eval-result", "result": "\(result ?? "nil")"])
                 }
             } else { ok = false }
+        case "window":
+            switch arg {
+            case "close": NSApp.windows.first { $0.identifier == QTWindowID.main.identifier }?.close()
+            case "reopen": QTDesktopCoordinator.shared.showMainWindow(activate: false)
+            default: ok = false
+            }
         default: ok = false
         }
         log.append(["at": ProcessInfo.processInfo.systemUptime, "command": raw, "ok": ok])
@@ -99,6 +108,7 @@ final class QTPlaybackDebugHooks {
                 let active = self.model.map { $0.player.isPlaying || $0.player.isBuffering } ?? false
                 if active, tick % 4 == 0, let web = self.model?.player.engine as? QTWebPlaybackEngine {
                     self.mediaInfo = await web.debugMediaInfo()
+                    if let account = await web.debugPageAccount() { self.pageAccount = account }
                 }
                 self.writeStatus(to: url)
                 tick += 1
@@ -134,7 +144,13 @@ final class QTPlaybackDebugHooks {
             "toast": model.toast?.message ?? "",
             "lastFailureMessage": QTPlaybackServices.shared.lastFailureMessage ?? "",
             "commands": log,
+            "mainWindowVisible": NSApp.windows.contains { $0.identifier == QTWindowID.main.identifier && $0.isVisible },
+            "launchPlaybackApplied": model.didApplyLaunchPlayback,
+            "catalogMode": model.liveCatalog?.mode.rawValue ?? "",
+            "signedIn": model.authController?.isSignedIn ?? false,
+            "anonymousPlayback": setup?.isAnonymous ?? true,
         ]
+        if let pageAccount { status["page"] = pageAccount }
         if let failure = player.playback.lastFailure { status["lastFailure"] = "\(failure)" }
         if let ad = state.ad {
             status["ad"] = ["duration": ad.duration, "remaining": ad.remaining, "skippableIn": ad.skippableIn ?? -1, "canSkip": ad.canSkip]
