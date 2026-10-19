@@ -7,7 +7,30 @@ comments, no feeds.
 QTube Music is an unofficial client. It isn't made, endorsed or supported by Google or YouTube. You need a
 YouTube Music account to see your library. You can browse and play without one, with ads, the same as on the web.
 
-![The Stage, with a vinyl turntable and word-synced lyrics with a Chinese translation](docs/images/stage.jpg)
+![The full-screen player: cover art and synced lyrics, in the cover's colour](docs/images/stage.jpg)
+
+## Why QTube Music?
+
+You can already listen to YouTube Music in a browser tab, in the website wrapped as a desktop app, or in other
+third-party clients. QTube Music exists because none of those feel like a Mac music app.
+
+- **Native, not a web page in a frame.** It's built in SwiftUI and AppKit, with real menus, keyboard shortcuts,
+  tables, Settings and Liquid Glass. Other clients usually wrap the YouTube Music website in Electron or a hidden
+  web view. Here YouTube's player runs only for playback, and everything you see and touch is the app's own.
+- **Light on your battery.** Measured on Apple silicon: under 1 % CPU when idle, and about 4–5 % in total (the app
+  plus YouTube's player) while playing in the window or on the Stage. Method and numbers are in
+  [docs/perf.md](docs/perf.md).
+- **Plays nicely with macOS.** Media keys, Control Center and AirPlay control QTube Music, and it shows up once in
+  Now Playing, not twice.
+- **Lyrics are the point.** Word-by-word sync where a source has it, several lyric sources matched to the exact
+  recording, translation on your Mac, pronunciation, Simplified ⇄ Traditional Chinese, desktop lyrics, and a
+  full-screen Stage.
+- **Song ⇄ Video without losing your place.** Switch between the song and its music video at the same moment. The
+  video keeps playing, without a hiccup, as it moves between the panel, the Stage and Picture in Picture.
+- **Free accounts work.** You don't need Premium; free accounts play with ads, the same as on the website. Premium
+  removes the ads and unlocks the experimental native engine (gapless playback, crossfade and an EQ).
+- **Music only.** No Shorts, no comments, no podcasts, no video feeds.
+- **Private by default.** No analytics or telemetry, and searches are sent signed out.
 
 ## What it does
 
@@ -29,7 +52,9 @@ YouTube Music account to see your library. You can browse and play without one, 
 - **Song colours.** The app takes its accent colour from the cover art. You can switch back to the system accent
   in Settings.
 
-![The main window: Liked Songs with the Now Playing panel](docs/images/window.jpg)
+![My own library: lyrics follow the song word by word](docs/images/library.jpg)
+
+![Feels like a Mac app: the window takes its colour from the song that's playing](docs/images/home.jpg)
 
 ## Install
 
@@ -62,7 +87,7 @@ macOS may ask once whether QTube Music can use its Keychain item. Click **Always
   stay in the app for now.
 - **No analytics.** No tracking, no telemetry, no crash reporting service. Translation runs on your Mac.
 
-![Lyrics options: a Traditional Chinese song shown in Simplified characters](docs/images/lyrics.jpg)
+<img src="docs/images/lyrics.jpg" width="400" alt="Lyrics options: a Traditional Chinese song shown in Simplified characters">
 
 ## The native engine (experimental)
 
