@@ -8,14 +8,16 @@ public struct QTLyricsCacheEntry: Sendable, Hashable, Codable {
     public var videoId: String
     /// nil = nothing found (negative cache; shorter lifetime).
     public var document: QTLyricsDocument?
-    public var versions: [QTLyricsVersion]
+    public var versions: [QTResolvedLyricsVersion]
     public var chosenID: String?
     public var attribution: String?
     /// Fingerprint of the enabled sources; a different set triggers a fresh lookup.
     public var sourcesKey: String
     public var updated: Date
+    /// True when some enabled sources were unreachable during the lookup (shorter lifetime; nil in older entries).
+    public var isPartial: Bool?
 
-    public init(videoId: String, document: QTLyricsDocument?, versions: [QTLyricsVersion], chosenID: String?,
+    public init(videoId: String, document: QTLyricsDocument?, versions: [QTResolvedLyricsVersion], chosenID: String?,
                 attribution: String?, sourcesKey: String, updated: Date = Date()) {
         self.videoId = videoId
         self.document = document

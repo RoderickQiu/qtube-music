@@ -46,8 +46,17 @@ public struct QTYouTubeMusicLyricsProvider: QTLyricsSourceProvider {
         self.requester = requester
     }
 
+    /// YouTube video ids are 11 characters of `[A-Za-z0-9_-]`. Mock-catalog tracks pass an empty `lyricsVideoId`, so
+    /// they are looked up by title/artist elsewhere and never sent to YouTube.
+    public static func isYouTubeVideoId(_ id: String) -> Bool {
+        id.utf8.count == 11 && id.utf8.allSatisfy { b in
+            (b >= 0x30 && b <= 0x39) || (b >= 0x41 && b <= 0x5A) || (b >= 0x61 && b <= 0x7A) || b == 0x2D || b == 0x5F
+        }
+    }
+
     public func search(_ query: QTLyricsQuery) async throws -> [QTLyricsCandidate] {
-        [QTLyricsCandidate(source: source, remoteID: query.lyricsVideoId, title: query.title, artists: query.artists,
+        guard Self.isYouTubeVideoId(query.lyricsVideoId) else { return [] }
+        return [QTLyricsCandidate(source: source, remoteID: query.lyricsVideoId, title: query.title, artists: query.artists,
                            album: query.album, duration: query.duration > 0 ? query.duration : nil, isExactMatch: true)]
     }
 

@@ -6,6 +6,19 @@ public enum QTLyricsError: Error, Sendable, Equatable {
     case rateLimited(retryAfter: TimeInterval)
     case decoding(String)
     case transport(String)
+
+    /// The source didn't answer (offline, timeout, rate limit, server error) — as opposed to answering "not found".
+    /// Errors from other layers (an injected InnerTube client) count as unreachable unless they are lyrics errors
+    /// that say otherwise.
+    public static func isUnreachable(_ error: any Error) -> Bool {
+        if error is CancellationError { return true }
+        guard let e = error as? QTLyricsError else { return !(error is DecodingError) }
+        switch e {
+        case .transport, .rateLimited: return true
+        case .http(let status): return status >= 500
+        case .decoding: return false
+        }
+    }
 }
 
 /// The only way providers touch the network, so tests can serve recorded fixtures and the app can share

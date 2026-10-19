@@ -68,6 +68,9 @@ public final class QTAppModel {
             if let v = launch.stageLayout { s.stageLayout = v }
             if let v = launch.stageBackground { s.stageBackground = v }
             if let v = launch.translation { s.lyricsTranslation = v }
+            if let v = QTLyricsSession.unofficialSources(argument: launch.string("qt.lyrics.unofficial")) {
+                s.unofficialLyricsSources = v
+            }
         }
         let catalog: QTMockCatalog
         if let url = QTMockCatalog.locate(explicitPath: launch.catalogPath), let loaded = try? QTMockCatalog.load(from: url) {
@@ -76,10 +79,12 @@ public final class QTAppModel {
             FileHandle.standardError.write(Data("QTube Music: mock catalog not found; run Scripts/make-mock-catalog.py\n".utf8))
             catalog = QTMockCatalog(tracks: [], liked: QTPlaylist(id: "LM", title: .localized("Liked Songs"), kind: .liked, tracks: []))
         }
-        // Mock runs serve lyrics that came from unofficial providers; say so in the session's settings (never
-        // persisted) so the lyrics options don't name NetEase over an "Unofficial sources" switch that is off.
+        // `-qt.lyrics.engine mock` serves the catalog's bundled lyrics, which came from unofficial providers; say so
+        // in the session's settings (never persisted) so the lyrics options don't name NetEase over an "Unofficial
+        // sources" switch that is off. Live lookups keep the user's setting (unofficial sources are opt-in).
         let mockSources = Set(catalog.lyrics.values.filter(\.source.isUnofficial).map(\.source.id))
-        if !mockSources.isEmpty, !settings.settings.unofficialLyricsSources.anyEnabled {
+        if launch.string("qt.lyrics.engine") == QTLyricsSession.Engine.mock.rawValue,
+           !mockSources.isEmpty, !settings.settings.unofficialLyricsSources.anyEnabled {
             settings.override { s in
                 s.unofficialLyricsSources = QTUnofficialLyricsSources(netease: mockSources.contains(QTLyricsSource.netease.id),
                                                                       kugou: mockSources.contains(QTLyricsSource.kugou.id),
@@ -89,6 +94,7 @@ public final class QTAppModel {
         let engine = QTSimulatedPlaybackEngine(account: launch.account == .free ? .free : .premium)
         let player = QTPlayerModel(engine: engine, lyricsProvider: QTMockLyricsProvider(catalog: catalog),
                                    likedTrackIDs: Set(catalog.liked.tracks?.map(\.videoId) ?? []))
+        player.lyricsSession = QTLyricsSession.makeDefault(settings: settings, catalog: catalog, launch: launch)
         let model = QTAppModel(settings: settings, player: player, catalog: catalog, launch: launch)
         model.account = launch.account ?? .premium
         model.surface = launch.surface ?? .window
@@ -149,6 +155,9 @@ public final class QTAppModel {
     public var resolvedTranslationLanguage: String? {
         lyricsTranslation.resolvedLanguage(interface: QTLoc.language)
     }
+
+    /// The lyrics service every surface reads (`QTLyricsSession`); same object as `player.lyricsSession`.
+    public var lyricsSession: QTLyricsSession? { player.lyricsSession }
 
     /// Artwork palette driving the accent tint.
     public var palette: QTArtworkPalette? { player.nowPlaying?.palette }

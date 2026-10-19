@@ -94,12 +94,46 @@ public enum QTLyricsTranslationPolicy {
         guard document.hasTranslation else { return document }
         let keep = target != nil && QTLanguageCode.isSame(document.translationLanguage, target)
             && !QTLanguageCode.isSame(document.language, target)
-        guard !keep else { return document }
         var d = document
-        for i in d.lines.indices { d.lines[i].translation = nil }
-        d.translationLanguage = nil
-        d.translationSource = nil
+        guard keep else {
+            for i in d.lines.indices { d.lines[i].translation = nil }
+            d.translationLanguage = nil
+            d.translationSource = nil
+            return d
+        }
+        // A Simplified lane for a Traditional target (or the reverse) is converted, so every surface shows the script
+        // the user picked.
+        if let target, let lane = document.translationLanguage,
+           let transform = chineseTransform(from: QTLanguageCode.normalize(lane), to: QTLanguageCode.normalize(target)) {
+            for i in d.lines.indices {
+                d.lines[i].translation = d.lines[i].translation.map { $0.applyingTransform(transform, reverse: false) ?? $0 }
+            }
+            d.translationLanguage = QTLanguageCode.normalize(target)
+        }
         return d
+    }
+
+    static func chineseTransform(from: String, to: String) -> StringTransform? {
+        switch (from, to) {
+        case ("zh-Hans", "zh-Hant"): StringTransform("Hans-Hant")
+        case ("zh-Hant", "zh-Hans"): StringTransform("Hant-Hans")
+        default: nil
+        }
+    }
+
+    /// The plan for what `applyProviderLane` produced, without asking machine-translation engines (they arrive in
+    /// M6): provider lane in the target, already in the target, Off, no lyrics, or nothing (`.none(.noEngine)`).
+    /// - Parameter document: the full document (before the policy), so a provider lane can be recognised.
+    public static func plan(for document: QTLyricsDocument?, target: String?) -> QTLyricsTranslationPlan {
+        guard let target else { return .none(.off) }
+        guard let document, !document.lines.isEmpty, document.syncKind != .plain || document.hasTranslation else {
+            return .none(.noLyrics)
+        }
+        if QTLanguageCode.isSame(document.language, target) { return .none(.alreadyInTargetLanguage) }
+        if document.hasTranslation, QTLanguageCode.isSame(document.translationLanguage, target) {
+            return .provider(document.translationSource ?? document.source)
+        }
+        return .none(.noEngine)
     }
 }
 

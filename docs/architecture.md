@@ -11,7 +11,7 @@ SwiftPM package `QTubeMusic` (`Package.swift`, tools 6.2, Swift 6 language mode,
 | Target | Depends on | Contents | Owner |
 |---|---|---|---|
 | `QTCore` | — | Models (`QTTrack`, `QTAlbum`, `QTArtist`, `QTPlaylist`, `QTShelf`/`QTHomeFeed`, `QTArtworkPalette`), `QTQueue`, `QTLyricsDocument`, `QTSettings` + `QTSettingsStore`, `QTMockCatalog` + `QTCatalogService`, `QTFormat`, `QTLoc` localization, **all String Catalogs** | shared (scaffold) |
-| `QTInnerTube` | QTCore | `QTInnerTubeClient` (actor: ytcfg scrape, WEB_REMIX context, hl/gl, SAPISIDHASH, TTL+LRU cache, retries, session-loss detection; account writes gated by `setAllowsAccountWrites`), parsers → QTCore models (music-only filter), `QTCounterpartResolver` (Song⇄Video), `QTInnerTubeCatalog` (`QTCatalogService`), `QTInnerTubeConfiguration` | data-layer |
+| `QTInnerTube` | QTCore | `QTInnerTubeClient` (actor: ytcfg scrape, WEB_REMIX context, hl/gl, SAPISIDHASH, TTL+LRU cache, retries, session-loss detection; account writes gated by `setAllowsAccountWrites`), parsers → QTCore models (music-only filter), `QTCounterpartResolver` (Song⇄Video), `QTInnerTubeCatalog` (`QTCatalogService`), `QTInnerTubeConfiguration`; `Lyrics/QTInnerTubeLyricsClient` (anonymous ANDROID_MUSIC `post(_:payload:)` for timed lyrics, follows a client's hl/gl/visitor id — lyrics-live) | data-layer |
 | `QTAuth` | QTInnerTube | `QTAuthController` (`restore()`, `beginSignIn(hl:over:)`, `signOut()`, DEBUG-only session import), `QTSessionStore` (actor, Keychain `com.roderickqiu.qtube`), `QTAuthSession`/`QTCookie` (auth-cookie allowlist), `QTWebCookieStore`, `QTAuthState` | data-layer |
 | `QTPlayback` | QTCore, QTInnerTube | `QTPlaybackEngine` protocol, `QTSimulatedPlaybackEngine`, `QTQueueController` (queue + context, shuffle/repeat, autoplay continuation, persistence via `QTQueueStore`, holds a process activity while playing), `QTNowPlayingController` (sole owner of Now Playing + remote commands), `Web/QTWebPlaybackEngine` (hidden WKWebView, JS bridge, ads), `QTPlaybackEngineSelector`, `QTNativePlaybackEngine` stub (M5) | playback |
 | `QTPlaybackLab` | QTPlayback | dev-only executable: drives the web engine live, muted and anonymous (`swift run --scratch-path .build/<you> QTPlaybackLab --scenario basic`) | playback |
@@ -28,12 +28,16 @@ without asking the user (Sparkle comes later).
 
 ### What runs today (after integration)
 
-The app runs on mock data (`QTMockCatalog`, `QTMockLyricsProvider`) and `QTSimulatedPlaybackEngine`;
+The app runs on mock data (`QTMockCatalog`) and `QTSimulatedPlaybackEngine`, with **real lyrics**: `QTLyricsSession`
+(below) resolves every track through `QTLyricsResolver` (mock tracks by title/artist/duration; bundled mock lyrics
+only as the offline fallback, or always with `-qt.lyrics.engine mock`).
 `QTPlayerModel` is a façade over `QTQueueController` with `nowPlaying: nil` and no queue store, so mock and
 screenshot runs never take the user's media keys or overwrite a saved queue. Built and tested but not yet wired
 into the app (next milestone): `QTInnerTubeClient` / `QTInnerTubeCatalog`, `QTAuthController`,
-`QTWebPlaybackEngine` + `QTPlaybackEngineSelector`, `QTNowPlayingController`, `QTQueueStore`,
-`QTLyricsResolver`.
+`QTWebPlaybackEngine` + `QTPlaybackEngineSelector`, `QTNowPlayingController`, `QTQueueStore`.
+Note: unofficial lyric sources are off by default, so the hero track (`ne34516548`) shows **no lyrics** on a default
+launch (the safe chain has none for it). Screenshot runs that need its lyrics pass `-qt.lyrics.unofficial all` (live)
+or `-qt.lyrics.engine mock` (offline, deterministic).
 
 ## QTUI folder ownership
 
@@ -107,6 +111,16 @@ Coordinators (one per process, `@MainActor`):
   detached; until the user moves it, its default spot steps out of the main window's way), menu bar title, Dock
   menu, `showMainWindow()` (user-initiated only).
 - `QTLyricsTiming.nudge(model, by:)` (Lyrics/) — offset change + toast; `QTLyricsVersionStore.shared`.
+- `QTLyricsSession` (AppModel/QTLyricsSessionService.swift, lyrics-live) — **the one lyrics source of truth**, one per
+  app (`model.lyricsSession` = `player.lyricsSession`; `player.lyrics`/`isLoadingLyrics` forward to it). Publishes
+  `phase` (idle/loading/loaded/notFound/unreachable), `document` (offset applied; translation lane only when it is in
+  the current target and the song isn't already in it; zh-Hans lane converted for a zh-Hant target), `fullDocument`,
+  `syncKind`, `sourceName`, `attribution`, `versions`/`otherVersions`/`chosenVersionID`/`isPinned`,
+  `isPossibleMismatch`, `translationPlan`/`translationTarget`/`translationEngineName`, `romanizationSource`/
+  `hasRomanization`, `offset`, `unreachableSources`, `isShowingFallback`. Actions: `load(_:)` (track change),
+  `reload()`, `pin(versionID:)`/`unpin()` (persisted; also wired to `QTLyricsVersionStore.onPin`),
+  `nudgeOffset(by:)`/`setOffset(_:)` (live, persisted per track, debounced). Reacts to Settings (unofficial sources,
+  translation target, interface language) by itself. All network/SQLite work is off the main actor.
 
 Keyboard ownership: `QTCommands` (Commands/) is the only menu definition — every shortcut is bound once there
 (navigation items call `QTNavigator`). Space in the main window is consumed by `QTWindowKeyMonitor` (Shell/);
@@ -221,6 +235,7 @@ Builders add their own as `qt.<area>.<name>` (e.g. `qt.stage.chrome hidden`, `qt
 | lyrics-ui | `qt.lyrics.scrolled` · `qt.lyrics.options` · `qt.lyrics.demoVersions` · `qt.lyrics.translationState same\|translating\|download\|unavailable\|onDevice\|appleIntelligence` · `qt.lyrics.lab` · `qt.lyrics.debug` |
 | stage | `qt.stage.chrome hidden` · `qt.stage.queue YES` · `qt.stage.popover appearance` · `qt.stage.window YES` (detached window) · `qt.stage.reduceMotion YES` · `qt.stage.visualizerOnBattery YES` · `qt.stage.closeAfter <s>` · `qt.stage.noAd YES` (free account without the simulated pre-roll, e.g. the visualizer fallback) |
 | desktop | `qt.desktop.miniMode compact\|art` · `qt.desktop.miniLyric` · `qt.desktop.miniHover` · `qt.desktop.lyricsUnlocked` · `qt.desktop.menuBarScroll` · `qt.desktop.lyricsSize <pt>` · `qt.settingsTab general\|playback\|lyrics\|account\|advanced`; DEBUG: `qt.desktop.switchLanguage`, `qt.desktop.popUpMenu <index>`, `qt.desktop.showShortcuts`, `qt.desktop.accountPreview signedIn\|premium\|signingIn\|expired\|signedOut` (Settings › Account without Keychain access) |
+| lyrics-live | `qt.lyrics.unofficial all\|none\|netease,kugou,qq` (session-only Settings override) · `qt.lyrics.engine live\|mock` (default live) · `qt.lyrics.cache memory\|<path>` (fresh lookup; default Application Support/<bundle id>/Lyrics.sqlite) · `qt.lyrics.offline YES` (every source unreachable → fallback path) |
 
 Env-gated test suites: `QT_LIVE=1` (live anonymous InnerTube / lyrics / playback), `QT_RECORD=1` (re-record
 InnerTube fixtures), `QT_DUMP=1` (print parser output), `QT_KEYCHAIN_TEST=1` (Keychain round trip).

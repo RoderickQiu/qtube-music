@@ -50,7 +50,13 @@ READY="$(mktemp -t qtshoot).json"; rm -f "$READY"
 LAUNCH=(-ApplePersistenceIgnoreState YES -qt.screen "${QT_SCREEN:-U270CA}" -qt.readyFile "$READY")
 if [[ ${#SHOW[@]} -gt 0 ]]; then LAUNCH+=(-qt.show "$(IFS=,; echo "${SHOW[*]}")"); fi
 # Screenshots use the demo (mock) catalog unless the caller asks for `-qt.catalog live` (the user's real library).
-if [[ " ${ARGS[*]-} " != *" -qt.catalog "* ]]; then LAUNCH+=(-qt.catalog mock); fi
+if [[ " ${ARGS[*]-} " != *" -qt.catalog "* ]]; then
+  LAUNCH+=(-qt.catalog mock)
+  # …and its bundled lyrics (deterministic, offline) unless the caller picks a lyrics engine or sources.
+  if [[ " ${ARGS[*]-} " != *" -qt.lyrics.engine "* && " ${ARGS[*]-} " != *" -qt.lyrics.unofficial "* ]]; then
+    LAUNCH+=(-qt.lyrics.engine mock)
+  fi
+fi
 open -g -n "$APP" --args "${LAUNCH[@]}" ${ARGS[@]+"${ARGS[@]}"}
 
 DEADLINE=$(( $(date +%s) + ${QT_TIMEOUT:-45} ))

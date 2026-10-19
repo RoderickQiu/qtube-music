@@ -21,9 +21,16 @@ public final class QTPlayerModel {
     public var likedTrackIDs: Set<String> {
         didSet { playback.publishNowPlaying() }
     }
-    /// Lyrics for `nowPlaying` (nil while loading or when there are none).
-    public private(set) var lyrics: QTLyricsDocument?
-    public private(set) var isLoadingLyrics = false
+    /// Lyrics for `nowPlaying` (nil while loading or when there are none). With a `lyricsSession` (the app) this is
+    /// the session's document — the one source of truth every surface reads.
+    public var lyrics: QTLyricsDocument? { lyricsSession.map { $0.document } ?? localLyrics }
+    public var isLoadingLyrics: Bool { lyricsSession?.isLoading ?? isLoadingLocalLyrics }
+    /// The app's lyrics service (`QTLyricsSession`, AppModel/). Set once at bootstrap; nil = `lyricsProvider` only.
+    @ObservationIgnored public var lyricsSession: QTLyricsSession? {
+        didSet { lyricsSession?.load(nowPlaying) }
+    }
+    private var localLyrics: QTLyricsDocument?
+    private var isLoadingLocalLyrics = false
 
     /// - Parameters:
     ///   - nowPlaying: the process's Now Playing owner. Pass one for real engines; mock/screenshot runs pass nil so
@@ -125,25 +132,27 @@ public final class QTPlayerModel {
 
     /// ⌥↑ (+0.1, earlier) / ⌥↓ (-0.1, later).
     public func nudgeLyricsOffset(by delta: TimeInterval) {
-        lyrics = lyrics?.withOffset(nudgedBy: delta)
+        if let lyricsSession { return lyricsSession.nudgeOffset(by: delta) }
+        localLyrics = localLyrics?.withOffset(nudgedBy: delta)
     }
 
     private func fetchLyrics(for track: QTTrack?) {
+        if let lyricsSession { return lyricsSession.load(track) }
         lyricsTask?.cancel()
-        lyrics = nil
+        localLyrics = nil
         guard let track else {
-            isLoadingLyrics = false
+            isLoadingLocalLyrics = false
             return
         }
-        isLoadingLyrics = true
+        isLoadingLocalLyrics = true
         let provider = lyricsProvider
         let hold = QTReadiness.shared.hold("lyrics \(track.videoId)")
         lyricsTask = Task { @MainActor [weak self] in
             let doc = try? await provider.lyrics(for: track)
             defer { QTReadiness.shared.release(hold) }
             guard let self, !Task.isCancelled, self.nowPlaying?.videoId == track.videoId else { return }
-            self.lyrics = doc
-            self.isLoadingLyrics = false
+            self.localLyrics = doc
+            self.isLoadingLocalLyrics = false
         }
     }
 }
