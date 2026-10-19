@@ -99,7 +99,21 @@ enum QTShelfParser {
             if let b = titleNav?.browseId { return "shelf:\(b)" }
             return "shelf:\(index):\(title ?? key)"
         }()
-        return QTShelf(id: id, title: .verbatim(title ?? ""), style: style, items: parsed.items)
+        // One card per release (YouTube Music lists explicit/clean and re-titled editions side by side).
+        let items = QTResultTidying.dedupingReleases(parsed.items, playlistIDs: albumPlaylistIDs(raw))
+        return QTShelf(id: id, title: .verbatim(title ?? ""), style: style, items: items)
+    }
+
+    /// Album browse id → its playlist id (`OLAK5uy_…`, from the card's play overlay), for release de-duplication.
+    static func albumPlaylistIDs(_ raw: [QTJSON]) -> [String: String] {
+        var out: [String: String] = [:]
+        for item in raw {
+            let r = item["musicTwoRowItemRenderer"]
+            guard !r.isNull, let browseId = r.navigation("navigationEndpoint")?.browseId, browseId.hasPrefix("MPRE"),
+                  let pl = r["thumbnailOverlay"].first("playlistId")?.string else { continue }
+            out[browseId] = pl
+        }
+        return out
     }
 
     static func style(for items: [QTShelfItem], raw: [QTJSON]) -> QTShelfStyle {

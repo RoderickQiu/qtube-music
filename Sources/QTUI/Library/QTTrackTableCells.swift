@@ -4,32 +4,6 @@ import QTCore
 // AppKit cells for the track table: native NSTableCellView text fields (so selection, VoiceOver and
 // Increase Contrast behave like Finder/Music), artwork decoded off-main via QTImageLoader.
 
-/// Colours the table needs that come from the artwork (tint only; system colours elsewhere).
-struct QTTrackTableTint {
-    var accentOnDark: NSColor?
-    var accentOnLight: NSColor?
-    /// Increase Contrast: use the system selection and accent instead of the artwork accent.
-    var useSystem = false
-
-    func accent(for appearance: NSAppearance) -> NSColor {
-        guard !useSystem else { return .controlAccentColor }
-        let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        return (dark ? accentOnDark : accentOnLight) ?? .controlAccentColor
-    }
-
-    init(palette: QTArtworkPalette?, increaseContrast: Bool) {
-        accentOnDark = palette.map { NSColor(qt: $0.accentOnDark) }
-        accentOnLight = palette.map { NSColor(qt: $0.accentOnLight) }
-        useSystem = increaseContrast || palette == nil
-    }
-}
-
-extension NSColor {
-    convenience init(qt c: QTRGBColor) {
-        self.init(srgbRed: c.red, green: c.green, blue: c.blue, alpha: 1)
-    }
-}
-
 enum QTTrackFonts {
     static var body: NSFont { NSFont.preferredFont(forTextStyle: .body) }
     static var title: NSFont { NSFont.systemFont(ofSize: body.pointSize, weight: .medium) }
@@ -58,8 +32,6 @@ private func makeLabel(font: NSFont, color: NSColor) -> NSTextField {
 /// like Finder and Music — the artwork accent never stands in for selection. Hover draws a quiet fill and reveals
 /// the row's heart.
 final class QTTrackRowView: NSTableRowView {
-    /// Kept for callers; selection no longer uses the artwork accent.
-    var tint = QTTrackTableTint(palette: nil, increaseContrast: false)
     var isUnavailable = false
     private var isHovered = false { didSet { if isHovered != oldValue { needsDisplay = true; revealControls() } } }
     private var tracking: NSTrackingArea?

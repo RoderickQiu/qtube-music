@@ -134,6 +134,8 @@ public struct QTMainWindowView: View {
                                         screenName: model.launch.effectiveScreenName)
             }
             QTWindowKeyMonitor.shared.install(model: model)
+            // One stable panel width, live or demo (see QTInspectorWidthKeeper).
+            QTInspectorWidthKeeper.attach(to: window, launch: model.launch)
         })
         .task {
             model.applyAppearance()

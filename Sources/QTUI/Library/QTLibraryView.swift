@@ -13,7 +13,6 @@ public struct QTLibraryView: View {
     @Environment(QTAppModel.self) private var model
     @Environment(QTPlayerModel.self) private var player
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.colorSchemeContrast) private var contrast
 
     static let headerHeight: CGFloat = 36 + QTTheme.Metrics.playlistTile + 28
 
@@ -51,7 +50,6 @@ public struct QTLibraryView: View {
             playingID: player.nowPlaying?.videoId,
             isPlaying: player.isPlaying,
             likedIDs: player.likedTrackIDs,
-            tint: QTTrackTableTint(palette: model.palette, increaseContrast: contrast == .increased),
             reduceMotion: reduceMotion,
             emptyText: q.isEmpty ? nil : QTLoc.tr("No songs match “%@”.", q),
             showsAlphabet: true
@@ -124,12 +122,31 @@ struct QTLibraryHeader: View {
     let state: QTTrackListState
     @Environment(QTAppModel.self) private var model
 
-    /// "12 songs · 50 min", or "2 of 12 songs" while a filter is narrowing the list.
-    static func countLine(collection: QTTrackCollection, rows: [QTTrack], filter: String) -> String {
+    /// "12 songs · 50 min", or "2 of 12 songs" while a filter is narrowing the list. The count is
+    /// max(rows, YouTube Music's own count) so it matches YouTube Music while pages are still streaming in, past the
+    /// paging limit and with unavailable rows left out. While more pages are still streaming in the minutes are left
+    /// out (they'd climb with every page); afterwards they're the playable songs' total.
+    static func countLine(collection: QTTrackCollection, rows: [QTTrack], filter: String, reportedCount: Int? = nil,
+                          isLoadingMore: Bool = false) -> String {
+        let loaded = collection.tracks.count
+        let total = max(loaded, reportedCount ?? 0)
         if filter.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return QTFormat.songCountAndMinutes(count: collection.tracks.count, seconds: collection.totalDuration)
+            if isLoadingMore && total > loaded { return QTLoc.tr("%lld songs", table: .main, total) }
+            return QTFormat.songCountAndMinutes(count: total, seconds: collection.totalDuration)
         }
-        return QTLoc.tr("%lld of %lld songs", table: .main, rows.count, collection.tracks.count)
+        return QTLoc.tr("%lld of %lld songs", table: .main, rows.count, total)
+    }
+
+    /// YouTube Music's count for this playlist (live library only; `LM` = Liked).
+    static func reportedCount(for collection: QTTrackCollection) -> Int? {
+        guard collection.kind == .liked || collection.kind == .playlist, let id = collection.playlistID else { return nil }
+        let store = QTLiveCatalogStore.shared
+        guard store.mode == .live else { return nil }
+        return store.reportedTrackCounts[collection.kind == .liked ? "LM" : id]
+    }
+
+    static func isLoadingMore(_ collection: QTTrackCollection) -> Bool {
+        collection.kind == .liked && QTLiveCatalogStore.shared.mode == .live && QTLiveCatalogStore.shared.isLoadingMoreLiked
     }
 
     var body: some View {
@@ -182,7 +199,8 @@ struct QTLibraryHeader: View {
                     .accessibilityIdentifier("qt.library.albumArtist")
                     .help(QTLoc.tr("Go to Artist · %@", artist))
                 }
-                Text(Self.countLine(collection: collection, rows: rows, filter: state.filter))
+                Text(Self.countLine(collection: collection, rows: rows, filter: state.filter, reportedCount: Self.reportedCount(for: collection),
+                                    isLoadingMore: Self.isLoadingMore(collection)))
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
                     .contentTransition(.numericText())

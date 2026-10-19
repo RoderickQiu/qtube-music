@@ -107,6 +107,9 @@ public final class QTLiveCatalogStore {
     /// Playlists opened from Home / search / artist pages (not in the library, so not in the sidebar).
     public private(set) var otherPlaylists: [String: QTPlaylist] = [:]
     public private(set) var playlistPhases: [String: QTLivePhase] = [:]
+    /// YouTube Music's own song count per playlist id (`LM` for Liked), from the header ("1,234 songs"): the header
+    /// shows max(loaded rows, this), since paging stops at `maxPlaylistPages` and unavailable rows aren't listed.
+    public private(set) var reportedTrackCounts: [String: Int] = [:]
     public private(set) var albumPages: [String: QTAlbumPage] = [:]
     public private(set) var albumPhases: [String: QTLivePhase] = [:]
     public private(set) var artistPages: [String: QTArtistPage] = [:]
@@ -475,7 +478,7 @@ public final class QTLiveCatalogStore {
         likedPhase = .idle; isLoadingMoreLiked = false; libraryPhase = .idle
         songsPhase = .idle; librarySongs = []; albumsPhase = .idle; libraryAlbums = []
         artistsPhase = .idle; libraryArtists = []
-        otherPlaylists = [:]; playlistPhases = [:]; albumPages = [:]; albumPhases = [:]
+        otherPlaylists = [:]; playlistPhases = [:]; reportedTrackCounts = [:]; albumPages = [:]; albumPhases = [:]
         artistPages = [:]; artistPhases = [:]; explore = nil; explorePhase = .idle
         exploreSections = [:]; exploreSectionPhases = [:]; moodsPage = nil
         searchResults = [:]; searchPhases = [:]; resolvedKeys = [:]
@@ -563,6 +566,7 @@ public final class QTLiveCatalogStore {
             likedPhase = .loading
             do {
                 let first = try await client.likedSongs()
+                reportedTrackCounts["LM"] = first.totalTrackCount
                 var tracks = first.playlist.tracks ?? []
                 setLiked(tracks)
                 likedPhase = .loaded
@@ -727,6 +731,7 @@ public final class QTLiveCatalogStore {
                     playlistPhases[id] = .loaded
                     return
                 }
+                reportedTrackCounts[id] = first.totalTrackCount
                 var p = first.playlist
                 p.id = id
                 if let known {
@@ -905,7 +910,11 @@ public final class QTLiveCatalogStore {
         await run("search:\(q)") { [self] in
             searchPhases[q] = .loading
             do {
-                let results = try await client.search(q)
+                // The videos filter alongside (window-data): unfiltered rows have no durations and few videos, so
+                // "Music videos" could only show compilations; the filter's rows let it rank official MVs first.
+                async let videos = try? client.search(q, filter: .videos)
+                var results = try await client.search(q)
+                if let videos = await videos { results = results.mergingVideos(from: videos) }
                 searchResults[q] = results
                 remember(results.songs + results.videos + (results.topResult?.track.map { [$0] } ?? []))
                 searchPhases[q] = .loaded

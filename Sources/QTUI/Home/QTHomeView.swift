@@ -424,20 +424,30 @@ struct QTQuickPicks: View {
     var columns = 3
     @State private var width: CGFloat = 0
 
-    private static let minColumnWidth: CGFloat = 180
+    /// The narrowest row that still reads: 6 pt padding + 52 pt art + 14 + ~136 pt of title + 14 + 32 pt heart + 6
+    /// (about ten Han characters or a short Latin title before the ellipsis). A chart rank adds its column.
+    static let minRowWidth: CGFloat = 260
+    private static let rankWidth: CGFloat = 36
     private static let columnSpacing: CGFloat = 20
 
-    /// Up to `columns`, fewer when a column would drop under 180 pt. Counted from the measured width rather than
-    /// `GridItem(.flexible(minimum:))`: a grid minimum becomes the content column's minimum width, and with the
+    /// Up to `columns`, fewer when a row would drop under `minRowWidth` — the same rule in every appearance and
+    /// catalog, so titles show meaningfully instead of three truncated stubs. Counted from the measured width rather
+    /// than `GridItem(.flexible(minimum:))`: a grid minimum becomes the content column's minimum width, and with the
     /// inspector open that feeds AppKit's split-view constraints into an update-constraints loop (crash) on the
     /// macOS 26+ design.
     /// Never more columns than songs: a lone song (a one-song artist) gets the whole row, so a long title such as
     /// "Chúng Ta Của Hiện Tại" isn't cut to a third of the width beside empty space.
     private var columnCount: Int {
-        let wanted = min(columns, max(1, tracks.count))
+        Self.columnCount(forWidth: width, tracks: tracks.count, maxColumns: columns, ranked: ranked)
+    }
+
+    /// `width` is the grid's measured width including its gutters (0 = not measured yet).
+    static func columnCount(forWidth width: CGFloat, tracks: Int, maxColumns: Int, ranked: Bool = false) -> Int {
+        let wanted = min(maxColumns, max(1, tracks))
         guard width > 0 else { return wanted }
-        let available = width - QTTheme.Spacing.gutter * 2 + Self.columnSpacing
-        return min(wanted, max(1, Int(available / (Self.minColumnWidth + Self.columnSpacing))))
+        let available = width - QTTheme.Spacing.gutter * 2 + columnSpacing
+        let row = minRowWidth + (ranked ? rankWidth : 0)
+        return min(wanted, max(1, Int(available / (row + columnSpacing))))
     }
 
     var body: some View {

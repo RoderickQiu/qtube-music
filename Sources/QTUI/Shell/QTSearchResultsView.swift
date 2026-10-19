@@ -32,6 +32,9 @@ struct QTSearchResultsContent: View {
     var isUpdating = false
 
     private var source: QTQueueSource { QTQueueSource(kind: .search, title: .verbatim(query)) }
+    /// The "Music videos" row: the artist's own and official videos first, compilations last (`rankedVideos`); a
+    /// videos-filtered search adds up to 20 more, so keep the row to a calm length.
+    static let maxVideos = 12
 
     var body: some View {
         let topID = results.topResult?.id
@@ -51,7 +54,7 @@ struct QTSearchResultsContent: View {
                 .padding(.horizontal, QTTheme.Spacing.gutter)
                 topRow
                     .padding(.top, 28)
-                shelf("search.videos", QTLoc.tr("Music videos"), .videos, results.videos.map { .video($0) }, except: topID)
+                shelf("search.videos", QTLoc.tr("Music videos"), .videos, results.rankedVideos.prefix(Self.maxVideos).map { .video($0) }, except: topID)
                 shelf("search.albums", QTLoc.tr("Albums"), .cards, results.albums.map { .album($0) }, except: topID)
                 shelf("search.artists", QTLoc.tr("Artists"), .cards, results.artists.map { .artist($0) }, except: topID)
                 shelf("search.playlists", QTLoc.tr("Playlists"), .cards, results.playlists.map { .playlist($0) }, except: topID)

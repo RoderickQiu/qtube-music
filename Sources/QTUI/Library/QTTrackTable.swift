@@ -16,7 +16,6 @@ struct QTTrackTable: NSViewRepresentable {
     var playingID: String?
     var isPlaying: Bool
     var likedIDs: Set<String>
-    var tint: QTTrackTableTint
     var reduceMotion: Bool
     var emptyText: String?
     var showsAlphabet: Bool
@@ -152,8 +151,7 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
             page.emptyLabel.stringValue = new.emptyText ?? ""
             page.emptyLabel.isHidden = !(rows.isEmpty && new.emptyText != nil)
             page.needsLayout = true
-        } else if old?.playingID != new.playingID || old?.isPlaying != new.isPlaying || old?.likedIDs != new.likedIDs
-                    || old?.tint.accentOnDark != new.tint.accentOnDark || old?.tint.useSystem != new.tint.useSystem {
+        } else if old?.playingID != new.playingID || old?.isPlaying != new.isPlaying || old?.likedIDs != new.likedIDs {
             rows = new.rows
             // The rows whose marks changed (old/new now-playing, liked changes) by index — not only the visible
             // rect, which can be empty while the table is still being laid out (the launch cue lands then).
@@ -162,9 +160,6 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
             if let id = new.playingID { ids.insert(id) }
             ids.formUnion((old?.likedIDs ?? []).symmetricDifference(new.likedIDs))
             reloadVisibleRows(including: IndexSet(rows.indices.filter { ids.contains(rows[$0].videoId) }))
-        }
-        if old?.tint.accentOnDark != new.tint.accentOnDark || old?.tint.useSystem != new.tint.useSystem {
-            t.enumerateAvailableRowViews { rowView, _ in (rowView as? QTTrackRowView)?.tint = new.tint }
         }
         let descriptor = NSSortDescriptor(key: new.state.sort.key.rawValue, ascending: new.state.sort.ascending)
         if t.sortDescriptors.first != descriptor {
@@ -282,7 +277,6 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
             r.identifier = id
             return r
         }()
-        if let config { v.tint = config.tint }
         v.isUnavailable = rows.indices.contains(row) && !rows[row].availability.isPlayable
         return v
     }

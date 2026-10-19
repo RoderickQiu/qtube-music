@@ -99,6 +99,9 @@ public enum QTInnerTubeParser {
         // De-duplicate (the top result can repeat in the list).
         var seen = Set<String>()
         results.items = results.items.filter { seen.insert($0.id).inserted && $0.id != results.topResult?.id }
+        // One card per release, and none repeating a top-result album under another id.
+        results.items = QTResultTidying.dedupingReleases((results.topResult.map { [$0] } ?? []) + results.items)
+            .filter { $0.id != results.topResult?.id }
         return results
     }
 

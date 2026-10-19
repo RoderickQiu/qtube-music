@@ -47,6 +47,14 @@ Everything is wired (integration of M1 polish + M2–M4):
   signs out (a dead session can't come back). Only `-qt.catalog mock` (or a catalog path) never reads the Keychain.
   Page failures: only connectivity errors (`QTInnerTubeError.isConnectivity`) read as offline; a cancelled load
   (account switch) returns the page to idle instead of a failure state.
+- **Result tidying (R6, `QTInnerTube/Parsing/QTResultTidying.swift`):** every parsed shelf and search result keeps
+  one card per release — same browse id or album playlist id, or same kind + primary artist + year + normalized title
+  (case/width/Traditional-Simplified folded, "(Explicit)"/"(Clean)" dropped, a Latin re-title after a CJK title
+  dropped: "新世界 NEW WORLD" = "新世界"; "(Deluxe)", "Live" and other edition words stay distinct). A live search also
+  runs the videos-filtered search (`QTSearchResults.mergingVideos(from:)`, durations included) and "Music videos"
+  shows `rankedVideos` (max 12): the searched-for artist's own videos, then other OMV/ATV, then the rest, anything
+  over 15 min (compilations, concerts) last. Liked Songs / playlist headers show max(rows, YouTube Music's count)
+  (`QTLiveCatalogStore.reportedTrackCounts`), minutes once Liked has finished paging.
 - **Lyrics:** `QTLyricsSession` (M2, below) resolves every track through `QTLyricsResolver` — the one source every
   surface reads (`player.lyrics` forwards to it; `QTAppModel.resolvedLyrics` adds the translation lane). Mock tracks
   are matched by title/artist/duration; bundled mock lyrics are the offline fallback, or the whole source with
@@ -493,7 +501,15 @@ The prototype defines layout, hierarchy, copy and states; the app must look like
   - No `GridItem(.flexible(minimum:))` (or other hard minimum widths) in content pages: with the inspector open, a
     content minimum feeds AppKit's split-view constraints into an update-constraints loop (crash) on the macOS 26+
     design. Count columns from the measured width instead (`QTQuickPicks`, `QTLibraryGridPage`); see *No content
-    minimum width* above.
+    minimum width* above. Quick picks use at most 3 columns of at least `QTQuickPicks.minRowWidth` (260 pt: art,
+    ~136 pt of title, heart) so titles read in every appearance and catalog.
+- **Docked panel width (R6).** `QTInspectorWidthKeeper` (Shell/) keeps the inspector at the design width (384 pt) or
+  the user's last divider drag (`qt.window.panelWidth` in UserDefaults; dev launches with `-qt.screen`/`-qt.window`
+  always use 384 and never save). SwiftUI's `inspectorColumnWidth(ideal:)` reaches AppKit only when the split item is
+  first added; every later SwiftUI update that re-sets the split items (the live library streaming in) re-added it
+  without its preferred size, and the panel sat at its 320 pt minimum with the live library (384 with the demo). The
+  keeper adds a width constraint at priority 262 (above the inspector's holding priority 261, never required), lifts
+  it while the divider is dragged and adopts the new width on mouse-up.
 - Type: system text styles via `QTTheme.Typography` (SF Pro; PingFang SC only via the system cascade — never name
   a CJK font first; no forced uppercase/tracking on CJK). Tabular figures with `.monospacedDigit()`.
 - Motion: `QTTheme.Motion` (curve `cubic-bezier(.2,.8,.2,1)`, 320 ms UI, 520 ms lyric scroll, springs,
