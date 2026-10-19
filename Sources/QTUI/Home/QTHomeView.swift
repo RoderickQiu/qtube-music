@@ -43,19 +43,17 @@ public struct QTHomeView: View {
             Text(Self.greeting(at: .now))
                 .font(QTTheme.Typography.pageTitle)
                 .accessibilityAddTraits(.isHeader)
-            HStack(spacing: QTTheme.Spacing.xs) {
+            QTChipFlow(spacing: 10) {
                 ForEach(model.catalog.home.moods) { mood in
                     Toggle(mood.title.resolved, isOn: Binding(
                         get: { selectedMood == mood.id },
                         set: { selectedMood = $0 ? mood.id : nil }
                     ))
-                    .toggleStyle(.button)
-                    .buttonBorderShape(.capsule)
+                    .toggleStyle(QTChipToggleStyle())
                     .accessibilityIdentifier("qt.home.mood.\(mood.id)")
                 }
             }
             .controlSize(.large)
-            .buttonBorderShape(.capsule)
         }
         .padding(.top, 40)
         .padding(.horizontal, QTTheme.Spacing.gutter)
@@ -72,6 +70,10 @@ public struct QTHomeView: View {
 
 struct QTHomeShelf: View {
     let shelf: QTShelf
+    /// Queue source for songs started from this shelf (nil = Home / "Quick picks").
+    var source: QTQueueSource? = nil
+    /// Quick-pick rows show their chart position (Explore › Charts).
+    var ranked = false
     @Environment(QTAppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var firstVisible: String?
@@ -84,11 +86,11 @@ struct QTHomeShelf: View {
                     .font(QTTheme.Typography.shelfTitle)
                     .accessibilityAddTraits(.isHeader)
                 Spacer()
-                if shelf.style != .quickPicks { pager }
+                if shelf.style != .quickPicks && !fitsWithoutPaging { pager }
             }
             .padding(.horizontal, QTTheme.Spacing.gutter)
             switch shelf.style {
-            case .quickPicks: QTQuickPicks(tracks: tracks)
+            case .quickPicks: QTQuickPicks(tracks: tracks, source: source, ranked: ranked)
             case .cards, .videos: row
             }
         }
@@ -102,11 +104,17 @@ struct QTHomeShelf: View {
 
     private var itemWidth: CGFloat { shelf.style == .videos ? QTTheme.Metrics.videoCardWidth : QTTheme.Metrics.card }
 
+    /// Short rows (search, artist pages) need no pager.
+    private var fitsWithoutPaging: Bool {
+        width > 0 && CGFloat(shelf.items.count) * (itemWidth + QTTheme.Spacing.shelfGap) - QTTheme.Spacing.shelfGap
+            <= width - QTTheme.Spacing.gutter * 2
+    }
+
     private var row: some View {
         ScrollView(.horizontal) {
             LazyHStack(alignment: .top, spacing: QTTheme.Spacing.shelfGap) {
                 ForEach(shelf.items) { item in
-                    QTHomeCard(item: item, shelfTracks: tracks)
+                    QTHomeCard(item: item, shelfTracks: tracks, source: source ?? QTQueueSource(kind: .home, title: .localized("Home")))
                         .id(item.id)
                 }
             }
@@ -157,6 +165,7 @@ struct QTHomeShelf: View {
 struct QTHomeCard: View {
     let item: QTShelfItem
     let shelfTracks: [QTTrack]
+    var source = QTQueueSource(kind: .home, title: .localized("Home"))
     @Environment(QTAppModel.self) private var model
     @Environment(QTPlayerModel.self) private var player
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -167,7 +176,8 @@ struct QTHomeCard: View {
         case .track(let t): trackCard(t, video: false)
         case .video(let t): trackCard(t, video: true)
         case .playlist(let p): playlistCard(p)
-        case .album, .artist: EmptyView()
+        case .album(let a): albumCard(a)
+        case .artist(let a): artistCard(a)
         }
     }
 
@@ -180,7 +190,7 @@ struct QTHomeCard: View {
                 player.togglePlayPause()
             } else {
                 let i = shelfTracks.firstIndex(of: t) ?? 0
-                QTTrackActions.play(shelfTracks, at: i, source: QTQueueSource(kind: .home, title: .localized("Home")), video: video)
+                QTTrackActions.play(shelfTracks, at: i, source: source, video: video)
             }
         } label: {
             VStack(alignment: .leading, spacing: 4) {
@@ -240,6 +250,81 @@ struct QTHomeCard: View {
         .accessibilityIdentifier("qt.home.card.playlist.\(p.id)")
     }
 
+    /// Album / single: opens the album page; the hover badge plays it.
+    private func albumCard(_ a: QTAlbum) -> some View {
+        let size = QTTheme.Metrics.card
+        let tracks = a.tracks ?? []
+        return Button {
+            QTNavigator.shared.go(.album(a.title))
+        } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                artwork(QTArtworkView(a.artwork, cornerRadius: 0, placeholder: .album), width: size, height: size,
+                        playIcon: .play, showsPlay: isHovered && !tracks.isEmpty)
+                    .overlay(alignment: .bottomTrailing) {
+                        // The badge plays without opening the page.
+                        Color.clear.frame(width: 56, height: 56).contentShape(Rectangle())
+                            .onTapGesture {
+                                QTTrackActions.play(tracks, at: 0, source: QTQueueSource(kind: .album, title: .verbatim(a.title)))
+                            }
+                            .opacity(isHovered && !tracks.isEmpty ? 1 : 0)
+                    }
+                    .padding(.bottom, 6)
+                Text(verbatim: a.title)
+                    .font(QTTheme.Typography.rowTitle)
+                    .lineLimit(1)
+                Text(verbatim: Self.albumSubtitle(a))
+                    .font(QTTheme.Typography.secondary)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .frame(width: size, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .help(a.title)
+        .accessibilityIdentifier("qt.browse.card.album.\(a.id)")
+    }
+
+    /// "Single · Hoàng Thùy Linh", "Album · 2019".
+    static func albumSubtitle(_ a: QTAlbum) -> String {
+        let kind = a.kind == .album ? QTLoc.tr("Album") : a.kind == .ep ? QTLoc.tr("EP", table: .main) : QTLoc.tr("Single", table: .main)
+        let artists = a.artists.map(\.name).formatted(.list(type: .and, width: .narrow).locale(QTLoc.locale))
+        let detail = a.year.map { String($0) } ?? artists
+        return detail.isEmpty ? kind : QTLoc.tr("%@ · %@", table: .main, kind, detail)
+    }
+
+    /// Artist: round portrait, centred name (Music.app).
+    private func artistCard(_ a: QTArtist) -> some View {
+        let size = QTTheme.Metrics.card
+        let anim = QTTheme.Motion.animation(.timingCurve(0.2, 0.8, 0.2, 1, duration: 0.4), reduceMotion: reduceMotion)
+        return Button {
+            QTNavigator.shared.go(.artist(a.name))
+        } label: {
+            VStack(spacing: 4) {
+                QTArtworkView(a.artwork, cornerRadius: 0, placeholder: .mic)
+                    .frame(width: size, height: size)
+                    .scaleEffect(isHovered && !reduceMotion ? 1.04 : 1)
+                    .animation(anim, value: isHovered)
+                    .clipShape(Circle())
+                    .background(Circle().fill(.black.opacity(0.001)).shadow(color: .black.opacity(isHovered ? 0.28 : 0.18), radius: isHovered ? 12 : 8, y: 4))
+                    .padding(.bottom, 6)
+                Text(verbatim: a.name)
+                    .font(QTTheme.Typography.rowTitle)
+                    .lineLimit(1)
+                Text(QTLoc.tr("Artist", table: .main))
+                    .font(QTTheme.Typography.secondary)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(width: size)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .help(a.name)
+        .accessibilityIdentifier("qt.browse.card.artist.\(a.id)")
+    }
+
     /// Artwork with hover zoom (inside its rounded clip), soft shadow, and the accent play button.
     private func artwork<A: View>(_ art: A, width: CGFloat, height: CGFloat, playIcon: QTIcon, showsPlay: Bool) -> some View {
         let shape = RoundedRectangle(cornerRadius: QTTheme.Radius.artwork, style: .continuous)
@@ -281,11 +366,17 @@ struct QTCardPlayBadge: View {
 
 struct QTQuickPicks: View {
     let tracks: [QTTrack]
+    /// nil = "Quick picks" (Home).
+    var source: QTQueueSource? = nil
+    var ranked = false
+    var columns = 3
 
     var body: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 180), spacing: 20, alignment: .leading), count: 3),
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 180), spacing: 20, alignment: .leading), count: columns),
                   alignment: .leading, spacing: 4) {
-            ForEach(tracks) { t in QTQuickPickRow(track: t, tracks: tracks) }
+            ForEach(Array(tracks.enumerated()), id: \.element.id) { i, t in
+                QTQuickPickRow(track: t, tracks: tracks, source: source, rank: ranked ? i + 1 : nil)
+            }
         }
         .padding(.horizontal, QTTheme.Spacing.gutter)
     }
@@ -294,6 +385,9 @@ struct QTQuickPicks: View {
 struct QTQuickPickRow: View {
     let track: QTTrack
     let tracks: [QTTrack]
+    var source: QTQueueSource? = nil
+    /// Chart position, shown before the artwork.
+    var rank: Int? = nil
     @Environment(QTPlayerModel.self) private var player
     @State private var isHovered = false
 
@@ -301,6 +395,14 @@ struct QTQuickPickRow: View {
         let isCurrent = player.nowPlaying?.videoId == track.videoId
         let liked = player.isLiked(track)
         HStack(spacing: 14) {
+            if let rank {
+                Text(rank, format: .number)
+                    .font(.title3.weight(.semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .frame(minWidth: 22, alignment: .trailing)
+                    .accessibilityLabel(QTLoc.tr("Number %lld", table: .main, rank))
+            }
             Button(action: play) {
                 QTArtworkView(track: track, cornerRadius: QTTheme.Radius.control)
                     .frame(width: QTTheme.Metrics.quickPickArtwork, height: QTTheme.Metrics.quickPickArtwork)
@@ -351,7 +453,8 @@ struct QTQuickPickRow: View {
 
     private func play() {
         if player.nowPlaying?.videoId == track.videoId { player.togglePlayPause(); return }
-        QTTrackActions.play(tracks, at: tracks.firstIndex(of: track) ?? 0, source: QTQueueSource(kind: .home, title: .localized("Quick picks")))
+        QTTrackActions.play(tracks, at: tracks.firstIndex(of: track) ?? 0,
+                            source: source ?? QTQueueSource(kind: .home, title: .localized("Quick picks")))
     }
 }
 

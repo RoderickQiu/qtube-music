@@ -133,6 +133,8 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
         page.reduceMotion = new.reduceMotion
         page.hasCompactBar = new.compact != nil
         page.headerHeight = new.header == nil ? 0 : new.headerHeight
+        // An album page doesn't repeat its own title in every row.
+        page.tableView.tableColumn(withIdentifier: Column.album.id)?.isHidden = new.collection.kind == .album
         updateHosts(new, page: page)
         updateHeaderTitles()
 
@@ -289,7 +291,7 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
             view = cell
         case .title:
             let cell = (tableView.makeView(withIdentifier: cellID, owner: nil) as? QTTrackTitleCell) ?? QTTrackTitleCell()
-            cell.configure(track, isPlaying: isCurrent, accent: accent)
+            cell.configure(track, isPlaying: isCurrent, accent: accent, showsArtwork: config.collection.kind != .album)
             view = cell
         case .album:
             let cell = (tableView.makeView(withIdentifier: cellID, owner: nil) as? QTTrackTextCell)

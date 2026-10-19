@@ -108,6 +108,13 @@ Core:
   `lineIndex(atPlaybackTime:)`, `playbackTime(forLine:)`, `withOffset(nudgedBy:)`.
 - `QTCatalogService` (home, liked, playlists, playlist, track). `QTMockCatalog` implements it for M1;
   InnerTube implements it in M3.
+- `QTBrowseService` (Shell/, window): `explore() -> QTExploreContent` (new releases, top songs, videos, mood groups),
+  `mood(_:) -> [QTShelf]`, `search(_:) -> QTSearchResults`, `album(_:) -> QTAlbumPage?`, `artist(_:) -> QTArtistPage?`
+  — the `QTInnerTubeClient` page types. `QTBrowse.service` is `QTMockBrowseService` (derived from the mock catalog)
+  until the data layer assigns an InnerTube-backed service; pages reload on interface-language change.
+- Window controls: `QTPillButtonStyle(prominence: .primary | .secondary, iconOnly:)` (capsule; primary = artwork
+  accent fill), `QTChipToggleStyle` (mood/genre chips), `QTChipFlow` (wrapping layout) — Shell/QTWindowButtonStyles.swift.
+- Navigation: `QTDestination` adds `.mood(QTMoodChip)` (Explore mood/genre pages).
 
 ## Native UI rules (user requirement)
 
@@ -190,7 +197,7 @@ Builders add their own as `qt.<area>.<name>` (e.g. `qt.stage.chrome hidden`, `qt
 
 | Area | Keys |
 |---|---|
-| window | `qt.window.search <text>` · `qt.library.filter <text>` · `qt.library.scroll <pt>` (300 pins the compact header) · `qt.library.sort title\|album\|artist\|time\|added[:desc]` · `qt.library.select 1,3` · `qt.home.scroll <pt>` |
+| window | `qt.window.search <text>` · `qt.window.page album:<title>\|artist:<name>\|mood:<id>` (e.g. `mood:genre:Pop`, `mood:mood-relax`) · `qt.window.scroll <pt>` (Explore / artist / mood pages) · `qt.library.filter <text>` · `qt.library.scroll <pt>` (300 pins the compact header) · `qt.library.sort title\|album\|artist\|time\|added[:desc]` · `qt.library.select 1,3` · `qt.home.scroll <pt>` |
 | player | `qt.player.upNext demo\|id,id` · `qt.player.autoplay NO` · `qt.player.shuffle YES` · `qt.player.repeat off\|all\|one` |
 | lyrics-ui | `qt.lyrics.scrolled` · `qt.lyrics.options` · `qt.lyrics.demoVersions` · `qt.lyrics.translationState same\|translating\|download\|unavailable\|onDevice\|appleIntelligence` · `qt.lyrics.lab` · `qt.lyrics.debug` |
 | stage | `qt.stage.chrome hidden` · `qt.stage.queue YES` · `qt.stage.popover appearance` · `qt.stage.window YES` (detached window) · `qt.stage.reduceMotion YES` · `qt.stage.visualizerOnBattery YES` · `qt.stage.closeAfter <s>` |

@@ -148,11 +148,13 @@ struct QTContentRouter: View {
                 QTLibraryView(collection: .liked(catalog), destination: d)
             }
         case .section(.explore):
-            QTSectionPlaceholder(item: .explore)
+            QTExploreView()
         case .album(let title):
             QTLibraryView(collection: .album(title, catalog: catalog), destination: d)
         case .artist(let name):
-            QTLibraryView(collection: .artist(name, catalog: catalog), destination: d)
+            QTArtistPageView(name: name)
+        case .mood(let chip):
+            QTMoodPageView(chip: chip)
         }
     }
 }

@@ -99,7 +99,7 @@ public struct QTTrackCollection: Identifiable, Sendable {
         case .section(.playlist(let id)): "playlist:\(id)"
         case .album(let t): "album:\(t)"
         case .artist(let n): "artist:\(n)"
-        case .section: nil
+        case .section, .mood: nil
         }
     }
 

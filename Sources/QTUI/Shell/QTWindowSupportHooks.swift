@@ -47,9 +47,13 @@ final class QTWindowKeyMonitor {
 /// | `qt.library.sort` | `title` `album` `artist` `time` `added`, `:desc` suffix | sort of the opening list |
 /// | `qt.library.select` | row numbers, comma separated (1-based) | selected rows |
 /// | `qt.home.scroll` | points | Home scroll offset |
+/// | `qt.window.page` | `album:<title>` `artist:<name>` `mood:<id>` | opens a page on top of `qt.section` |
+/// | `qt.window.scroll` | points | scroll offset of the opening browse page (Explore, artist, mood) |
 @MainActor
 enum QTWindowLaunchHooks {
     static func apply(_ launch: QTLaunchOptions, model: QTAppModel, navigator: QTNavigator) {
+        if let page = launch.string("qt.window.page"), let d = destination(page, model: model) { navigator.go(d) }
+        if let y = launch.double("qt.window.scroll") { navigator.setScrollOffset(y, for: navigator.current) }
         if let q = launch.string("qt.window.search") { model.searchText = q }
         guard let key = QTTrackCollection.listKey(for: navigator.current) else { return }
         let state = navigator.listState(for: key)
@@ -67,6 +71,20 @@ enum QTWindowLaunchHooks {
             state.selection = sel.split(separator: ",").compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
                 .compactMap { rows.indices.contains($0 - 1) ? rows[$0 - 1].videoId : nil }
             model.selectedTrackIDs = Set(state.selection)
+        }
+    }
+
+    /// `album:<title>`, `artist:<name>`, `mood:<id>` (Home moods and Explore genres).
+    static func destination(_ s: String, model: QTAppModel) -> QTDestination? {
+        guard let colon = s.firstIndex(of: ":") else { return nil }
+        let kind = s[..<colon], value = String(s[s.index(after: colon)...])
+        switch kind {
+        case "album": return .album(value)
+        case "artist": return .artist(value)
+        case "mood":
+            let explore = QTMockBrowseService(catalog: model.catalog).exploreNow()
+            return explore.moodGroups.flatMap(\.moods).first { $0.id == value }.map { .mood($0) }
+        default: return nil
         }
     }
 

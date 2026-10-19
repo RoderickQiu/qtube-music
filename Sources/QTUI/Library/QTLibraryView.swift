@@ -16,6 +16,11 @@ public struct QTLibraryView: View {
 
     static let headerHeight: CGFloat = 36 + QTTheme.Metrics.playlistTile + 28
 
+    /// Albums carry a linked artist line under the title.
+    static func headerHeight(for collection: QTTrackCollection) -> CGFloat {
+        headerHeight + (collection.kind == .album ? 30 : 0)
+    }
+
     public init(collection: QTTrackCollection, destination: QTDestination? = nil) {
         self.collection = collection
         self.destination = destination
@@ -40,7 +45,7 @@ public struct QTLibraryView: View {
             state: state,
             destination: destination,
             header: AnyView(hosted.wrap(QTLibraryHeader(collection: collection, rows: rows, state: state))),
-            headerHeight: Self.headerHeight,
+            headerHeight: Self.headerHeight(for: collection),
             compact: AnyView(hosted.wrap(QTLibraryCompactBar(collection: collection, rows: rows, state: state))),
             playingID: player.nowPlaying?.videoId,
             isPlaying: player.isPlaying,
@@ -106,6 +111,14 @@ struct QTLibraryHeader: View {
     let state: QTTrackListState
     @Environment(QTAppModel.self) private var model
 
+    /// "12 songs · 50 min", or "2 of 12 songs" while a filter is narrowing the list.
+    static func countLine(collection: QTTrackCollection, rows: [QTTrack], filter: String) -> String {
+        if filter.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return QTFormat.songCountAndMinutes(count: collection.tracks.count, seconds: collection.totalDuration)
+        }
+        return QTLoc.tr("%lld of %lld songs", table: .main, rows.count, collection.tracks.count)
+    }
+
     var body: some View {
         @Bindable var state = state
         let navigator = QTNavigator.shared
@@ -123,9 +136,25 @@ struct QTLibraryHeader: View {
                     .padding(.top, 4)
                     .padding(.bottom, 6)
                     .help(collection.title)
-                Text(QTFormat.songCountAndMinutes(count: collection.tracks.count, seconds: collection.totalDuration))
+                if collection.kind == .album, let artist = collection.tracks.first?.artists.first?.name {
+                    // The album's artist opens the artist page (Music.app's linked subtitle).
+                    Button {
+                        QTNavigator.shared.go(.artist(artist))
+                    } label: {
+                        Text(verbatim: collection.tracks.first?.artistLine ?? artist)
+                            .font(.title3.weight(.medium))
+                            .foregroundStyle(.tint)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.bottom, 4)
+                    .accessibilityIdentifier("qt.library.albumArtist")
+                    .help(QTLoc.tr("Go to Artist · %@", artist))
+                }
+                Text(Self.countLine(collection: collection, rows: rows, filter: state.filter))
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
+                    .contentTransition(.numericText())
+                    .accessibilityIdentifier("qt.library.count")
                 QTLibraryActions(collection: collection, rows: rows)
                     .padding(.top, 18)
             }
@@ -149,10 +178,6 @@ struct QTLibraryHeader: View {
 struct QTLibraryActions: View {
     let collection: QTTrackCollection
     let rows: [QTTrack]
-    @Environment(QTAppModel.self) private var model
-    @Environment(\.colorScheme) private var scheme
-    @Environment(\.colorSchemeContrast) private var contrast
-
     var body: some View {
         let playable = rows.filter(\.availability.isPlayable)
         HStack(spacing: 10) {
@@ -163,10 +188,8 @@ struct QTLibraryActions: View {
             } label: {
                 Label(QTLoc.tr("Play"), systemImage: QTIcon.play.systemName)
             }
-            .buttonStyle(.borderedProminent)
-            // White text needs the deeper variant of the artwork accent in both appearances.
-            .tint(QTTheme.Colors.accent(model.palette, scheme: .light, increaseContrast: contrast == .increased))
-            .buttonBorderShape(.capsule)
+            .buttonStyle(QTPillButtonStyle(prominence: .primary))
+            .help(QTLoc.tr("Play"))
             .accessibilityIdentifier("qt.library.play")
 
             Button {
@@ -174,8 +197,8 @@ struct QTLibraryActions: View {
             } label: {
                 Label(QTLoc.tr("Shuffle"), systemImage: QTIcon.shuffle.systemName)
             }
-            .buttonStyle(.bordered)
-            .buttonBorderShape(.capsule)
+            .buttonStyle(QTPillButtonStyle(prominence: .secondary))
+            .help(QTLoc.tr("Shuffle"))
             .accessibilityIdentifier("qt.library.shuffle")
 
             Menu {
@@ -185,18 +208,15 @@ struct QTLibraryActions: View {
                 Button(QTLoc.tr("Copy Link")) { QTTrackActions.copyLinks(playable) }
             } label: {
                 Label(QTLoc.tr("More"), systemImage: QTIcon.more.systemName)
-                    .labelStyle(.iconOnly)
             }
             .menuStyle(.button)
-            .buttonStyle(.bordered)
             .menuIndicator(.hidden)
+            .buttonStyle(QTPillButtonStyle(prominence: .secondary, iconOnly: true))
             .fixedSize()
             .help(QTLoc.tr("More"))
-            .buttonBorderShape(.capsule)
             .accessibilityIdentifier("qt.library.more")
         }
         .controlSize(.large)
-        .buttonBorderShape(.capsule)
         .disabled(playable.isEmpty)
     }
 }

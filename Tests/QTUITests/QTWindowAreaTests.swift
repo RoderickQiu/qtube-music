@@ -122,3 +122,72 @@ import Testing
         #expect(zh.format("No songs match “%@”.", table: .main, arguments: ["x"]) == "没有与“x”匹配的歌曲。")
     }
 }
+
+@Suite @MainActor struct QTBrowseServiceTests {
+    static func t(_ id: String, _ title: String, artist: String, album: String, video: Bool = false) -> QTTrack {
+        QTTrack(videoId: id, title: title, artists: [QTArtistRef(name: artist)], album: QTAlbumRef(title: album),
+                duration: 200, musicVideoType: video ? .omv : .atv)
+    }
+
+    static let catalog = QTMockCatalog(
+        tracks: [
+            t("a", "Hạ Phỏm", artist: "Hoàng Thùy Linh", album: "LINK", video: true),
+            t("b", "丽江", artist: "李健", album: "拾光", video: true),
+            t("c", "蓝色夜曲", artist: "李健", album: "蓝色夜曲"),
+        ],
+        liked: QTPlaylist(id: "LM", title: .verbatim("Liked Songs"), kind: .liked, tracks: []),
+        playlists: [QTPlaylist(id: "pl-1", title: .verbatim("Lì xì"), tracks: [])],
+        home: QTHomeFeed(moods: [QTMoodChip(id: "mood-relax", title: .verbatim("Relax"))]))
+
+    @Test func searchGroupsMusicResults() {
+        let service = QTMockBrowseService(catalog: Self.catalog)
+        let r = service.searchNow("李健")
+        // An artist named exactly like the query is the top result; their songs follow.
+        #expect(r.topResult == .artist(QTArtist(id: "李健", name: "李健", artwork: [])))
+        #expect(Set(r.songs.map(\.videoId)) == ["b", "c"])
+        #expect(r.videos.map(\.videoId) == ["b"])
+        #expect(service.searchNow("ha phom").topResult == .track(Self.catalog.tracks[0]))
+        #expect(service.searchNow("li xi").playlists.map(\.id) == ["pl-1"])
+        #expect(service.searchNow("   ").items.isEmpty)
+        #expect(service.searchNow("   ").topResult == nil)
+    }
+
+    @Test func artistAndAlbumPages() throws {
+        let service = QTMockBrowseService(catalog: Self.catalog)
+        let artist = try #require(service.artistNow("李健"))
+        #expect(artist.songs.count == 2)
+        #expect(artist.albums.map(\.title) == ["拾光"])
+        #expect(artist.singles.map(\.title) == ["蓝色夜曲"]) // one song named like its album
+        #expect(artist.videos.map(\.videoId) == ["b"])
+        #expect(artist.relatedArtists.map(\.name) == ["Hoàng Thùy Linh"])
+        #expect(service.albumNow("LINK")?.album.tracks?.map(\.videoId) == ["a"])
+        #expect(service.albumNow("nope") == nil)
+    }
+
+    @Test func exploreHasEverySection() {
+        let e = QTMockBrowseService(catalog: Self.catalog).exploreNow()
+        #expect(e.newReleases.count == 3)
+        #expect(e.topSongs.count == 3)
+        #expect(e.videos.count == 2)
+        #expect(e.moodGroups.count == 2)
+        #expect(e.moodGroups[0].moods.map(\.id) == ["mood-relax"])
+        #expect(e.moodGroups[1].moods.count == QTMockBrowseService.genres.count)
+        // Stable chart order across runs.
+        #expect(e.topSongs == QTMockBrowseService(catalog: Self.catalog).exploreNow().topSongs)
+    }
+
+    @Test func moodDestinationHasItsOwnState() {
+        let chip = QTMoodChip(id: "genre:Pop", title: .verbatim("Pop"))
+        #expect(QTDestination.mood(chip).stateKey == "mood:genre:Pop")
+        #expect(QTDestination.mood(chip).sidebarItem == nil)
+        #expect(QTTrackCollection.listKey(for: .mood(chip)) == nil)
+    }
+
+    @Test func filteredCountLine() {
+        let en = QTLocalizer(preference: .enUS)
+        #expect(en.format("%lld of %lld songs", table: .main, arguments: [2, 12]) == "2 of 12 songs")
+        #expect(en.format("%lld of %lld songs", table: .main, arguments: [1, 1]) == "1 of 1 song")
+        let zh = QTLocalizer(preference: .zhCN)
+        #expect(zh.format("%lld of %lld songs", table: .main, arguments: [2, 12]) == "2 / 12 首")
+    }
+}

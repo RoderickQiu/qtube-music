@@ -18,11 +18,11 @@ public struct QTSettingsView: View {
         // Each tab has its own content height, so the window resizes to fit it instead of scrolling or
         // leaving dead space.
         TabView(selection: $tab) {
-            Tab(QTLoc.tr("General"), systemImage: "gearshape", value: QTSettingsTab.general) { QTGeneralSettings().frame(height: 340) }
-            Tab(QTLoc.tr("Playback", table: .desktop), systemImage: "play.circle", value: QTSettingsTab.playback) { QTPlaybackSettings().frame(height: 350) }
-            Tab(QTLoc.tr("Lyrics"), systemImage: QTIcon.lyrics.systemName, value: QTSettingsTab.lyrics) { QTLyricsSettings().frame(height: 650) }
-            Tab(QTLoc.tr("Account"), systemImage: "person.crop.circle", value: QTSettingsTab.account) { QTAccountSettings().frame(height: 220) }
-            Tab(QTLoc.tr("Advanced", table: .desktop), systemImage: "gearshape.2", value: QTSettingsTab.advanced) { QTAdvancedSettings().frame(height: 310) }
+            Tab(QTLoc.tr("General"), systemImage: "gearshape", value: QTSettingsTab.general) { QTGeneralSettings().qtSettingsFitsContent(maxHeight: 340) }
+            Tab(QTLoc.tr("Playback", table: .desktop), systemImage: "play.circle", value: QTSettingsTab.playback) { QTPlaybackSettings().qtSettingsFitsContent(maxHeight: 350) }
+            Tab(QTLoc.tr("Lyrics"), systemImage: QTIcon.lyrics.systemName, value: QTSettingsTab.lyrics) { QTLyricsSettings().qtSettingsFitsContent(maxHeight: 650) }
+            Tab(QTLoc.tr("Account"), systemImage: "person.crop.circle", value: QTSettingsTab.account) { QTAccountSettings().qtSettingsFitsContent(maxHeight: 220) }
+            Tab(QTLoc.tr("Advanced", table: .desktop), systemImage: "gearshape.2", value: QTSettingsTab.advanced) { QTAdvancedSettings().qtSettingsFitsContent(maxHeight: 310) }
         }
         .frame(width: 560)
         .scrollContentBackground(.visible)
@@ -332,5 +332,31 @@ struct QTAdvancedSettings: View {
         let short = info?["CFBundleShortVersionString"] as? String ?? "0.1.0"
         let build = info?["CFBundleVersion"] as? String ?? "1"
         return "\(short) (\(build))"
+    }
+}
+
+// MARK: - Content-sized tabs
+
+/// Sizes a grouped Form tab to its content (up to `maxHeight`, then it scrolls), so the Settings window grows and
+/// shrinks per tab like System Settings panes instead of leaving empty space under short forms.
+private struct QTSettingsContentHeight: ViewModifier {
+    let maxHeight: CGFloat
+    @State private var contentHeight: CGFloat?
+
+    func body(content: Content) -> some View {
+        content
+            .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentSize.height }) { _, h in
+                if h > 0, abs((contentHeight ?? 0) - h - 8) > 0.5 { contentHeight = h + 8 }
+            }
+            .frame(height: min(maxHeight, contentHeight ?? maxHeight))
+            // The tab area can be a few points taller than the form; let the window background show through
+            // so there's no seam between them.
+            .scrollContentBackground(.hidden)
+    }
+}
+
+extension View {
+    func qtSettingsFitsContent(maxHeight: CGFloat) -> some View {
+        modifier(QTSettingsContentHeight(maxHeight: maxHeight))
     }
 }

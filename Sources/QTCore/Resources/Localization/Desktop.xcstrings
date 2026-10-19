@@ -6,7 +6,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%lld 磅"
+            "value" : "%lld pt"
           }
         }
       }

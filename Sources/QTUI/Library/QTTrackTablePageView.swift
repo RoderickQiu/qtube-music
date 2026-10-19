@@ -12,13 +12,30 @@ final class QTTrackTablePageView: NSView {
     let tableView = QTTrackNSTableView()
     let columnHeader = QTColumnHeaderView(frame: NSRect(x: 0, y: 0, width: 400, height: QTTrackTablePageView.columnHeaderHeight))
     let pinnedBackground = NSVisualEffectView()
+    /// Pinned chrome lives above the scroll view (not inside its document) so the bar material can blur the rows
+    /// scrolling beneath it, the way the toolbar does. Clicks fall through everywhere except on its controls.
+    let floatingLayer = QTPassthroughView()
     private let pinnedSeparator = NSBox()
     let emptyLabel = NSTextField(labelWithString: "")
     var headerHost: NSView? { didSet { oldValue?.removeFromSuperview(); if let headerHost { documentView.addSubview(headerHost, positioned: .below, relativeTo: tableView) } } }
-    var compactHost: NSView? { didSet { oldValue?.removeFromSuperview(); if let compactHost { compactHost.alphaValue = 0; documentView.addSubview(compactHost, positioned: .above, relativeTo: pinnedBackground) } } }
+    var compactHost: NSView? { didSet { oldValue?.removeFromSuperview(); if let compactHost { compactHost.alphaValue = 0; floatingLayer.addSubview(compactHost, positioned: .above, relativeTo: pinnedBackground) } } }
     var alphabetHost: NSView? { didSet { oldValue?.removeFromSuperview(); if let alphabetHost { documentView.addSubview(alphabetHost) } } }
 
     static let columnHeaderHeight: CGFloat = 30
+    /// Height of the soft scroll-edge fade under the pinned bar (macOS 26+).
+    static var softEdge: CGFloat { if #available(macOS 26, *) { 18 } else { 0 } }
+
+    /// Opaque mask with a fading bottom edge, rendered at the bar's size.
+    static func softEdgeMask(size: NSSize) -> NSImage {
+        let edge = softEdge
+        let image = NSImage(size: size)
+        image.lockFocus()
+        NSColor.black.setFill()
+        NSRect(x: 0, y: edge, width: size.width, height: max(0, size.height - edge)).fill()
+        NSGradient(starting: .clear, ending: .black)?.draw(in: NSRect(x: 0, y: 0, width: size.width, height: edge), angle: 90)
+        image.unlockFocus()
+        return image
+    }
     static let compactHeight: CGFloat = 56
     static let leadingInset: CGFloat = 32
     static let trailingInset: CGFloat = 44
@@ -62,14 +79,29 @@ final class QTTrackTablePageView: NSView {
         tableView.cornerView = nil
         documentView.addSubview(tableView)
 
-        pinnedBackground.material = .headerView
+        // Bar material blending *within* the window: rows scrolling under the pinned header blur through it
+        // (like the toolbar) instead of being cut off by an opaque slab.
+        floatingLayer.translatesAutoresizingMaskIntoConstraints = false
+        floatingLayer.scrollTarget = scrollView
+        addSubview(floatingLayer, positioned: .above, relativeTo: scrollView)
+        NSLayoutConstraint.activate([
+            floatingLayer.leadingAnchor.constraint(equalTo: leadingAnchor),
+            floatingLayer.trailingAnchor.constraint(equalTo: trailingAnchor),
+            floatingLayer.topAnchor.constraint(equalTo: topAnchor),
+            floatingLayer.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+        pinnedBackground.material = .titlebar
+        if #available(macOS 26, *) {
+            // macOS 26 bars end in a soft scroll edge rather than a hairline: the material fades out over 18 pt.
+            pinnedSeparator.isHidden = true
+        }
         pinnedBackground.blendingMode = .withinWindow
-        pinnedBackground.state = .followsWindowActiveState
+        pinnedBackground.state = .active
         pinnedBackground.alphaValue = 0
         pinnedSeparator.boxType = .separator
         pinnedBackground.addSubview(pinnedSeparator)
-        documentView.addSubview(pinnedBackground)
-        documentView.addSubview(columnHeader)
+        floatingLayer.addSubview(pinnedBackground)
+        floatingLayer.addSubview(columnHeader)
 
         emptyLabel.font = .preferredFont(forTextStyle: .body)
         emptyLabel.textColor = .tertiaryLabelColor
@@ -132,7 +164,8 @@ final class QTTrackTablePageView: NSView {
     /// Sticky parts: compact bar, column headings, A–Z strip. Called on every scroll.
     private func layoutFloating() {
         let clip = scrollView.contentView.bounds
-        let y = max(0, clip.minY)
+        let rawY = clip.minY
+        let y = max(0, rawY)
         let width = clip.width
         let pinned = hasCompactBar && headerHeight > 0 && y > headerHeight - Self.compactHeight
         if pinned != isPinned {
@@ -140,15 +173,21 @@ final class QTTrackTablePageView: NSView {
             setPinnedChrome(visible: pinned)
             onPinnedChange?(pinned)
         }
+        // Floating-layer coordinates = document y − scroll offset (rawY, so the headings follow a top bounce).
         let compactH = hasCompactBar ? Self.compactHeight : 0
-        let headerY = pinned ? y + compactH : max(headerHeight, y)
+        let headerY = pinned ? compactH : max(headerHeight, y) - rawY
         columnHeader.frame = NSRect(x: Self.leadingInset, y: headerY, width: tableWidth, height: Self.columnHeaderHeight)
+        columnHeader.drawsSeparator = Self.softEdge == 0 || !showsPinnedBackgroundNow(pinned: pinned, y: y)
         let pinnedHeight = compactH + Self.columnHeaderHeight
         let showsPinnedBackground = pinned || (!hasCompactBar && y > headerHeight)
-        pinnedBackground.frame = NSRect(x: 0, y: pinned ? y : headerY, width: width, height: pinned ? pinnedHeight : Self.columnHeaderHeight)
+        pinnedBackground.frame = NSRect(x: 0, y: pinned ? 0 : headerY, width: width,
+                                        height: (pinned ? pinnedHeight : Self.columnHeaderHeight) + Self.softEdge)
         pinnedSeparator.frame = NSRect(x: 0, y: 0, width: width, height: 1)
+        if Self.softEdge > 0, pinnedBackground.maskImage?.size != pinnedBackground.frame.size, pinnedBackground.frame.width > 0 {
+            pinnedBackground.maskImage = Self.softEdgeMask(size: pinnedBackground.frame.size)
+        }
         if !hasCompactBar { pinnedBackground.alphaValue = showsPinnedBackground ? 1 : 0 }
-        compactHost?.frame = NSRect(x: 0, y: y, width: width, height: compactH)
+        compactHost?.frame = NSRect(x: 0, y: 0, width: width, height: compactH)
         if let alphabetHost {
             let h = CGFloat(QTTextFolding.indexLetters.count) * Self.alphabetLetterHeight
             let top = max(tableTop + 6, y + (pinned ? pinnedHeight : 0) + 10)
@@ -156,10 +195,14 @@ final class QTTrackTablePageView: NSView {
         }
     }
 
+    private func showsPinnedBackgroundNow(pinned: Bool, y: CGFloat) -> Bool {
+        pinned || (!hasCompactBar && y > headerHeight)
+    }
+
     /// Fixed columns keep their width; the flexible ones (title, album) share the rest in their current ratio,
     /// so a user's column resize is kept proportionally when the window changes size.
     private func fitColumns(to width: CGFloat) {
-        let cols = tableView.tableColumns
+        let cols = tableView.tableColumns.filter { !$0.isHidden }
         let flexible = cols.filter { $0.resizingMask.contains(.autoresizingMask) }
         let fixed = cols.filter { !$0.resizingMask.contains(.autoresizingMask) }.reduce(0) { $0 + $1.width }
         let available = max(0, width - fixed)
@@ -246,6 +289,8 @@ final class QTTrackTablePageView: NSView {
 final class QTColumnHeaderView: NSTableHeaderView {
     /// Sort key whose indicator is hidden ("#" = the playlist's own order).
     var hiddenSortKey = QTTrackSort.Key.added.rawValue
+    /// Off while pinned on macOS 26, where the bar ends in a soft scroll edge instead of a hairline.
+    var drawsSeparator = true { didSet { if oldValue != drawsSeparator { needsDisplay = true } } }
 
     override var isOpaque: Bool { false }
 
@@ -269,8 +314,23 @@ final class QTColumnHeaderView: NSTableHeaderView {
                 cell.drawSortIndicator(withFrame: frame, in: self, ascending: sort.ascending, priority: 0)
             }
         }
+        guard drawsSeparator else { return }
         NSColor.separatorColor.setFill()
         NSRect(x: 0, y: bounds.maxY - 1, width: bounds.width, height: 1).fill()
+    }
+}
+
+/// Flipped overlay that only takes clicks on its subviews.
+final class QTPassthroughView: NSView {
+    /// Scrolling over the pinned bar scrolls the page beneath it.
+    weak var scrollTarget: NSScrollView?
+    override var isFlipped: Bool { true }
+    override func scrollWheel(with event: NSEvent) {
+        if let scrollTarget { scrollTarget.scrollWheel(with: event) } else { super.scrollWheel(with: event) }
+    }
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        return hit === self ? nil : hit
     }
 }
 

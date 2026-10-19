@@ -143,6 +143,8 @@ final class QTTrackTitleCell: NSTableCellView {
     private let artist = makeLabel(font: QTTrackFonts.secondary, color: .secondaryLabelColor)
     private let mvBadge = QTBadgeLabel()
     private let lyricsBadge = QTBadgeLabel()
+    private var artworkWidth: NSLayoutConstraint!
+    private var textLeading: NSLayoutConstraint!
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -162,12 +164,14 @@ final class QTTrackTitleCell: NSTableCellView {
         addSubview(artwork)
         addSubview(text)
         textField = title
+        artworkWidth = artwork.widthAnchor.constraint(equalToConstant: QTTheme.Metrics.rowArtwork)
+        textLeading = text.leadingAnchor.constraint(equalTo: artwork.trailingAnchor, constant: 14)
         NSLayoutConstraint.activate([
             artwork.leadingAnchor.constraint(equalTo: leadingAnchor),
             artwork.centerYAnchor.constraint(equalTo: centerYAnchor),
-            artwork.widthAnchor.constraint(equalToConstant: QTTheme.Metrics.rowArtwork),
+            artworkWidth,
             artwork.heightAnchor.constraint(equalToConstant: QTTheme.Metrics.rowArtwork),
-            text.leadingAnchor.constraint(equalTo: artwork.trailingAnchor, constant: 14),
+            textLeading,
             text.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -8),
             text.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
@@ -175,8 +179,12 @@ final class QTTrackTitleCell: NSTableCellView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    func configure(_ track: QTTrack, isPlaying: Bool, accent: NSColor) {
-        artwork.load(track.artwork, pointSize: QTTheme.Metrics.rowArtwork)
+    /// `showsArtwork: false` on album pages, where every row would repeat the album cover (Music.app style).
+    func configure(_ track: QTTrack, isPlaying: Bool, accent: NSColor, showsArtwork: Bool = true) {
+        artwork.isHidden = !showsArtwork
+        artworkWidth.constant = showsArtwork ? QTTheme.Metrics.rowArtwork : 0
+        textLeading.constant = showsArtwork ? 14 : 0
+        if showsArtwork { artwork.load(track.artwork, pointSize: QTTheme.Metrics.rowArtwork) }
         let s = NSMutableAttributedString(string: track.title, attributes: [
             .font: QTTrackFonts.title, .foregroundColor: isPlaying ? accent : NSColor.labelColor,
         ])

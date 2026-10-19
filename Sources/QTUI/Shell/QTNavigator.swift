@@ -11,6 +11,8 @@ public enum QTDestination: Hashable, Sendable {
     case album(String)
     /// Artist page, by artist name.
     case artist(String)
+    /// A mood or genre page from Explore.
+    case mood(QTMoodChip)
 
     public var sidebarItem: QTSidebarItem? {
         if case .section(let item) = self { return item }
@@ -23,6 +25,7 @@ public enum QTDestination: Hashable, Sendable {
         case .section(let item): "section:\(item.argument)"
         case .album(let title): "album:\(title)"
         case .artist(let name): "artist:\(name)"
+        case .mood(let chip): "mood:\(chip.id)"
         }
     }
 }

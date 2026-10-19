@@ -73,6 +73,8 @@ for w in json.load(open(sys.argv[1]))["windows"]:
     if w["identifier"] == sys.argv[2]: print(w["number"]); break' "$READY" "qt.window.$1"
 }
 
+# Stage Manager animates a newly shown window (skewed, scaled) for a moment; let it settle before capturing.
+sleep "${QT_SETTLE:-1}"
 STATUS=0
 FIRST=1
 for k in "${KINDS[@]}"; do
