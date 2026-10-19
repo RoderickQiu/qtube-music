@@ -178,7 +178,9 @@ Views:
   — downsampled, cached (`QTImageLoader`), no borders, holds readiness while loading.
 - `QTLyricsView(document:time:style:showsTranslation:onSeek:)` — `time` is a `QTPlaybackTimeline` (anchor + rate);
   the view interpolates itself, so parents re-render only on play/pause/seek. `style`: `.panel`, `.stage(centered:)`,
-  `.mini`, `.desktop`. `onSeek` gets a playback time.
+  `.mini`, `.desktop`. `onSeek` gets a playback time. Lanes (translation / romanization) are drawn in the main ink
+  and get their level from `QTLyricsMetrics.laneOpacity(rowOpacity:)`: ~0.62–0.66 beside the current line
+  (secondary), rising to 0.86 of a dimmed row's own opacity (≈ tertiary) — never lane alpha × row alpha.
 - `QTLyricsOptionsButton(overArt:)` → system popover with `QTLyricsOptionsPopover()` (source + timing kind of what is
   showing, Translate to + status, one "Unofficial sources" switch — per-provider switches live in Settings › Lyrics —,
   timing stepper, Other versions with an "Automatic" entry that unpins). Opening it re-checks a translation that
@@ -321,7 +323,8 @@ The prototype defines layout, hierarchy, copy and states; the app must look like
   `glassEffect` or paints `.material` backgrounds itself:
   - `qtGlass(_ role, in: shape, tint:, interactive:)` — roles `.chrome` (floating pieces over our content: toasts,
     lyrics "Current" pill), `.bar` (the player bar: glass with a neutral window-colour wash so titles stay legible
-    over vivid art), `.overArt` (Stage chrome, queue drawer, ad badges, mini player art controls; dark context).
+    over vivid art; in light mode it also gets a hairline + soft outside shadow so it has an edge over white
+    content), `.overArt` (Stage chrome, queue drawer, ad badges, mini player art controls; dark context).
     Tint = the artwork accent at ~0.12–0.16 opacity, only over art.
   - `qtGlassButton(.primary | .secondary, iconOnly:)` — `.glassProminent` / `.glass` (capsule or circle; accent via
     `.tint`): mood chips, collection Play / Shuffle / More, search top result, panel header hide button.

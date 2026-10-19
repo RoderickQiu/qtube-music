@@ -112,6 +112,23 @@ import Testing
 }
 
 @Suite struct QTLyricsRowTests {
+    /// The translation lane is a secondary level of the hierarchy, not a fraction of the dimmed row: under an
+    /// inactive line it stays close to that line's own level (r3 review: it vanished into the tinted panel).
+    @Test func translationLaneStaysLegibleOnInactiveRows() {
+        for style in [QTLyricsStyle.panel, .stage(centered: false), .mini, .desktop] {
+            let m = QTLyricsMetrics.make(style)
+            let current = m.laneOpacity(rowOpacity: 1)
+            let inactive = m.inactiveOpacity * m.laneOpacity(rowOpacity: m.inactiveOpacity)
+            #expect(current >= 0.6 && current < 1 || style == .desktop)
+            #expect(inactive >= m.inactiveOpacity * 0.8, "inactive lane \(inactive) vs row \(m.inactiveOpacity)")
+            #expect(inactive <= m.inactiveOpacity)
+            let hover = m.laneOpacity(rowOpacity: m.hoverOpacity)
+            #expect(hover >= current && hover <= m.laneOpacity(rowOpacity: m.inactiveOpacity))
+        }
+        let contrast = QTLyricsMetrics.make(.panel, increaseContrast: true)
+        #expect(contrast.inactiveOpacity * contrast.laneOpacity(rowOpacity: contrast.inactiveOpacity) >= 0.45)
+    }
+
     func doc(_ starts: [Double], durations: [Double?]) -> QTLyricsDocument {
         QTLyricsDocument(lines: zip(starts, durations).enumerated().map { i, p in
             QTLyricsLine(start: p.0, duration: p.1, text: "Line \(i)")

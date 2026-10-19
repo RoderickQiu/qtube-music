@@ -426,15 +426,18 @@ final class QTLyricsRailView: NSView, NSMenuItemValidation {
 
         let anchorX: CGFloat = metrics.main.centered ? 0.5 : 0
         let transform = scaleTransform(scale, width: r.width, height: height(of: r, isCurrent: isCurrent), anchorX: anchorX)
+        let laneOpacity = metrics.laneOpacity(rowOpacity: opacity)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if animated {
             if node.container.opacity != opacity { animate(node.container, "opacity", to: opacity) }
+            for lane in node.lanes where lane.opacity != laneOpacity { animate(lane, "opacity", to: laneOpacity) }
             if !CATransform3DEqualToTransform(node.container.transform, transform) {
                 animate(node.container, "transform", to: NSValue(caTransform3D: transform))
             }
         }
         node.container.opacity = opacity
+        for lane in node.lanes { lane.opacity = laneOpacity }
         node.container.transform = transform
         let wantsBlur = blur > 0.05
         if wantsBlur {

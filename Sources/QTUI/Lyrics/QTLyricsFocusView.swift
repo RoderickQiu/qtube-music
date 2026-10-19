@@ -121,6 +121,7 @@ final class QTLyricsFocusView: NSView {
                 let node = QTLyricsRowNode(model: rows[i])
                 node.render(metrics: metrics, scale: scale, appearance: effectiveAppearance)
                 node.container.opacity = i == cur ? (cfg.clock.stalled ? 0.5 : 1) : metrics.inactiveOpacity
+                for lane in node.lanes { lane.opacity = metrics.laneOpacity(rowOpacity: node.container.opacity) }
                 root.addSublayer(node.container)
                 return node
             }
@@ -137,6 +138,7 @@ final class QTLyricsFocusView: NSView {
                 CATransaction.begin()
                 CATransaction.setAnimationDuration(animated ? QTTheme.Motion.uiDuration : 0)
                 node.container.opacity = target
+                for lane in node.lanes { lane.opacity = metrics.laneOpacity(rowOpacity: target) }
                 CATransaction.commit()
             }
         }

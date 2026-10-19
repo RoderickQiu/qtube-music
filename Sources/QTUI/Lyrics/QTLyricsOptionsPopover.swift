@@ -182,6 +182,9 @@ public struct QTLyricsOptionsPopover: View {
         .font(.footnote)
         .foregroundStyle(.secondary)
         .frame(maxWidth: .infinity, alignment: .trailing)
+        // A container, so the download button keeps its own identifier (`qt.lyrics.downloadTranslation`) instead
+        // of inheriting this one.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("qt.lyrics.translationStatus")
     }
 

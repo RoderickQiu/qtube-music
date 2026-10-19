@@ -40,11 +40,25 @@ struct QTLyricsMetrics {
     var shadow: NSShadow?
     var outline: (width: CGFloat, color: NSColor)?
     var dotSize: CGFloat
+    /// Translation / romanization lanes beside the current line, as a fraction of the main ink: the secondary level
+    /// of the lyric hierarchy (`.ly-tr` colour: `--fg-2` in the panel, white 62 % on the Stage).
+    var laneOpacity: Float = 0.62
+    /// The lanes' own opacity inside a dimmed (inactive) row. Without it a lane would be a fraction of a fraction
+    /// (62 % × 32 % ≈ 0.2) and vanish into a tinted panel; with it an inactive translation sits just under its
+    /// inactive lyric (≈ tertiary label level).
+    var inactiveLaneOpacity: Float = 0.86
 
     var mainColor: NSColor { overArt ? .white : .labelColor }
-    /// Translation / romanization lanes. The desktop overlay (the only style with an outline) keeps them brighter.
-    var laneColor: NSColor {
-        overArt ? NSColor.white.withAlphaComponent(outline != nil ? 0.88 : 0.62) : .secondaryLabelColor
+    /// Ink of the translation / romanization lanes (their level comes from `laneOpacity(rowOpacity:)`).
+    var laneColor: NSColor { mainColor }
+
+    /// Opacity of the lane layers for a row whose container is at `rowOpacity`: `laneOpacity` on the current line,
+    /// rising to `inactiveLaneOpacity` as the row dims, so the lane's absolute level never drops far below the
+    /// row's lyric.
+    func laneOpacity(rowOpacity: Float) -> Float {
+        let span = max(0.001, 1 - inactiveOpacity)
+        let t = min(1, max(0, (1 - rowOpacity) / span))
+        return laneOpacity + (inactiveLaneOpacity - laneOpacity) * t
     }
 
     /// Same metrics with every lane in the given system font design.
@@ -69,7 +83,8 @@ struct QTLyricsMetrics {
                 rowPadding: 7, laneGap: 3, inset: 30, anchor: 0.31, inactiveOpacity: dim, hoverOpacity: 0.62,
                 farOpacity: nil, unsungOpacity: increaseContrast ? 0.5 : 0.36, inactiveScale: 0.97,
                 futureBlur: 0, farBlur: 0, edge: 10 * textScale, fadeTop: 0.14, fadeBottom: 0.80, overArt: false,
-                shadow: nil, outline: nil, dotSize: 7 * textScale)
+                shadow: nil, outline: nil, dotSize: 7 * textScale,
+                laneOpacity: increaseContrast ? 0.78 : 0.62, inactiveLaneOpacity: increaseContrast ? 1 : 0.86)
         case .stage(let centered):
             let s = QTTheme.Typography.lyricSizes(.stage)
             return QTLyricsMetrics(
@@ -80,7 +95,8 @@ struct QTLyricsMetrics {
                 farOpacity: increaseContrast ? 0.36 : 0.2, unsungOpacity: increaseContrast ? 0.5 : 0.34,
                 inactiveScale: 0.955, futureBlur: increaseContrast ? 0 : 0.6, farBlur: increaseContrast ? 0 : 1.6,
                 edge: 18 * textScale, fadeTop: 0.14, fadeBottom: 0.80, overArt: true, shadow: nil, outline: nil,
-                dotSize: 12 * textScale)
+                dotSize: 12 * textScale,
+                laneOpacity: increaseContrast ? 0.8 : 0.66, inactiveLaneOpacity: increaseContrast ? 1 : 0.86)
         case .mini:
             let s = QTTheme.Typography.lyricSizes(.mini)
             return QTLyricsMetrics(
@@ -89,7 +105,8 @@ struct QTLyricsMetrics {
                 translation: .init(size: s.translation * textScale, weight: .regular, lineHeight: 1.3, centered: false, balanced: false),
                 rowPadding: 0, laneGap: 1, inset: 0, anchor: 0.5, inactiveOpacity: dim, hoverOpacity: 1,
                 farOpacity: nil, unsungOpacity: 0.45, inactiveScale: 1, futureBlur: 0, farBlur: 0, edge: 6,
-                fadeTop: 0, fadeBottom: 1, overArt: false, shadow: nil, outline: nil, dotSize: 5)
+                fadeTop: 0, fadeBottom: 1, overArt: false, shadow: nil, outline: nil, dotSize: 5,
+                laneOpacity: increaseContrast ? 0.8 : 0.66, inactiveLaneOpacity: increaseContrast ? 1 : 0.86)
         case .desktop:
             let s = QTTheme.Typography.lyricSizes(.desktop)
             let main = (desktopFontSize ?? s.main) * textScale
@@ -107,7 +124,9 @@ struct QTLyricsMetrics {
                 // The unsung fill dims, its outline + shadow (`mainHalo`) don't: legible on pale and busy wallpapers.
                 farOpacity: nil, unsungOpacity: 0.7, inactiveScale: 1, futureBlur: 0, farBlur: 0, edge: 16,
                 fadeTop: 0, fadeBottom: 1, overArt: true, shadow: shadow,
-                outline: (width: max(2, main / 13), color: NSColor.black.withAlphaComponent(0.5)), dotSize: 10)
+                outline: (width: max(2, main / 13), color: NSColor.black.withAlphaComponent(0.5)), dotSize: 10,
+                // Over any wallpaper: near the lyric's own level; the outline + shadow give the hierarchy.
+                laneOpacity: increaseContrast ? 1 : 0.9, inactiveLaneOpacity: 1)
         }
     }
 }
@@ -336,6 +355,9 @@ final class QTLyricsRowNode {
         mainFill.isHidden = true
         mainFill.mask = textMask
     }
+
+    /// The translation + romanization layers (their opacity follows the row's, see `laneOpacity(rowOpacity:)`).
+    var lanes: [CALayer] { [romanization, translation] }
 
     /// Disables implicit animations for geometry/contents; state changes use explicit transactions.
     static let noActions: [String: any CAAction] = [

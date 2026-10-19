@@ -100,6 +100,7 @@ private struct QTGlassSurface<S: Shape>: ViewModifier {
     let interactive: Bool
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.colorScheme) private var colorScheme
 
     func body(content: Content) -> some View {
         if reduceTransparency || QTGlassDebug.forcesSolid {
@@ -109,10 +110,39 @@ private struct QTGlassSurface<S: Shape>: ViewModifier {
         } else if #available(macOS 26, *) {
             content.glassEffect(Glass.regular.tint(contrast == .increased ? role.defaultTint : tint ?? role.defaultTint)
                 .interactive(interactive), in: shape)
+                .modifier(QTGlassLightEdge(enabled: role == .bar && colorScheme == .light, shape: shape))
         } else {
             content
                 .background(role.fallbackMaterial, in: shape)
                 .overlay { shape.stroke(.primary.opacity(contrast == .increased ? 0.45 : 0.08), lineWidth: 1) }
+        }
+    }
+}
+
+/// Light mode only, the player bar: Liquid Glass tinted with the window colour has no visible edge over white
+/// content, so the bar gets what a floating window has — a hairline and a soft drop shadow outside its shape
+/// (masked off the inside, so the glass never samples a fill).
+private struct QTGlassLightEdge<S: Shape>: ViewModifier {
+    let enabled: Bool
+    let shape: S
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content
+                .background {
+                    shape.fill(.black)
+                        .shadow(color: .black.opacity(0.14), radius: 10, y: 3)
+                        .mask {
+                            Rectangle().padding(-40)
+                                .overlay { shape.blendMode(.destinationOut) }
+                                .compositingGroup()
+                        }
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+                .overlay { shape.stroke(.black.opacity(0.09), lineWidth: 0.5).allowsHitTesting(false) }
+        } else {
+            content
         }
     }
 }
