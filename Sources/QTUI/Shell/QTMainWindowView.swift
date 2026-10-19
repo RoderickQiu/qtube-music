@@ -82,6 +82,7 @@ public struct QTMainWindowView: View {
             }
         }
         .toolbar(model.surface == .stage ? .hidden : .visible, for: .windowToolbar)
+        .overlay { QTLyricsLabOverlay() }
         .qtArtworkTint(model.palette)
         .frame(minWidth: 960, minHeight: 600)
         .onChange(of: model.sidebarSelection) { _, item in navigator.sidebarSelectionChanged(to: item) }

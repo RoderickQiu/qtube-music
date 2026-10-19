@@ -32,9 +32,9 @@ public struct QTCommands: Commands {
             Button(QTLoc.tr("Desktop Lyrics")) { model.isDesktopLyricsShown.toggle() }
                 .keyboardShortcut("l", modifiers: [.command, .shift])
             Divider()
-            Button(QTLoc.tr("Lyrics Earlier")) { model.player.nudgeLyricsOffset(by: 0.1) }
+            Button(QTLoc.tr("Lyrics Earlier")) { QTLyricsTiming.nudge(model, by: QTLyricsTiming.step) }
                 .keyboardShortcut(.upArrow, modifiers: .option)
-            Button(QTLoc.tr("Lyrics Later")) { model.player.nudgeLyricsOffset(by: -0.1) }
+            Button(QTLoc.tr("Lyrics Later")) { QTLyricsTiming.nudge(model, by: -QTLyricsTiming.step) }
                 .keyboardShortcut(.downArrow, modifiers: .option)
         }
         CommandGroup(after: .sidebar) {
