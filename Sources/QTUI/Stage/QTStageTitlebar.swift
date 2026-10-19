@@ -1,4 +1,5 @@
 import AppKit
+import QTCore
 
 /// Keeps a real Mac title bar over the in-window Stage: the traffic lights stay where they belong, on the
 /// window's own (transparent, full-size-content) title bar, while the browsing toolbar items — back/forward,
@@ -35,7 +36,7 @@ final class QTStageTitlebar {
                                                                 queue: .main) { [weak self] note in
             let toolbar = note.object as? NSToolbar
             let item = note.userInfo?["item"] as? NSToolbarItem
-            MainActor.assumeIsolated {
+            QTMainActorHop.onMainThread {
                 guard let self, self.isInstalled, let toolbar, toolbar === self.window?.toolbar, let item else { return }
                 self.hide(item)
             }

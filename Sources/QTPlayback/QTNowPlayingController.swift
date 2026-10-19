@@ -310,9 +310,9 @@ public final class QTNowPlayingController {
     /// MediaPlayer calls handlers on the main thread on macOS; hop explicitly if that ever changes.
     nonisolated private static func onMain(_ body: @MainActor () -> MPRemoteCommandHandlerStatus) -> MPRemoteCommandHandlerStatus {
         if Thread.isMainThread {
-            return MainActor.assumeIsolated { body() }
+            return QTMainActorHop.onMainThread { body() }
         }
-        return DispatchQueue.main.sync { MainActor.assumeIsolated { body() } }
+        return DispatchQueue.main.sync { QTMainActorHop.onMainThread { body() } }
     }
 
     // MARK: Artwork

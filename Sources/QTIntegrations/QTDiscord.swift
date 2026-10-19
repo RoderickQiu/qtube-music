@@ -170,6 +170,10 @@ public actor QTDiscordPresence {
             guard s >= 0 else { continue }
             var on: Int32 = 1
             setsockopt(s, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+            // A Discord client that stops reading must not block this actor's thread for good: a send gives up after
+            // `sendTimeoutMicroseconds` (the presence is dropped and reconnects on the next update).
+            var timeout = timeval(tv_sec: 0, tv_usec: Self.sendTimeoutMicroseconds)
+            setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
             var addr = sockaddr_un()
             addr.sun_family = sa_family_t(AF_UNIX)
             let bytes = Array(path.utf8.prefix(MemoryLayout.size(ofValue: addr.sun_path) - 1))
@@ -196,6 +200,9 @@ public actor QTDiscordPresence {
         }
         return false
     }
+
+    /// How long one `send` may wait for Discord to read (0.5 s).
+    static let sendTimeoutMicroseconds: Int32 = 500_000
 
     private func write(_ data: Data) -> Bool {
         guard fd >= 0 else { return false }

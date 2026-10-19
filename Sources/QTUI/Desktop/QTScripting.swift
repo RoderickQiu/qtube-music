@@ -141,7 +141,7 @@ public final class QTScriptTrack: NSObject {
 @objc(QTScriptPlayCommand)
 final class QTScriptPlayCommand: NSScriptCommand {
     override func performDefaultImplementation() -> Any? {
-        MainActor.assumeIsolated { QTScripting.perform(.play) }
+        QTMainActorHop.onMainThread { QTScripting.perform(.play) }
         return nil
     }
 }
@@ -149,7 +149,7 @@ final class QTScriptPlayCommand: NSScriptCommand {
 @objc(QTScriptPauseCommand)
 final class QTScriptPauseCommand: NSScriptCommand {
     override func performDefaultImplementation() -> Any? {
-        MainActor.assumeIsolated { QTScripting.perform(.pause) }
+        QTMainActorHop.onMainThread { QTScripting.perform(.pause) }
         return nil
     }
 }
@@ -157,7 +157,7 @@ final class QTScriptPauseCommand: NSScriptCommand {
 @objc(QTScriptPlayPauseCommand)
 final class QTScriptPlayPauseCommand: NSScriptCommand {
     override func performDefaultImplementation() -> Any? {
-        MainActor.assumeIsolated { QTScripting.perform(.playPause) }
+        QTMainActorHop.onMainThread { QTScripting.perform(.playPause) }
         return nil
     }
 }
@@ -165,7 +165,7 @@ final class QTScriptPlayPauseCommand: NSScriptCommand {
 @objc(QTScriptNextTrackCommand)
 final class QTScriptNextTrackCommand: NSScriptCommand {
     override func performDefaultImplementation() -> Any? {
-        MainActor.assumeIsolated { QTScripting.perform(.next) }
+        QTMainActorHop.onMainThread { QTScripting.perform(.next) }
         return nil
     }
 }
@@ -173,7 +173,7 @@ final class QTScriptNextTrackCommand: NSScriptCommand {
 @objc(QTScriptPreviousTrackCommand)
 final class QTScriptPreviousTrackCommand: NSScriptCommand {
     override func performDefaultImplementation() -> Any? {
-        MainActor.assumeIsolated { QTScripting.perform(.previous) }
+        QTMainActorHop.onMainThread { QTScripting.perform(.previous) }
         return nil
     }
 }

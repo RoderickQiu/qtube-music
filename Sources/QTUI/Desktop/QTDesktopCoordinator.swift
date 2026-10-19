@@ -251,7 +251,7 @@ public final class QTDesktopCoordinator {
     private func observeMainWindowKey() {
         observers.append(NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { note in
             let window = note.object as? NSWindow
-            MainActor.assumeIsolated {
+            QTMainActorHop.onMainThread {
                 // ⌘0 / Window › QTube Music / Dock click while in the mini player: back to the window.
                 guard window?.identifier == QTWindowID.main.identifier,
                       let model = QTDesktopCoordinator.shared.model, model.surface == .mini else { return }
@@ -263,7 +263,7 @@ public final class QTDesktopCoordinator {
     private func observeMainWindowClose() {
         observers.append(NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { note in
             let window = note.object as? NSWindow
-            MainActor.assumeIsolated {
+            QTMainActorHop.onMainThread {
                 guard window?.identifier == QTWindowID.main.identifier,
                       let model = QTDesktopCoordinator.shared.model else { return }
                 if !model.settings.settings.closeWindowKeepsPlaying {
@@ -307,7 +307,7 @@ public final class QTDesktopCoordinator {
         for name in names {
             observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { note in
                 let window = note.object as? NSWindow
-                MainActor.assumeIsolated {
+                QTMainActorHop.onMainThread {
                     let c = QTDesktopCoordinator.shared
                     guard window?.identifier == QTWindowID.main.identifier, let model = c.model,
                           let panel = c.lyricsPanel, panel.isVisible else { return }
@@ -389,8 +389,10 @@ public final class QTDesktopCoordinator {
     private func observeScreens() {
         observers.append(NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
                                                                 object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated {
+            QTMainActorHop.onMainThread {
                 let c = QTDesktopCoordinator.shared
+                // DEBUG: the dev/scripted run's display went away → quit rather than sit on the user's screen.
+                if let launch = c.model?.launch { QTScreenGuard.screensChanged(launch) }
                 c.miniPanel?.clampToScreen()
                 if let model = c.model, let panel = c.lyricsPanel, panel.isVisible {
                     panel.apply(prefs: model.settings.settings.desktopLyrics, preferredScreenName: model.launch.screen,

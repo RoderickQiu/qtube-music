@@ -294,7 +294,7 @@ final class QTLyricsRailView: NSView, NSMenuItemValidation {
         if cfg.clock.rate > 0, let next = nextBoundary(after: now.lyric) {
             let wait = max(0.005, (next - now.lyric) / cfg.clock.rate)
             let timer = Timer(timeInterval: wait, repeats: false) { [weak self] _ in
-                MainActor.assumeIsolated { self?.refresh(animated: true) }
+                QTMainActorHop.onMainThread { self?.refresh(animated: true) }
             }
             timer.tolerance = 0.004
             RunLoop.main.add(timer, forMode: .common)
@@ -535,7 +535,7 @@ final class QTLyricsRailView: NSView, NSMenuItemValidation {
         resumeTimer?.invalidate()
         guard config?.startsScrolled != true else { return }
         let timer = Timer(timeInterval: Self.resumeDelay, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated {
+            QTMainActorHop.onMainThread {
                 guard let self, self.selection == nil else { return }
                 self.returnToCurrent(animated: true)
             }
@@ -755,17 +755,17 @@ final class QTLyricsLineAccessibilityElement: NSAccessibilityElement {
 
     override func accessibilityFrame() -> NSRect {
         let owner = owner, row = rowIndex
-        return MainActor.assumeIsolated { owner?.accessibilityFrame(forRow: row) ?? .zero }
+        return QTMainActorHop.onMainThread { owner?.accessibilityFrame(forRow: row) ?? .zero }
     }
 
     override func isAccessibilitySelected() -> Bool {
         let owner = owner, row = rowIndex
-        return MainActor.assumeIsolated { owner?.accessibilityIsCurrent(row) ?? false }
+        return QTMainActorHop.onMainThread { owner?.accessibilityIsCurrent(row) ?? false }
     }
 
     override func accessibilityPerformPress() -> Bool {
         let owner = owner, row = rowIndex
-        return MainActor.assumeIsolated { owner?.accessibilityPress(row: row) ?? false }
+        return QTMainActorHop.onMainThread { owner?.accessibilityPress(row: row) ?? false }
     }
 }
 

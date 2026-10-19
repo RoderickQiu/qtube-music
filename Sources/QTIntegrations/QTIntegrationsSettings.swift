@@ -143,6 +143,20 @@ public final class QTIntegrationsStore {
     public var lastFMSessionKey: String? {
         settings.lastFM.isConnected ? secrets.get(.lastFMSessionKey) : nil
     }
+
+    /// The API account and session key for scrobbling, read from the Keychain **off the main thread**: a Keychain
+    /// read can wait on a system prompt (an ad-hoc build reading an item a previous build saved), and the
+    /// integrations configure themselves at launch. nil when Last.fm isn't set up and connected.
+    public func loadLastFMSession() async -> (credentials: QTLastFMCredentials, sessionKey: String)? {
+        let prefs = settings.lastFM
+        let key = prefs.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty, prefs.hasSecret, prefs.isConnected else { return nil }
+        let secrets = secrets
+        return await Task.detached(priority: .utility) { () -> (credentials: QTLastFMCredentials, sessionKey: String)? in
+            guard let secret = secrets.get(.lastFMSecret), let session = secrets.get(.lastFMSessionKey) else { return nil }
+            return (QTLastFMCredentials(apiKey: key, apiSecret: secret), session)
+        }.value
+    }
 }
 
 // MARK: - Secrets

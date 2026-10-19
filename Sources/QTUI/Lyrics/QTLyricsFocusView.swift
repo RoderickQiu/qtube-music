@@ -145,7 +145,7 @@ final class QTLyricsFocusView: NSView {
         if cfg.clock.rate > 0, let next = cfg.document.lines.first(where: { $0.start > now.lyric + 0.0005 })?.start {
             let wait = max(0.005, (next - now.lyric) / cfg.clock.rate)
             let t = Timer(timeInterval: wait, repeats: false) { [weak self] _ in
-                MainActor.assumeIsolated { self?.refresh(animated: true) }
+                QTMainActorHop.onMainThread { self?.refresh(animated: true) }
             }
             t.tolerance = 0.004
             RunLoop.main.add(t, forMode: .common)

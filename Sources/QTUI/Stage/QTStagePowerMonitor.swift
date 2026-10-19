@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import IOKit.ps
 import Observation
+import QTCore
 
 /// Low Power Mode and battery state, so the Stage can step its motion down.
 /// - Low Power Mode: no drift / Ken Burns, visualizer at 30 fps.
@@ -21,7 +22,7 @@ final class QTStagePowerMonitor {
         observers.append(NotificationCenter.default.addObserver(
             forName: .NSProcessInfoPowerStateDidChange, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refresh() }
+            QTMainActorHop.onMainThread { self?.refresh() }
         })
         // Power-source changes are rare; a slow poll avoids a CF run-loop source.
         poll = Task { @MainActor [weak self] in

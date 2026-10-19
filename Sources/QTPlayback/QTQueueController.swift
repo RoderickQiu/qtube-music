@@ -65,6 +65,10 @@ public final class QTQueueController {
         didSet { if repeatMode != oldValue { scheduleSave(); publishNowPlaying() } }
     }
     public private(set) var isFetchingAutoplay = false
+    /// Bumped whenever a new *listen* of the current item begins: a new current item (play, next, autoplay, jump,
+    /// previous), Repeat One wrapping to the start, Previous restarting the track. Not bumped by Song⇄Video switches,
+    /// engine swaps or a restored queue. Lets scrobblers tell a replay of the same video id from the same play.
+    public private(set) var playSerial = 0
     /// The last load failure (cleared by the next successful load).
     public private(set) var lastFailure: QTPlaybackError?
 
@@ -202,6 +206,7 @@ public final class QTQueueController {
     public func previous() async {
         guard queue.nowPlaying != nil else { return }
         if currentTime > Self.restartThreshold || queue.history.isEmpty {
+            playSerial += 1
             engine.seek(to: 0)
             if engine.state.status != .playing { play() }
             return
@@ -214,6 +219,7 @@ public final class QTQueueController {
             }
         }
         queue.nowPlaying = previous
+        playSerial += 1
         await loadCurrent(startTime: 0, autoplay: true, mode: preferredMode)
     }
 
@@ -451,6 +457,7 @@ public final class QTQueueController {
 
     private func handleEnded() async {
         if repeatMode == .one {
+            playSerial += 1
             engine.seek(to: 0)
             play()
             return
@@ -470,6 +477,7 @@ public final class QTQueueController {
             if queue.history.count > QTQueue.historyLimit { queue.history.removeFirst(queue.history.count - QTQueue.historyLimit) }
         }
         queue.nowPlaying = item
+        playSerial += 1
         origins[item.id] = section
         if section == .autoplay, let i = context.firstIndex(where: { $0.id == item.id }) { contextCursor = i }
     }

@@ -391,6 +391,16 @@
         }
       }
     },
+    "Last.fm isn’t accepting scrobbles. Check the API key in Settings." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Last.fm 暂不接受播放记录，请在设置中检查 API 密钥。"
+          }
+        }
+      }
+    },
     "Lines" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1027,6 +1037,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "更新“正在播放”"
+          }
+        }
+      }
+    },
+    "Use your own API key" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用自己的 API 密钥"
+          }
+        }
+      }
+    },
+    "Use your own application ID" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用自己的应用 ID"
           }
         }
       }

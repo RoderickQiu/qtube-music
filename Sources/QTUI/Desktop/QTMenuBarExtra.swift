@@ -31,7 +31,7 @@ public final class QTMenuBarTicker {
         if needed, timer == nil {
             pauseUntil = Date().addingTimeInterval(1.5)
             let t = Timer(timeInterval: 1 / Self.fps, repeats: true) { _ in
-                MainActor.assumeIsolated { QTDesktopCoordinator.shared.menuBarTicker.step() }
+                QTMainActorHop.onMainThread { QTDesktopCoordinator.shared.menuBarTicker.step() }
             }
             RunLoop.main.add(t, forMode: .common)
             timer = t

@@ -3,6 +3,7 @@
 //
 //   qt-window-id --pid <pid> [--title <substring>] [--wait <seconds>]   → prints the window id
 //   qt-window-id --pid <pid> --list                                       → id, layer, bounds, title per window
+//   qt-window-id --display-bounds <name> | --default-screen [preferred] | --screens   → displays (see below)
 //
 // Without --title it picks the largest normal-layer window. Titles need Screen Recording permission for the
 // calling terminal; without it, matching falls back to the largest window when exactly one candidate exists.
@@ -39,6 +40,27 @@ if let name = value("--display-bounds") {
         exit(0)
     }
     exit(1)
+}
+// `--default-screen [preferred]` → the display dev runs should use: the first connected display whose name contains
+// `preferred` (default U270CA, the external test display), else the built-in display's full name. Exit 1 if neither.
+if args.contains("--default-screen") {
+    let preferred = value("--default-screen").flatMap { $0.hasPrefix("--") ? nil : $0 } ?? "U270CA"
+    if let s = NSScreen.screens.first(where: { $0.localizedName.range(of: preferred, options: .caseInsensitive) != nil }) {
+        print(s.localizedName)
+        exit(0)
+    }
+    for screen in NSScreen.screens {
+        guard let n = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber,
+              CGDisplayIsBuiltin(CGDirectDisplayID(n.uint32Value)) != 0 else { continue }
+        print(screen.localizedName)
+        exit(0)
+    }
+    exit(1)
+}
+// `--screens` → every connected display's name, one per line.
+if args.contains("--screens") {
+    for screen in NSScreen.screens { print(screen.localizedName) }
+    exit(0)
 }
 guard let pidString = value("--pid"), let pid = Int32(pidString) else {
     FileHandle.standardError.write(Data("usage: qt-window-id --pid <pid> [--title <substring>] [--wait <s>] [--list]\n".utf8))

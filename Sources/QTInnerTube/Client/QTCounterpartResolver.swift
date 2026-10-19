@@ -69,12 +69,17 @@ public enum QTCounterpartMatcher {
 
 extension QTInnerTubeClient {
     /// Song⇄Video counterpart for a track (see `QTCounterpartMatcher` for the order of sources).
+    ///
+    /// Privacy: `next` goes out with the session when there is one — it is the same read the web player makes for
+    /// what's playing, and only signed-in answers carry counterparts. The search fallback runs on its own for the
+    /// current and the next track, so it is always **anonymous** (`identity: .anonymous`): a signed-in search would
+    /// land in the account's search history.
     public func counterpart(for track: QTTrack) async throws -> QTCounterpart? {
         if let c = track.counterpart { return c }
         if let c = try? await counterpart(for: track.videoId) { return c }
         let query = ([track.title] + track.artists.prefix(1).map(\.name)).joined(separator: " ")
         let filter: QTSearchFilter = track.musicVideoType.isVideo ? .songs : .videos
-        let results = try await search(query, filter: filter)
+        let results = try await search(query, filter: filter, identity: .anonymous)
         guard let hit = QTCounterpartMatcher.match(track, in: results.songs + results.videos) else { return nil }
         return QTCounterpart(videoId: hit.videoId, musicVideoType: hit.musicVideoType, artwork: hit.artwork)
     }

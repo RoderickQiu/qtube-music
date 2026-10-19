@@ -1,5 +1,6 @@
 import Foundation
 import WebKit
+import QTCore
 
 /// A WebKit cookie jar the auth controller keeps in step with the Keychain session. Abstracted for tests.
 ///
@@ -82,7 +83,7 @@ private final class QTCookieStoreObserver: NSObject, WKHTTPCookieStoreObserver {
     }
 
     nonisolated func cookiesDidChange(in cookieStore: WKHTTPCookieStore) {
-        MainActor.assumeIsolated { handler() }
+        QTMainActorHop.onMainThread { handler() }
     }
 }
 

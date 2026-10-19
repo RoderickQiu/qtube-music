@@ -844,7 +844,7 @@ private final class QTWebPlaybackMessageProxy: NSObject, WKScriptMessageHandler 
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        MainActor.assumeIsolated {
+        QTMainActorHop.onMainThread {
             engine?.receive(message.body)
         }
     }

@@ -136,14 +136,14 @@ final class QTStageVisualizerRenderer: NSObject, MTKViewDelegate {
     // MARK: MTKViewDelegate
 
     nonisolated func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
-        MainActor.assumeIsolated {
+        QTMainActorHop.onMainThread {
             // A paused view doesn't redraw by itself; keep the still frame sharp after a resize.
             if view.isPaused { DispatchQueue.main.async { view.draw() } }
         }
     }
 
     nonisolated func draw(in view: MTKView) {
-        MainActor.assumeIsolated { render(in: view) }
+        QTMainActorHop.onMainThread { render(in: view) }
     }
 
     private func render(in view: MTKView) {

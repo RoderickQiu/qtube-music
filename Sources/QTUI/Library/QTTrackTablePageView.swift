@@ -245,7 +245,7 @@ final class QTTrackTablePageView: NSView {
             ctx.timingFunction = QTTheme.Motion.caTimingFunction
             views.forEach { $0.animator().alphaValue = visible ? 1 : 0 }
         } completionHandler: { [weak self] in
-            MainActor.assumeIsolated {
+            QTMainActorHop.onMainThread {
                 guard let self, !self.isPinned else { return }
                 self.compactHost?.isHidden = true
             }

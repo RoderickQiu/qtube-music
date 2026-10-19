@@ -113,6 +113,10 @@ final class QTRecordingLastFM: @unchecked Sendable {
             }
             if let failure {
                 if case .network = failure { throw URLError(.notConnectedToInternet) }
+                if case .malformed = failure { // a 4xx without a JSON error (e.g. an HTML page)
+                    return (Data("<html>Forbidden</html>".utf8),
+                            HTTPURLResponse(url: request.url!, statusCode: 403, httpVersion: nil, headerFields: nil)!)
+                }
                 if case .api(let code, let message) = failure {
                     let body = try JSONSerialization.data(withJSONObject: ["error": code, "message": message])
                     return (body, HTTPURLResponse(url: request.url!, statusCode: 400, httpVersion: nil, headerFields: nil)!)
@@ -187,6 +191,70 @@ final class QTTestClock: @unchecked Sendable {
         await scrobbler.trackChanged(to: QTScrobble(artist: "A", track: "T", duration: 200, timestamp: 1), playing: true)
         #expect(flag.isSet)
         #expect(await !scrobbler.isActive)
+    }
+
+    /// A suspended / invalid API key or a bad signature is the app's API account, not the plays: keep every queued
+    /// play and stop sending (once), instead of dropping 50 per flush.
+    @Test(arguments: [QTLastFMError.api(code: 10, message: "Invalid API key"), .api(code: 26, message: "Suspended"),
+                      .api(code: 13, message: "Invalid method signature"), .malformed])
+    func apiAccountProblemsPauseAndKeepTheQueue(_ failure: QTLastFMError) async throws {
+        let now = Int(Date().timeIntervalSince1970)
+        let plays = (0..<120).map { QTScrobble(artist: "A", track: "T\($0)", duration: 200, timestamp: now - 3600 + $0) }
+        let url = try Self.seededQueue(plays)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let lastfm = QTRecordingLastFM()
+        lastfm.failure = failure
+        let flag = QTTestFlag()
+        let scrobbler = QTScrobbler(queueURL: url)
+        await scrobbler.configure(client: QTLastFMClient(credentials: Self.creds, transport: lastfm.transport), sessionKey: "SK",
+                                  sendsNowPlaying: false, onPaused: { flag.set() })
+        await scrobbler.flush()
+        #expect(await scrobbler.queue.items.count == 120)
+        #expect(await scrobbler.isPaused)
+        #expect(flag.isSet)
+        let sent = lastfm.requests.count
+        await scrobbler.flush()
+        #expect(lastfm.requests.count == sent, "paused: no retry storm")
+        // New credentials (configure) resume sending.
+        lastfm.failure = nil
+        await scrobbler.configure(client: QTLastFMClient(credentials: Self.creds, transport: lastfm.transport), sessionKey: "SK")
+        await scrobbler.flush()
+        #expect(await scrobbler.queue.items.isEmpty)
+    }
+
+    @Test func rejectedPlaysAreDropped() async throws {
+        let url = try Self.seededQueue([QTScrobble(artist: "", track: "", duration: 200,
+                                                   timestamp: Int(Date().timeIntervalSince1970) - 60)])
+        defer { try? FileManager.default.removeItem(at: url) }
+        let lastfm = QTRecordingLastFM()
+        lastfm.failure = .api(code: 6, message: "Invalid parameters")
+        let scrobbler = QTScrobbler(queueURL: url)
+        await scrobbler.configure(client: QTLastFMClient(credentials: Self.creds, transport: lastfm.transport), sessionKey: "SK",
+                                  sendsNowPlaying: false)
+        await scrobbler.flush()
+        #expect(await scrobbler.queue.items.isEmpty)
+        #expect(await !scrobbler.isPaused)
+    }
+
+    /// An offline queue file holding `plays` (as a previous run left it).
+    static func seededQueue(_ plays: [QTScrobble]) throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("qt-scrobbles-\(UUID().uuidString).json")
+        try JSONEncoder().encode(plays).write(to: url)
+        return url
+    }
+
+    @Test func resetForgetsTheListenWithoutScrobbling() async {
+        let clock = QTTestClock(Date(timeIntervalSince1970: 1_760_000_000))
+        let lastfm = QTRecordingLastFM()
+        let scrobbler = QTScrobbler(queueURL: nil, now: { clock.now })
+        await scrobbler.configure(client: QTLastFMClient(credentials: Self.creds, transport: lastfm.transport), sessionKey: "SK",
+                                  sendsNowPlaying: false)
+        await scrobbler.trackChanged(to: QTScrobble(artist: "A", track: "T", duration: 200, timestamp: 1), playing: true)
+        clock.advance(150)
+        await scrobbler.reset()
+        await scrobbler.trackChanged(to: nil, playing: false)
+        #expect(lastfm.requests.isEmpty)
+        #expect(await scrobbler.currentItem == nil)
     }
 
     @Test func inactiveScrobblerSendsNothing() async {

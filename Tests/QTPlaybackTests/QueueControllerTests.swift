@@ -102,6 +102,26 @@ import Testing
         #expect(rig.nowID == "t2")
     }
 
+    /// Scrobblers key a listen on (video id, playSerial): Repeat One and replays start a new listen, a Song⇄Video
+    /// switch of the same track doesn't.
+    @Test func playSerialCountsListensNotReloads() async {
+        let rig = Rig()
+        var list = PB.tracks(3)
+        list[0].counterpart = QTCounterpart(videoId: "v1", musicVideoType: .omv)
+        await rig.controller.play(list)
+        let first = rig.controller.playSerial
+        rig.controller.repeatMode = .one
+        await rig.finishTrack()
+        #expect(rig.nowID == "t1")
+        #expect(rig.controller.playSerial == first + 1)
+        await rig.controller.setMode(.video)
+        #expect(rig.controller.playSerial == first + 1)
+        await rig.controller.play(list) // the same song again
+        #expect(rig.controller.playSerial == first + 2)
+        await rig.controller.next()
+        #expect(rig.controller.playSerial == first + 3)
+    }
+
     @Test func repeatAllLoopsTheContext() async {
         let rig = Rig()
         await rig.controller.play(PB.tracks(3))

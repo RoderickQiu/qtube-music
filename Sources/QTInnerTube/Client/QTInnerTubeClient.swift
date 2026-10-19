@@ -39,6 +39,14 @@ public struct QTInnerTubeClientConfig: Sendable, Hashable {
     }
 }
 
+/// Who an InnerTube request goes out as (`QTInnerTubeClient.send(_:body:ttl:requiresAuth:identity:)`).
+public enum QTRequestIdentity: Sendable, Hashable {
+    /// The user's session when there is one (cookies + SAPISIDHASH), else anonymous.
+    case session
+    /// Never the session, even when signed in.
+    case anonymous
+}
+
 /// YouTube Music InnerTube client (WEB_REMIX). One per app; safe to share across tasks.
 ///
 /// Anonymous by default. With a `QTInnerTubeCredentialsProvider` (QTAuth) requests carry the session cookies and a
@@ -166,10 +174,12 @@ public actor QTInnerTubeClient {
     /// - Parameters:
     ///   - ttl: cache lifetime; nil = don't cache.
     ///   - requiresAuth: refuse with `.notSignedIn` when there's no session.
+    ///   - identity: `.session` (default) sends the session when there is one; `.anonymous` never does — no cookies,
+    ///     no SAPISIDHASH, no brand account, and only the anonymous visitor id from the signed-out `ytcfg` scrape.
     public func send(_ endpoint: String, body: [String: QTJSON], ttl: TimeInterval? = nil,
-                     requiresAuth: Bool = false) async throws -> QTJSON {
+                     requiresAuth: Bool = false, identity: QTRequestIdentity = .session) async throws -> QTJSON {
         if Self.writeEndpoints.contains(endpoint), !allowsAccountWrites { throw QTInnerTubeError.writesDisabled }
-        let credentials = await credentialsProvider?.credentials()
+        let credentials = identity == .anonymous ? nil : await credentialsProvider?.credentials()
         let needsAuth = requiresAuth || Self.writeEndpoints.contains(endpoint)
             || (body["browseId"]?.string).map(Self.authOnlyBrowseIds.contains) == true
             || endpoint.hasPrefix("account/")
@@ -179,15 +189,22 @@ public actor QTInnerTubeClient {
         let cacheKey = try ttl.map { _ in try cacheKey(endpoint: endpoint, body: body, credentials: credentials) }
         if let cacheKey, let hit = cache.value(for: cacheKey, now: now()) { return hit }
 
-        let request = try makeRequest(endpoint: endpoint, body: body, client: client, credentials: credentials)
+        let visitor = identity == .anonymous ? client.visitorData : visitorData
+        let request = try makeRequest(endpoint: endpoint, body: body, client: client, credentials: credentials,
+                                      visitorData: visitor)
         let json = try await perform(request, authenticated: credentials != nil, endpoint: endpoint)
-        if visitorData == nil, let v = QTInnerTubeParser.visitorData(json) { visitorData = v }
+        if identity == .session, visitorData == nil, let v = QTInnerTubeParser.visitorData(json) { visitorData = v }
         if let cacheKey, let ttl { cache.store(json, for: cacheKey, ttl: ttl, now: now()) }
         return json
     }
 
     func makeRequest(endpoint: String, body: [String: QTJSON], client: QTInnerTubeClientConfig,
                      credentials: QTInnerTubeCredentials?) throws -> URLRequest {
+        try makeRequest(endpoint: endpoint, body: body, client: client, credentials: credentials, visitorData: visitorData)
+    }
+
+    func makeRequest(endpoint: String, body: [String: QTJSON], client: QTInnerTubeClientConfig,
+                     credentials: QTInnerTubeCredentials?, visitorData: String?) throws -> URLRequest {
         guard var components = URLComponents(url: configuration.baseURL.appendingPathComponent(endpoint),
                                              resolvingAgainstBaseURL: false) else {
             throw QTInnerTubeError.invalidResponse
@@ -198,7 +215,7 @@ public actor QTInnerTubeClient {
         guard let url = components.url else { throw QTInnerTubeError.invalidResponse }
 
         var full = body
-        full["context"] = context(client: client, credentials: credentials)
+        full["context"] = context(client: client, credentials: credentials, visitorData: visitorData)
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.httpShouldHandleCookies = false
@@ -226,6 +243,10 @@ public actor QTInnerTubeClient {
     }
 
     func context(client: QTInnerTubeClientConfig, credentials: QTInnerTubeCredentials?) -> QTJSON {
+        context(client: client, credentials: credentials, visitorData: visitorData)
+    }
+
+    func context(client: QTInnerTubeClientConfig, credentials: QTInnerTubeCredentials?, visitorData: String?) -> QTJSON {
         var c: [String: QTJSON] = [
             "clientName": .string(configuration.clientName),
             "clientVersion": .string(client.clientVersion),
@@ -323,10 +344,11 @@ public actor QTInnerTubeClient {
     }
 
     func continuation(_ endpoint: String, _ token: QTContinuation, ttl: TimeInterval? = nil,
-                      extra: [String: QTJSON] = [:], requiresAuth: Bool = false) async throws -> QTJSON {
+                      extra: [String: QTJSON] = [:], requiresAuth: Bool = false,
+                      identity: QTRequestIdentity = .session) async throws -> QTJSON {
         var body = extra
         body["continuation"] = .string(token.token)
-        return try await send(endpoint, body: body, ttl: ttl, requiresAuth: requiresAuth)
+        return try await send(endpoint, body: body, ttl: ttl, requiresAuth: requiresAuth, identity: identity)
     }
 
     /// Home. Pass a mood chip's target (from `QTHomeFeed.moods`) for the filtered home.
@@ -364,14 +386,22 @@ public actor QTInnerTubeClient {
 
     // MARK: Search
 
-    public func search(_ query: String, filter: QTSearchFilter = .all) async throws -> QTSearchResults {
+    /// Searches are **anonymous by default**, even signed in: YouTube Music keeps signed-in searches in the account's
+    /// search history, which is an account change the user hasn't approved — and the app also searches on its own
+    /// (Song⇄Video counterparts, album/artist names, the search field as you type). Results are the public catalog
+    /// either way. Pass `identity: .session` only for a search the user explicitly wants on their account.
+    public func search(_ query: String, filter: QTSearchFilter = .all,
+                       identity: QTRequestIdentity = .anonymous) async throws -> QTSearchResults {
         var body: [String: QTJSON] = ["query": .string(query)]
         if let params = filter.params { body["params"] = .string(params.removingPercentEncoding ?? params) }
-        return QTInnerTubeParser.search(try await send("search", body: body, ttl: QTCacheTTL.search), filter: filter)
+        return QTInnerTubeParser.search(try await send("search", body: body, ttl: QTCacheTTL.search, identity: identity),
+                                        filter: filter)
     }
 
-    public func searchContinuation(_ token: QTContinuation, filter: QTSearchFilter) async throws -> QTSearchResults {
-        QTInnerTubeParser.search(try await continuation("search", token, ttl: QTCacheTTL.search), filter: filter)
+    public func searchContinuation(_ token: QTContinuation, filter: QTSearchFilter,
+                                   identity: QTRequestIdentity = .anonymous) async throws -> QTSearchResults {
+        QTInnerTubeParser.search(try await continuation("search", token, ttl: QTCacheTTL.search, identity: identity),
+                                 filter: filter)
     }
 
     // MARK: Album / artist / playlist

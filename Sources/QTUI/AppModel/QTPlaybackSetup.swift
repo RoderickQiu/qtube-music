@@ -138,7 +138,7 @@ public final class QTPlaybackServices {
         terminationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { _ in
-            MainActor.assumeIsolated {
+            QTMainActorHop.onMainThread {
                 playback.flushNow()
                 (playback.engine as? QTWebPlaybackEngine)?.shutdown()
                 playback.nowPlaying?.clear()

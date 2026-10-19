@@ -65,7 +65,7 @@ final class QTSignInWindowController: NSWindowController, NSWindowDelegate, WKNa
         window.delegate = self
         webView.navigationDelegate = self
         titleObservation = webView.observe(\.title, options: [.initial, .new]) { [weak window] view, _ in
-            MainActor.assumeIsolated {
+            QTMainActorHop.onMainThread {
                 window?.title = view.title ?? ""
             }
         }

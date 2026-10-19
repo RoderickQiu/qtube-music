@@ -80,7 +80,7 @@ public final class QTStageCoordinator {
             if let exitObserver { NotificationCenter.default.removeObserver(exitObserver) }
             exitObserver = NotificationCenter.default.addObserver(forName: NSWindow.didExitFullScreenNotification,
                                                                   object: window, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated {
+                QTMainActorHop.onMainThread {
                     guard let self else { return }
                     if let exitObserver = self.exitObserver { NotificationCenter.default.removeObserver(exitObserver) }
                     self.exitObserver = nil
@@ -122,11 +122,11 @@ public final class QTStageCoordinator {
         window.contentView = NSHostingView(rootView: root)
         closeObserver = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window,
                                                                queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.didClose() }
+            QTMainActorHop.onMainThread { self?.didClose() }
         }
         screenObserver = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
                                                                 object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.screensChanged(model: model) }
+            QTMainActorHop.onMainThread { self?.screensChanged(model: model) }
         }
         return window
     }
@@ -176,6 +176,6 @@ final class QTStageWindowReaderView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         let window = self.window
-        DispatchQueue.main.async { [onChange] in MainActor.assumeIsolated { onChange(window) } }
+        DispatchQueue.main.async { [onChange] in QTMainActorHop.onMainThread { onChange(window) } }
     }
 }

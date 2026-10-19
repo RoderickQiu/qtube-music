@@ -64,6 +64,13 @@ public enum QTLastFMError: Error, Sendable, Equatable {
         if case .api(9, _) = self { return true }
         return false
     }
+
+    /// Last.fm refused what was sent, not who sent it (6 invalid parameters, 7 invalid resource): the plays
+    /// themselves are bad and retrying won't help.
+    public var isRejectedPlay: Bool {
+        if case .api(let code, _) = self { return [6, 7].contains(code) }
+        return false
+    }
 }
 
 public enum QTLastFMRequest {

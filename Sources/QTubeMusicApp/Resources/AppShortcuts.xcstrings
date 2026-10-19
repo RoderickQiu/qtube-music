@@ -62,6 +62,26 @@
         }
       }
     },
+    "Resume ${applicationName}" : {
+      "localizations" : {
+        "en" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Resume ${applicationName}"
+            ]
+          }
+        },
+        "zh-Hans" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "继续播放${applicationName}"
+            ]
+          }
+        }
+      }
+    },
     "Play ${playlist} in ${applicationName}" : {
       "localizations" : {
         "en" : {

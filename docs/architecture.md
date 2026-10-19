@@ -104,6 +104,21 @@ action). Album, artist and playlist cards prefetch their page on hover. `hl` fol
 `IS_SUBSCRIBER`) via `QTInnerTubeClient.accountContext()`, and set `QTAppModel.account` unless `-qt.account` is
 given. Read-only: account writes stay disabled; likes / playlist edits remain session-only.
 
+**Signed-in requests (privacy audit).** `QTInnerTubeClient.send(…, identity:)` sends the session (cookies +
+SAPISIDHASH + brand account) with `.session` (the default) and never with `.anonymous` (no cookies, no auth headers,
+no brand account, only the visitor id of the signed-out `ytcfg` scrape). What the app sends on its own, and as whom:
+
+| Request | When | Identity | Why |
+|---|---|---|---|
+| `search` (search field as you type, album/artist name → id, Song⇄Video search fallback) | user typing / automatic | **anonymous, always** (`search` / `searchContinuation` default) | YouTube Music keeps signed-in searches in the account's search history — an account change the user hasn't approved, and partial queries would land there too. Results are the public catalog either way. `identity: .session` exists for a future explicit opt-in. |
+| `browse`: Home, Explore, moods, album / artist / playlist pages, **hover prefetch**, library lists | navigation, hover | session | Read-only; personalised Home and the user's library need it; browsing records nothing. |
+| `next` for the **autoplay radio** (`RDAMVM<id>`) and the **counterpart** of the current + next track | playback | session | The web player's own read for what's playing (no history entry — watch history comes from the player page's playback reports); only signed-in answers carry counterparts; personalised radio. |
+| `music/get_queue`, `account/account_menu`, the `ytcfg` GET (`accountContext`), the session-loss probe GET | restore / failures | session | Read-only account facts (Premium, region, name). |
+| Timed lyrics (`QTInnerTubeLyricsClient`, ANDROID_MUSIC) | track change | anonymous | Follows the client's hl / gl and anonymous visitor id only. |
+| Playback (the web engine's player page) | play | session (approved) | Plays are recorded in the user's YouTube Music history; `-qt.playback.anonymous YES` opts out. |
+
+Tests: `Tests/QTInnerTubeTests/PrivacyTests.swift` (the counterpart fallback, plain searches, the visitor id).
+
 **Session storage.** The session lives in the Keychain and, in memory only, in WebKit:
 - **Never a persistent WebKit store.** WebKit saves `WKWebsiteDataStore.default()` cookies in plain text
   (`~/Library/HTTPStorages/<bundle id>.binarycookies`, 0644). The app uses none: sign-in runs in a fresh
@@ -220,6 +235,18 @@ Views:
   autosaved frame; `QTWindowPlacement.shouldPlaceMainWindow` places it only for `-qt.screen` / `-qt.window` launches
   or when no autosaved frame exists. Its NSWindow title is the current page (`QTWindowTitle`, hidden in the
   toolbar) — scripts find the main window through the ready file's identifier, not by title.
+- **Screen guard** (`QTScreenGuard`, AppModel/QTWindowSupport.swift): a DEBUG launch that names a display
+  (`QTLaunchOptions.effectiveScreenName`: `-qt.screen`, else U270CA for any launch with a `-qt.*` argument; plain
+  Finder/Dock launches name none) **refuses to start** when it isn't connected — stderr + log + `-qt.readyFile` gets
+  `{"error": "screenMissing", "screen", "screens", "pid"}`, exit 69 — and **quits** if the display disappears mid-run,
+  instead of letting AppKit put its windows on the user's main display. `-qt.screen main|any|none` asks for no
+  display. Release builds ignore `-qt.screen`. `QTWindowPlacement.screen(named:)` logs (once) when a named display is
+  missing.
+- `QTMainActorHop` (QTCore/Concurrency/) — **use instead of `MainActor.assumeIsolated`** in AppKit/Foundation callbacks
+  (notification blocks, KVO, timers, AX getters, WebKit delegates, scripting commands): `onMainThread { }` runs the
+  body synchronously on the main thread (checked), `run { }` hops when off it, `sync { }` returns a value. On macOS 27
+  the runtime's executor check inside `assumeIsolated` itself crashed (EXC_BAD_ACCESS in `swift_task_isMainExecutorImpl`,
+  a window notification posted on the main thread during status-item scene setup, 2026-10-19-003124).
 
 Coordinators (one per process, `@MainActor`):
 - `QTNavigator.shared` (Shell/) — content-column navigation: `go(.section(…) | .album(…) | .artist(…))`,
@@ -231,7 +258,8 @@ Coordinators (one per process, `@MainActor`):
 - **Song⇄Video (M5, stage-video).** `QTVideoModeService.shared` (NowPlaying/) keeps the loaded rendition in step with
   `model.isVideoMode` (the intent: the Song | Video switch, ⇧⌘V, the Stage's Video swatch; starts from and follows
   Settings › "Prefer videos when available"), installs `QTQueueController.counterpartResolver` (InnerTube `next`, then
-  `QTCounterpartMatcher` search; anonymous, read-only; current + next track) and owns ⇧⌘P
+  `QTCounterpartMatcher` search; read-only; current + next track — `next` carries the session, the search fallback is
+  always anonymous, see *Signed-in requests*) and owns ⇧⌘P
   (`togglePictureInPicture()`, `canTogglePictureInPicture`, `isPictureInPictureActive`). `QTQueueController.preferredMode`
   carries the choice across tracks; `setMode` reloads the counterpart at the current position (queue untouched).
 - **Live video:** `QTLiveVideoView(kind: .panel | .stage, cornerRadius:) { placeholder }` (NowPlaying/) shows the web
@@ -412,7 +440,7 @@ Booleans: `YES/NO`, `true/false`, `1/0` (empty = true).
 | `qt.panelTab` / `qt.panelHidden` | `now-playing` · `queue` / bool | |
 | `qt.videoMode` | bool | |
 | `qt.ad` | bool — force the ad state (simulated engine) | `playAd` |
-| `qt.screen` | display-name substring; debug builds default to `U270CA` | |
+| `qt.screen` | display-name substring (`U270CA`, `Built-in`), or `main` / `any` / `none`. DEBUG only: defaults to `U270CA` when any `-qt.*` argument is given, and a launch whose display isn't connected refuses to start (`QTScreenGuard`). Release builds ignore it | |
 | `qt.window` | `1440x900` (default) | |
 | `qt.show` | comma list: `mini`, `desktopLyrics`, `menuBarPopover`, `settings` | |
 | `qt.readyFile` | path; JSON `{pid, bundleID, windows:[{identifier, number, title, frame}]}` when settled | |
@@ -428,7 +456,7 @@ Builders add their own as `qt.<area>.<name>` (e.g. `qt.stage.chrome hidden`, `qt
 | lyrics-ui | `qt.lyrics.scrolled` · `qt.lyrics.options` · `qt.lyrics.demoVersions` · `qt.lyrics.translationState same\|translating\|download\|unavailable\|onDevice\|appleIntelligence` · `qt.lyrics.lab` · `qt.lyrics.debug` |
 | stage | `qt.stage.chrome hidden` · `qt.stage.queue YES` · `qt.stage.popover appearance` · `qt.stage.window YES` (detached window) · `qt.stage.reduceMotion YES` · `qt.stage.visualizerOnBattery YES` · `qt.stage.closeAfter <s>` · `qt.stage.noAd YES` (free account without the simulated pre-roll, e.g. the visualizer fallback) |
 | glass | DEBUG `qt.reduceTransparency YES` (every glass primitive draws its Reduce Transparency solid) |
-| desktop | `qt.desktop.miniMode compact\|art` · `qt.desktop.miniLyric` · `qt.desktop.miniHover` · `qt.desktop.lyricsUnlocked` · `qt.desktop.menuBarScroll` · `qt.desktop.lyricsSize <pt>` · `qt.settingsTab general\|playback\|lyrics\|account\|integrations\|advanced`; DEBUG: `qt.desktop.switchLanguage`, `qt.desktop.popUpMenu <index>` (1 = File, 3 = View, 4 = Controls), `qt.desktop.showShortcuts`, `qt.desktop.accountPreview signedIn\|premium\|signingIn\|expired\|signedOut` (Settings › Account without Keychain access), `qt.desktop.staleMenus YES` (General shows Relaunch), `qt.desktop.scriptProbe <path>` (runs AppleScript against the app from inside it — no Automation prompt — and writes the results as JSON) |
+| desktop | `qt.desktop.miniMode compact\|art` · `qt.desktop.miniLyric` · `qt.desktop.miniHover` · `qt.desktop.lyricsUnlocked` · `qt.desktop.menuBarScroll` · `qt.desktop.lyricsSize <pt>` · `qt.settingsTab general\|playback\|lyrics\|account\|integrations\|advanced`; DEBUG: `qt.desktop.switchLanguage`, `qt.desktop.popUpMenu <index>` (1 = File, 3 = View, 4 = Controls), `qt.desktop.showShortcuts`, `qt.desktop.accountPreview signedIn\|premium\|signingIn\|expired\|signedOut` (Settings › Account without Keychain access), `qt.desktop.staleMenus YES` (General shows Relaunch), `qt.desktop.integrationsExpanded YES` (Integrations opens both "Use your own …" disclosures), `qt.desktop.scriptProbe <path>` (runs AppleScript against the app from inside it — no Automation prompt — and writes the results as JSON) |
 | lyrics-live | `qt.lyrics.unofficial all\|none\|netease,kugou,qq` (session-only Settings override) · `qt.lyrics.engine live\|mock` (default live) · `qt.lyrics.cache memory\|<path>` (fresh lookup; default Application Support/<bundle id>/Lyrics.sqlite) · `qt.lyrics.offline YES` (every source unreachable → fallback path) |
 | data-live | `qt.live.open album:<id\|title>` · `artist:<id\|name>` · `playlist:<id>` (once the library has loaded) · `qt.live.state skeleton\|offline\|unavailable\|expired` (pins every live page's state) · `qt.live.signedOut YES` (signed-out screen, no Keychain read) · with it `qt.live.signIn YES` (Google sign-in window in a throwaway WebKit store; a login there is never kept) |
 | stage-video | DEBUG `qt.video.debugVisibleHost YES` (orders the web engine's host window onto U270CA, alpha 1 — page diagnostics only) |
@@ -460,7 +488,11 @@ InnerTube fixtures), `QT_DUMP=1` (print parser output), `QT_KEYCHAIN_TEST=1` (Ke
   → `Contents/Resources/Metadata.appintents`; a warning, not a failure, if it can't); signs ad hoc inside out
   (Sparkle's XPC services, Autoupdate, Updater.app, the framework, then the app).
 - `Scripts/shoot.sh <outname> [--window main|mini|desktopLyrics|menuBarPopover|settings]… [launch args]` —
-  quits that variant, `open -g -n` with `-qt.screen U270CA -qt.readyFile …`, waits for the ready file, finds window
+  quits that variant, `open -g -n` with `-qt.screen <display> -qt.readyFile …` (display: `$QT_SCREEN` — it must be
+  connected, else the run stops —, otherwise U270CA when connected, else the built-in display: `qt_screen` in
+  `Scripts/lib.sh`, `qt-window-id --default-screen`), stops at once if the app refused the launch (`qt_ready_error`),
+  `QT_ACTIVATE=1` brings the app forward first (only where taking focus is allowed — Stage Manager on the built-in
+  display keeps a background app's windows as thumbnails), waits for the ready file, finds window
   ids with `Scripts/tools/qt-window-id.swift` (compiled to `.build/qt-tools/`, CGWindowList by pid + title; Settings
   via the ready file because its title is the localized tab name), `screencapture -l<id> -o -x` into the main
   checkout's `screenshots/<outname>.png` (+ `<outname>-<window>.png`), quits, restores the frontmost app if it
@@ -468,7 +500,7 @@ InnerTube fixtures), `QT_DUMP=1` (print parser output), `QT_KEYCHAIN_TEST=1` (Ke
   aspect, transparent corners, nearly empty, or not yet stable across two captures). Passes `-qt.catalog mock`
   unless the caller gives `-qt.catalog`. `QT_SETTLE` (default 1 s) waits before capturing. `QT_KEEP=1` leaves it
   running; `QT_BUILD=1` builds first. Prefix outnames with your area.
-- `Scripts/shoot-region.sh` — screen-region capture on U270CA (mini player, unlocked desktop lyrics), clamped to that display (`qt-window-id --display-bounds`) so a margin never reaches the user’s screen; other
+- `Scripts/shoot-region.sh` — screen-region capture on the test display (same choice as shoot.sh; mini player, unlocked desktop lyrics), clamped to that display (`qt-window-id --display-bounds`) so a margin never reaches the user’s screen; other
   windows on that display can show at the edges. `Scripts/tools/qt-composite.swift` composites a transparent
   window capture over system wallpapers (desktop-lyrics shots).
 - `Scripts/make-app-icon.sh` (`Scripts/tools/qt-make-icon.swift`) — renders `Assets/AppIcon.icns` (macOS 15–25)
@@ -478,7 +510,7 @@ InnerTube fixtures), `QT_DUMP=1` (print parser output), `QT_KEYCHAIN_TEST=1` (Ke
   MediaRemote only answers entitled processes). `clients` lists every entry (WebKit's GPU process shows up as
   `com.apple.WebKit.GPU/<bundle id>`); `send` refuses unless the given bundle owns the active player.
 - `Scripts/playback-acceptance.py [--plays 10] [--lang en-US] [--shots <prefix>] [--signed-in]` (`QT_VARIANT=…`) — M4
-  acceptance in the bundled app, silent: N tracks in a row without a stall, one Now Playing entry, elapsed/artwork,
+  acceptance in the bundled app (on the same display shoot.sh picks; refuses a missing `$QT_SCREEN`), silent: N tracks in a row without a stall, one Now Playing entry, elapsed/artwork,
   remote commands in-process (MPRemoteCommandCenter dispatch) and through the system, CPU playing/paused; report in
   `.build/playback-acceptance.json`. `--signed-in`: the user's library with signed-in playback, plus a signed-in
   (Premium) player page, no ads, closing/reopening the main window keeps playback, and the queue survives a graceful
@@ -509,24 +541,45 @@ InnerTube fixtures), `QT_DUMP=1` (print parser output), `QT_KEYCHAIN_TEST=1` (Ke
 - **Shortcuts / App Intents** (app target): Play or Pause, Play, Pause, Next Song, Previous Song, Like Current Song
   (in-app only — nothing is written to YouTube Music), Play Playlist (Liked Songs + library playlists as an
   `AppEntity`), Get Current Song (returns "Title — Artist"); App Shortcuts phrases in en + zh-Hans. None open the app.
+  Each phrase does what it says: "Play or pause …" toggles, "Pause …" → `QTPauseIntent` (never resumes), "Resume …"
+  → `QTPlayIntent` (`Tests/QTCoreTests/AppShortcutPhraseTests.swift` reads the mapping from the source).
 - **AppleScript**: `play`, `pause`, `playpause`, `next track`, `previous track`; application properties `player state`
   (stopped/playing/paused), `current track` (name, artist, album, duration, video id), `player position` (rw),
   `sound volume` (0–100, rw). `QTScripting` (Desktop/) + the app delegate's KVC properties.
 - **Notifications**: General › "Notify when the song changes" (off; permission is requested only when turned on).
   Posted by `QTTrackChangeNotifier` when the song changes while the app isn't active (not for the paused launch
   track, never for ads), artwork attached, one at a time.
-- **Last.fm** (Settings › Integrations, off): the app has no registered Last.fm API account yet, so the user enters
-  their own API key + shared secret (https://www.last.fm/api/account/create), presses Connect… (auth.getToken →
-  last.fm approval page in their browser) and Finish Connecting (auth.getSession). Shared secret and session key are
-  Keychain items (service `com.roderickqiu.qtube.integrations`); only the key and user name are in defaults.
-  Scrobbles follow Last.fm's rules (> 30 s; half the track or 4 min of *listening*), now-playing updates are
-  optional, unsent plays wait in `Application Support/<bundle id>/Scrobbles.json` (14-day limit) and go out 50 at a
-  time; error 9 (revoked session) disconnects with a toast. When the app gets its own key, ship it instead of the
-  fields.
-- **Discord Rich Presence** (Settings › Integrations, off): needs the user's Discord application ID; talks only to
-  the local Discord client over `$TMPDIR/discord-ipc-N` (handshake, `SET_ACTIVITY` "Listening to": title, artist,
-  album art by its https URL, elapsed/remaining, "Open in YouTube Music" button). Paused/stopped clears it.
-- Tests use stub transports and local frames only — never real Last.fm/Discord accounts.
+- **Settings › Integrations** is switches + Connect…: Last.fm shows "Scrobble to Last.fm  [Connect…]", Discord its
+  two switches. The app has no Last.fm API account or Discord application of its own yet (shipping credentials is
+  user-gated), so the user's own go in collapsed **"Use your own API key" / "Use your own application ID"**
+  disclosures (bordered fields, no "Required" prompts, the "Get an API key" / "Create a Discord application" link
+  inside), which open by themselves when Connect… or the Discord switch needs them. DEBUG
+  `-qt.desktop.integrationsExpanded YES` opens both (screenshots). When the app ships its own credentials, drop them.
+- **What is reported** (`QTIntegrationsCoordinator.reportsPlays`): only real, audible playback of the user's library
+  reaches Last.fm, Discord and notifications — never the demo library (`liveCatalog.mode == .mock` or setup source
+  `.mock`), the simulated engine, or silent (scripted / test) playback. Ads never.
+- **Last.fm** (off): Connect… (auth.getToken → last.fm approval page in the browser) and Finish Connecting
+  (auth.getSession) with the user's API key + shared secret (https://www.last.fm/api/account/create). Shared secret
+  and session key are Keychain items (service `com.roderickqiu.qtube.integrations`), read **off the main thread**
+  (`QTIntegrationsStore.loadLastFMSession()`); only the key and user name are in defaults. One **listen** = (video id,
+  `QTQueueController.playSerial`): Repeat One, replays and Previous-restart start a new listen (scrobble + fresh
+  now-playing); the paused launch track starts one when it first plays; turning Last.fm on mid-song tracks it from
+  then, off forgets it unsent. Scrobbles follow Last.fm's rules (> 30 s; half the track or 4 min of *listening*;
+  ad time doesn't count), now-playing updates are optional, unsent plays wait in
+  `Application Support/<bundle id>/Scrobbles.json` (14-day limit) and go out 50 at a time. Errors: 9 (revoked
+  session) disconnects with a toast; only 6 / 7 (the plays themselves rejected) drop a batch; key / signature /
+  suspension errors (10, 13, 26, unreadable answers) **pause** sending and keep the queue (toast "Last.fm isn’t
+  accepting scrobbles…") until new credentials or a relaunch.
+- **Discord Rich Presence** (off): needs the user's Discord application ID; talks only to the local Discord client
+  over `$TMPDIR/discord-ipc-N` (handshake, `SET_ACTIVITY` "Listening to": title, artist, album art by its https URL,
+  elapsed/remaining, "Open in YouTube Music" button). Paused/stopped clears it. Sends time out after 0.5 s
+  (`SO_SNDTIMEO`), so a Discord client that stops reading can't block the actor's thread.
+- **Ordering:** each integration's calls go through its own `QTSerialTaskQueue` (Desktop/QTIntegrationsCoordinator.swift),
+  in the order playback produced them — never one unstructured `Task` per call (Swift doesn't order those, e.g. a
+  `disconnect()` overtaking a pending `update()`).
+- Tests use stub transports and local frames only — never real Last.fm/Discord accounts
+  (`Tests/QTUITests/QTIntegrationsCoordinatorTests.swift`: demo, Repeat One, launch track, ads, switching on mid-song,
+  `switchSource`, the serial queue; `QTIntegrationsTests`: pause vs drop).
 
 ## Updates (Sparkle)
 

@@ -146,7 +146,7 @@ final class QTVideoSlotNSView: NSView {
                                               NSWindow.didChangeBackingPropertiesNotification]
             windowObservers = names.map { name in
                 NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { _ in
-                    MainActor.assumeIsolated { QTVideoSlotCoordinator.shared.reassign() }
+                    QTMainActorHop.onMainThread { QTVideoSlotCoordinator.shared.reassign() }
                 }
             }
         } else {

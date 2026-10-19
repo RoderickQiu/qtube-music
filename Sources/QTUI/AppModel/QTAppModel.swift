@@ -67,6 +67,8 @@ public final class QTAppModel {
 
     /// Builds the app model from launch arguments: settings, mock catalog, simulated engine.
     public static func bootstrap(launch: QTLaunchOptions = .current) -> QTAppModel {
+        // DEBUG: a dev/scripted launch whose display (`-qt.screen`, default U270CA) is missing never shows a window.
+        QTScreenGuard.refuseLaunchIfScreenMissing(launch)
         let settings = QTSettingsStore()
         settings.override { s in
             if let v = launch.language { s.interfaceLanguage = v }

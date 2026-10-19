@@ -44,7 +44,7 @@ final class QTPlaybackDebugHooks {
             forName: Self.notificationName, object: bundleID, queue: .main
         ) { note in
             let command = note.userInfo?["command"] as? String ?? ""
-            MainActor.assumeIsolated { QTPlaybackDebugHooks.shared.perform(command) }
+            QTMainActorHop.onMainThread { QTPlaybackDebugHooks.shared.perform(command) }
         }
         if let path = model.launch.string("qt.playback.statusFile") {
             startStatus(URL(fileURLWithPath: path))

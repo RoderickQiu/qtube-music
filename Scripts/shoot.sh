@@ -1,5 +1,5 @@
 #!/bin/bash
-# Launch the built app in the background on U270CA, wait until it's ready, capture windows, quit, restore focus.
+# Launch the built app in the background on the test display, wait until it's ready, capture windows, quit, restore focus.
 #
 #   Scripts/shoot.sh <outname> [--window main|mini|desktopLyrics|menuBarPopover|settings]… [launch args…]
 #
@@ -9,7 +9,8 @@
 #
 # The first --window (default main) is saved as screenshots/<outname>.png, further ones as <outname>-<window>.png,
 # always in the MAIN checkout's screenshots/ folder. Uses the app for $QT_VARIANT (build it first with
-# Scripts/build-app.sh, or set QT_BUILD=1). Env: QT_SCREEN (default U270CA), QT_TIMEOUT (seconds, default 45),
+# Scripts/build-app.sh, or set QT_BUILD=1). Env: QT_SCREEN (default: U270CA when connected, else the built-in display;
+# a QT_SCREEN that isn't connected stops the run), QT_TIMEOUT (seconds, default 45),
 # QT_KEEP=1 to leave the instance running.
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
@@ -38,6 +39,7 @@ done
 APP="$(qt_app_path)"
 [[ -x "$APP/Contents/MacOS/QTubeMusic" ]] || { echo "error: $APP not built (run Scripts/build-app.sh)" >&2; exit 1; }
 WINDOW_ID_TOOL="$(qt_tool qt-window-id)"
+SCREEN="$(qt_screen)" || exit 1
 mkdir -p "$QT_SCREENSHOTS"
 
 FRONT_BEFORE="$(qt_frontmost_bundle)"
@@ -47,7 +49,7 @@ pkill -f "^$EXE" 2>/dev/null || true
 for _ in $(seq 1 50); do pgrep -f "^$EXE" >/dev/null || break; sleep 0.1; done
 
 READY="$(mktemp -t qtshoot).json"; rm -f "$READY"
-LAUNCH=(-ApplePersistenceIgnoreState YES -qt.screen "${QT_SCREEN:-U270CA}" -qt.readyFile "$READY")
+LAUNCH=(-ApplePersistenceIgnoreState YES -qt.screen "$SCREEN" -qt.readyFile "$READY")
 if [[ ${#SHOW[@]} -gt 0 ]]; then LAUNCH+=(-qt.show "$(IFS=,; echo "${SHOW[*]}")"); fi
 # Screenshots use the demo (mock) catalog unless the caller asks for `-qt.catalog live` (the user's real library).
 if [[ " ${ARGS[*]-} " != *" -qt.catalog "* ]]; then
@@ -64,6 +66,7 @@ until [[ -s "$READY" ]]; do
   if (( $(date +%s) > DEADLINE )); then echo "error: app did not become ready" >&2; pkill -f "^$EXE" || true; exit 1; fi
   sleep 0.1
 done
+if qt_ready_error "$READY" >&2; then rm -f "$READY"; exit 1; fi
 PID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["pid"])' "$READY")"
 
 title_for() {
@@ -82,6 +85,12 @@ for w in json.load(open(sys.argv[1]))["windows"]:
 }
 
 # Stage Manager animates a newly shown window (skewed, scaled) for a moment; let it settle before capturing.
+# QT_ACTIVATE=1: bring the app forward first (only when taking focus is allowed — e.g. on the built-in display with
+# Stage Manager, which otherwise keeps a background app's windows as thumbnails in the strip). Focus is handed back.
+if [[ "${QT_ACTIVATE:-0}" == "1" ]]; then
+  osascript -e "tell application id \"$(qt_bundle_id)\" to activate" >/dev/null 2>&1 || true
+  sleep 1
+fi
 sleep "${QT_SETTLE:-1}"
 STATUS=0
 FIRST=1

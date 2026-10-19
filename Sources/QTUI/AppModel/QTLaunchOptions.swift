@@ -143,8 +143,20 @@ public struct QTLaunchOptions: Sendable, Equatable {
     /// Force the ad state now (simulated engine).
     public var forceAd: Bool { bool("qt.ad") ?? false }
     public var language: QTInterfaceLanguage? { string("qt.lang").flatMap(QTInterfaceLanguage.init(argument:)) }
-    /// Display name substring (`U270CA`). Debug builds default to U270CA when it's connected.
-    public var screen: String? { string("qt.screen") }
+    /// `-qt.screen <display-name substring>`, DEBUG builds only (release builds ignore it). `main` / `any` / `none`
+    /// ask for no particular display.
+    public var screen: String? {
+        #if DEBUG
+        guard let s = string("qt.screen"), !Self.anyScreenValues.contains(s.lowercased()) else { return nil }
+        return s
+        #else
+        return nil
+        #endif
+    }
+
+    static let anyScreenValues: Set<String> = ["main", "any", "none"]
+    /// The test display a dev/scripted DEBUG launch uses when it names none.
+    public static let defaultTestScreen = "U270CA"
     /// `1440x900`.
     public var windowSize: CGSize? {
         guard let s = string("qt.window") else { return nil }
@@ -162,11 +174,15 @@ public struct QTLaunchOptions: Sendable, Equatable {
         })
     }
 
-    /// The display to place windows on: `qt.screen`, else U270CA in debug builds.
+    /// The display windows must go on (DEBUG builds only): `-qt.screen`, else U270CA for a dev/scripted launch (any
+    /// `-qt.*` argument). A plain launch (Finder, Dock, `open` without arguments) and release builds name none.
+    /// When the named display isn't connected a DEBUG launch refuses to start (`QTScreenGuard`) instead of putting
+    /// its windows on the user's main display.
     public var effectiveScreenName: String? {
-        if let s = screen { return s }
         #if DEBUG
-        return "U270CA"
+        if let s = screen { return s }
+        if let s = string("qt.screen"), Self.anyScreenValues.contains(s.lowercased()) { return nil }
+        return raw.isEmpty ? nil : Self.defaultTestScreen
         #else
         return nil
         #endif

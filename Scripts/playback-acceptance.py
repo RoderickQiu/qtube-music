@@ -10,7 +10,8 @@ queue survives a relaunch (`-qt.playback.persist YES`, graceful quit) and that c
 doesn't disturb playback. Without it the app plays whatever the default launch picks, anonymous only if the session
 is missing.
 
-Launches the app variant in the background on U270CA with the web engine playing the mock catalog's real
+Launches the app variant in the background on the test display (QT_SCREEN, else U270CA when connected, else
+the built-in display) with the web engine playing the mock catalog's real
 music videos (`-qt.engine web`, media volume pinned to 0 — never audible), then:
 
   * plays N tracks in a row (seeking near each end to save time, waiting out or skipping ads), failing on any
@@ -56,6 +57,9 @@ def lib(expr):
 
 SCREENSHOTS = lib('echo "$QT_SCREENSHOTS"')
 WINDOW_TOOL = lib("qt_tool qt-window-id")
+# QT_SCREEN, else U270CA when connected, else the built-in display; a QT_SCREEN that isn't connected stops the run
+# (the DEBUG app refuses such a launch as well, instead of opening on another display).
+SCREEN = lib("qt_screen")
 
 
 def frontmost():
@@ -129,7 +133,7 @@ class Run:
                 os.remove(stale)
         sh("pkill", "-f", f"^{EXE}")
         time.sleep(0.5)
-        args = ["-ApplePersistenceIgnoreState", "YES", "-qt.screen", "U270CA", "-qt.readyFile", self.ready_path,
+        args = ["-ApplePersistenceIgnoreState", "YES", "-qt.screen", SCREEN, "-qt.readyFile", self.ready_path,
                 "-qt.engine", "web", "-qt.playback.statusFile", self.status_path, "-qt.lang", self.args.lang,
                 "-qt.panelTab", "now-playing"]
         if not relaunch:
@@ -142,7 +146,11 @@ class Run:
             time.sleep(0.2)
         self.restore_focus()
         with open(self.ready_path) as f:
-            self.pid = json.load(f)["pid"]
+            ready = json.load(f)
+        if "error" in ready:
+            raise SystemExit(f"app refused to launch: {ready['error']} ({ready.get('screen')}; connected: "
+                             f"{', '.join(ready.get('screens', []))})")
+        self.pid = ready["pid"]
         self.log(f"launched pid {self.pid} ({BUNDLE})")
 
     def quit_gracefully(self):

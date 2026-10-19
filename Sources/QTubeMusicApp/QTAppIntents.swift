@@ -133,8 +133,14 @@ struct QTPlayPlaylistIntent: AppIntent {
 
 struct QTAppShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
-        AppShortcut(intent: QTPlayPauseIntent(), phrases: ["Play or pause \(.applicationName)", "Pause \(.applicationName)"],
+        // Each phrase says what it does: "Pause" only ever pauses (a toggle would resume a paused song), "Resume" only
+        // plays. Tests/QTCoreTests › AppShortcutPhraseTests keeps this mapping.
+        AppShortcut(intent: QTPlayPauseIntent(), phrases: ["Play or pause \(.applicationName)"],
                     shortTitle: LocalizedStringResource("Play or Pause", table: "AppIntents"), systemImageName: "playpause.fill")
+        AppShortcut(intent: QTPauseIntent(), phrases: ["Pause \(.applicationName)"],
+                    shortTitle: LocalizedStringResource("Pause", table: "AppIntents"), systemImageName: "pause.fill")
+        AppShortcut(intent: QTPlayIntent(), phrases: ["Resume \(.applicationName)"],
+                    shortTitle: LocalizedStringResource("Play", table: "AppIntents"), systemImageName: "play.fill")
         AppShortcut(intent: QTNextTrackIntent(), phrases: ["Next song in \(.applicationName)", "Skip this song in \(.applicationName)"],
                     shortTitle: LocalizedStringResource("Next Song", table: "AppIntents"), systemImageName: "forward.fill")
         AppShortcut(intent: QTPreviousTrackIntent(), phrases: ["Previous song in \(.applicationName)"],

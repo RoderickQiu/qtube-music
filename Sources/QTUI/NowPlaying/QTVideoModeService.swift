@@ -12,8 +12,10 @@ import QTPlayback
 ///   Video"); it starts from Settings › "Prefer videos when available" and follows that setting when it changes.
 ///   The queue's `preferredMode` follows it, so every new track starts as its video when it has one.
 /// - Switching reloads the counterpart at the same position (`QTQueueController.setMode`); the queue never changes.
-/// - Counterparts for tracks that don't carry one come from InnerTube (`next`, then a conservative search — see
-///   `QTCounterpartMatcher`), anonymous and read-only, for the current and the next track.
+/// - Counterparts for tracks that don't carry one come from InnerTube, read-only, for the current and the next track:
+///   `next` (with the session when signed in — the same read the web player makes; only signed-in answers carry
+///   counterparts), then a conservative search that is always anonymous (`QTInnerTubeClient.counterpart(for:)`;
+///   a signed-in search would land in the account's search history).
 /// - ⇧⌘P: native Picture in Picture of the music video (switches to Video first when the song is showing).
 @MainActor
 public final class QTVideoModeService {

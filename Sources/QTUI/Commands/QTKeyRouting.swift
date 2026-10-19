@@ -1,4 +1,5 @@
 import AppKit
+import QTCore
 
 // Owner: builder "desktop". Playback shortcuts that collide with text editing and keyboard navigation (Space,
 // ⌘← / ⌘→, ⌘↑ / ⌘↓, ⌥↑ / ⌥↓) are real menu key equivalents, so they show in the Controls menu — but a menu key
@@ -23,7 +24,7 @@ enum QTKeyRouting {
         if let togglePlayback { self.togglePlayback = togglePlayback }
         guard monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            let consumed = MainActor.assumeIsolated { route(event) }
+            let consumed = QTMainActorHop.onMainThread { route(event) }
             return consumed ? nil : event
         }
     }

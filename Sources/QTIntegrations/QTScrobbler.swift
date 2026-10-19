@@ -117,9 +117,14 @@ public actor QTScrobbler {
     private var sessionKey: String?
     private var sendsNowPlaying = true
     private var isFlushing = false
+    /// Sending stopped because Last.fm refused the API account itself (bad or suspended key, bad signature, an
+    /// answer it couldn't read): the queue is kept; sending resumes after `configure` (new credentials) or a relaunch.
+    public private(set) var isPaused = false
     private let now: @Sendable () -> Date
     /// Called when Last.fm rejects the session key (the user must connect again).
     private var onInvalidSession: (@Sendable () -> Void)?
+    /// Called once when sending pauses for an API-account problem (`isPaused`).
+    private var onPaused: (@Sendable () -> Void)?
 
     public init(queueURL: URL? = QTScrobbleQueue.defaultURL, now: @escaping @Sendable () -> Date = { Date() }) {
         queue = QTScrobbleQueue(fileURL: queueURL)
@@ -129,12 +134,22 @@ public actor QTScrobbler {
     public var isActive: Bool { client != nil && sessionKey != nil }
 
     public func configure(client: QTLastFMClient?, sessionKey: String?, sendsNowPlaying: Bool = true,
-                          onInvalidSession: (@Sendable () -> Void)? = nil) {
+                          onInvalidSession: (@Sendable () -> Void)? = nil, onPaused: (@Sendable () -> Void)? = nil) {
         self.client = client
         self.sessionKey = sessionKey
         self.sendsNowPlaying = sendsNowPlaying
         self.onInvalidSession = onInvalidSession
+        self.onPaused = onPaused
+        isPaused = false
     }
+
+    /// Forgets the current listen without scrobbling it (Last.fm turned off, demo playback).
+    public func reset() {
+        tracker = QTListenTracker()
+    }
+
+    /// The listen being tracked (tests, diagnostics).
+    public var currentItem: QTScrobble? { tracker.item }
 
     /// A new track (or nil when playback stops). Scrobbles the previous one if it qualified.
     public func trackChanged(to item: QTScrobble?, playing: Bool) async {
@@ -170,7 +185,7 @@ public actor QTScrobbler {
     }
 
     private func announce(_ item: QTScrobble) async {
-        guard sendsNowPlaying, let client, let sessionKey else { return }
+        guard sendsNowPlaying, !isPaused, let client, let sessionKey else { return }
         do {
             try await client.updateNowPlaying(item, sessionKey: sessionKey)
         } catch let error as QTLastFMError where error.isInvalidSession {
@@ -180,9 +195,11 @@ public actor QTScrobbler {
         }
     }
 
-    /// Sends queued plays, 50 at a time. Network / temporary errors keep them for later.
+    /// Sends queued plays, 50 at a time. Network / temporary errors keep them for later; only plays Last.fm rejects
+    /// as plays (error 6 / 7) are dropped. Anything that says the API account itself is wrong (10 invalid key,
+    /// 26 suspended key, 13 invalid signature, unreadable answers…) pauses sending and keeps the queue.
     public func flush() async {
-        guard !isFlushing, let client, let sessionKey else { return }
+        guard !isFlushing, !isPaused, let client, let sessionKey else { return }
         isFlushing = true
         defer { isFlushing = false }
         queue.pruneExpired(now: now())
@@ -194,8 +211,14 @@ public actor QTScrobbler {
             } catch let error as QTLastFMError {
                 if error.isInvalidSession { invalidate() }
                 if error.isTemporary || error.isInvalidSession { return }
-                // Rejected for good (bad parameters): drop the batch rather than retrying forever.
-                queue.removeFirst(batch.count)
+                if error.isRejectedPlay {
+                    // The plays themselves are bad: drop the batch rather than retrying forever.
+                    queue.removeFirst(batch.count)
+                    continue
+                }
+                isPaused = true
+                onPaused?()
+                return
             } catch {
                 return
             }
