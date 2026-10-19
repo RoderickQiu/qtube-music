@@ -76,8 +76,10 @@ Three columns, one player that changes size.
 
 - **Sidebar**: Home, Explore (New releases, Charts, Moods & genres), Library, pinned playlists. Drag songs onto a playlist to add them.
 - **Content**: standard back/forward navigation that **keeps scroll position**. Prefetch on hover so clicks feel local (YTubic's "instant UI").
-- **Now Playing panel** (docked, collapsible with ⌥⌘N): the YTubic / Behance pattern, essentially NetEase's "Standard" layout turned into a permanent column. Artwork, the Song|Video toggle, controls, then tabs: **Lyrics · Up Next · Related · Credits**.
-- **Player bar**: always visible. Its buttons open the queue (▤), Stage (⛶) and the mini player (⧉).
+- **Now Playing panel** (docked inspector, the YTubic / Behance pattern): two tabs only, **Now Playing** (compact artwork header with Song|Video, then scrollable lyrics with a “Current” jump-back) and **Queue**. No transport controls (the player bar owns playback). Hidden from its own header button or the toolbar toggle (⌥⌘N), never only from the bottom bar.
+- **Player bar**: always visible. Its buttons open lyrics / queue in the panel, the Stage (⛶) and the mini player (⧉).
+- **Pinned headers**: playlist headers collapse into a compact sticky bar (title, Play, Shuffle, filter) with the column headings pinned beneath.
+- **Home**: greeting + mood chips, Listen again, Quick picks (3-column), a **Music videos** shelf, your playlists. Built only from the user's own library and YouTube Music's real shelves.
 - **Window tint**: the whole window takes a subtle tint sampled from the artwork, as NetEase and YTubic do. Blurred artwork sits behind the panel, which the community prefers to flat gradients.
 
 ---
@@ -120,6 +122,8 @@ This is the core of the app, and the one thing Kaset and YouTube Music don't hav
   - **Lyrics only**: lyrics centred, artwork becomes the background.
   - **Art only**: for instrumentals and tracks without lyrics. The app switches to it automatically when a track has no lyrics.
 - **Chrome fades out** after 3 s of no mouse movement while playing (as NetEase does). Moving the mouse brings it back.
+- **Quiet controls**: the top bar is icons only — Lyrics options, Appearance (layout glyphs + background swatches in one popover) — plus the Song | Video switch. A **Queue** drawer slides in from the right without leaving the Stage.
+- **No explanatory copy on screen**: no placeholder labels, no “your song starts after this” style sentences; states speak through design.
 - **Backgrounds** (Cover ▾ menu), a short curated set instead of 40 skins:
   1. **Blurred art** (default)
   2. **Full-bleed cover**

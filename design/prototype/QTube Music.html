@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>QTube Music — Prototype v1</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!--
+    QTube Music — design system (declared before building)
+    ─────────────────────────────────────────────────────
+    Platform   macOS 15+ app, 1440×900 window, scaled to fit the viewport.
+    Type       SF Pro (system) for UI, PingFang SC for Han, per-script fallbacks for Vietnamese diacritics.
+               UI scale 11 / 13 / 15 / 20 / 28.  Stage lyrics 34 (current) / 22 (translation).
+    Colour     Graphite surfaces (dark) or paper (light). ONE accent, sampled from the current artwork
+               (tools/fetch_assets.py) and normalised in oklch so it is always legible.
+    Spacing    4 / 8 / 12 / 16 / 24 / 32.  Radii: window 12, controls 6, artwork 8.
+    Motion     One curve: cubic-bezier(.2,.8,.2,1). 320 ms UI, 520 ms lyric scroll. Nothing loops unless
+               the user picked an animated Stage background.
+    Content    Real tracks from the user's NetEase "Liked" list; covers, lyrics (word timing + Chinese
+               translation) via NetEase; music-video stills via YouTube Music. Audio is simulated.
+  -->
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+  <script src="data.js"></script>
+  <script>
+    // Tweak defaults — the host may rewrite this block in place.
+    window.QT_TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+      "surface": "window",
+      "theme": "dark",
+      "stageLayout": "standard",
+      "stageBackground": "blur",
+      "account": "premium",
+      "translation": true
+    }/*EDITMODE-END*/;
+  </script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel" src="icons.jsx"></script>
+  <script type="text/babel" src="player.jsx"></script>
+  <script type="text/babel" src="lyrics.jsx"></script>
+  <script type="text/babel" src="window.jsx"></script>
+  <script type="text/babel" src="home.jsx"></script>
+  <script type="text/babel" src="stage.jsx"></script>
+  <script type="text/babel" src="desktop.jsx"></script>
+  <script type="text/babel" src="app.jsx"></script>
+</body>
+</html>
