@@ -127,14 +127,14 @@ struct QTSearchTopResult: View {
                 Button(action: play) {
                     Label(QTLoc.tr("Play"), systemImage: QTIcon.play.systemName)
                 }
-                .buttonStyle(QTPillButtonStyle(prominence: .primary))
+                .qtGlassButton(.primary)
                 .accessibilityIdentifier("qt.search.top.play")
                 if isArtist || isAlbum {
                     Button(action: open) {
                         Label(QTLoc.tr(isArtist ? "Go to Artist · %@" : "Go to Album · %@", title), systemImage: QTIcon.chevR.systemName)
                             .labelStyle(.iconOnly)
                     }
-                    .buttonStyle(QTPillButtonStyle(prominence: .secondary, iconOnly: true))
+                    .qtGlassButton(.secondary, iconOnly: true)
                     .help(QTLoc.tr(isArtist ? "Go to Artist · %@" : "Go to Album · %@", title))
                 }
             }

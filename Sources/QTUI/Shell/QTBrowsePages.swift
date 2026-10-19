@@ -304,14 +304,14 @@ struct QTArtistPageContent: View {
                     } label: {
                         Label(QTLoc.tr("Play"), systemImage: QTIcon.play.systemName)
                     }
-                    .buttonStyle(QTPillButtonStyle(prominence: .primary))
+                    .qtGlassButton(.primary)
                     .accessibilityIdentifier("qt.artist.play")
                     Button {
                         QTTrackActions.shuffle(playable, source: source)
                     } label: {
                         Label(QTLoc.tr("Shuffle"), systemImage: QTIcon.shuffle.systemName)
                     }
-                    .buttonStyle(QTPillButtonStyle(prominence: .secondary))
+                    .qtGlassButton(.secondary)
                     .accessibilityIdentifier("qt.artist.shuffle")
                 }
                 .controlSize(.large)

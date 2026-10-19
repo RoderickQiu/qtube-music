@@ -178,7 +178,8 @@ struct QTLiveSkeleton: View {
     }
 
     private var quickRows: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 180), spacing: 20, alignment: .leading), count: 3),
+        // No grid minimum (it would become the content column's minimum width; see QTQuickPicks).
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 20, alignment: .leading), count: 3),
                   alignment: .leading, spacing: 4) {
             ForEach(0..<6, id: \.self) { i in
                 HStack(spacing: 14) {

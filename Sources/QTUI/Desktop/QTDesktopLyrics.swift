@@ -142,7 +142,7 @@ public struct QTDesktopLyricsView: View {
         .background {
             if !prefs.isLocked {
                 Color.clear
-                    .qtFloatingSurface(RoundedRectangle(cornerRadius: 22, style: .continuous), material: .ultraThinMaterial)
+                    .qtGlass(.overArt, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                     .opacity(isHovering ? 1 : 0.85)
             }
         }

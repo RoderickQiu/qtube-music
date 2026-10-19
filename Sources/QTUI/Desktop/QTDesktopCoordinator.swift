@@ -443,56 +443,6 @@ final class QTPreviewPanel: NSPanel {
     }
 }
 
-/// Window-level glass for floating panels: `NSGlassEffectView` on macOS 26+, behind-window vibrancy before,
-/// the solid window colour with Reduce Transparency. (SwiftUI's `glassEffect` can't sample the desktop behind a
-/// clear panel, so panels use the AppKit views.)
-struct QTPanelGlassBackground: View {
-    var cornerRadius: CGFloat = 0
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-
-    var body: some View {
-        if reduceTransparency {
-            QTTheme.Colors.windowBackground
-        } else if #available(macOS 26, *) {
-            QTGlassEffectBackground(cornerRadius: cornerRadius)
-        } else {
-            QTVisualEffectBackground(material: .popover)
-        }
-    }
-}
-
-@available(macOS 26, *)
-struct QTGlassEffectBackground: NSViewRepresentable {
-    let cornerRadius: CGFloat
-
-    func makeNSView(context: Context) -> NSGlassEffectView {
-        let v = NSGlassEffectView()
-        v.cornerRadius = cornerRadius
-        return v
-    }
-
-    func updateNSView(_ nsView: NSGlassEffectView, context: Context) {
-        nsView.cornerRadius = cornerRadius
-    }
-}
-
-/// Behind-window vibrancy (NSVisualEffectView) as a SwiftUI background.
-struct QTVisualEffectBackground: NSViewRepresentable {
-    let material: NSVisualEffectView.Material
-
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let v = NSVisualEffectView()
-        v.material = material
-        v.blendingMode = .behindWindow
-        v.state = .active
-        return v
-    }
-
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
-        nsView.material = material
-    }
-}
-
 /// Hosting view that takes the first click even when the app is inactive (non-activating panels).
 final class QTFirstMouseHostingView<Content: View>: NSHostingView<Content> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }

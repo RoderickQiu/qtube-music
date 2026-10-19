@@ -63,13 +63,8 @@ struct QTPanelHeader: View {
                 }
             } label: {
                 Label(QTLoc.tr("Hide panel"), systemImage: QTIcon.sidebar.systemName)
-                    .labelStyle(.iconOnly)
-                    .font(.system(size: 15))
-                    .frame(width: 28, height: 28)
-                    .contentShape(Rectangle())
             }
-            .buttonStyle(.borderless)
-            .foregroundStyle(.secondary)
+            .qtGlassButton(.secondary, iconOnly: true)
             .help("\(QTLoc.tr("Hide panel"))  ⌥⌘N")
             .accessibilityIdentifier("qt.player.panel.hide")
         }
@@ -197,7 +192,7 @@ struct QTNowPlayingHero: View {
                                 .font(.system(size: 10, weight: .bold))
                                 .foregroundStyle(.white)
                                 .padding(5)
-                                .background(.ultraThinMaterial, in: Circle())
+                                .qtGlass(.overArt, in: Circle())
                                 .environment(\.colorScheme, .dark)
                                 .padding(6)
                                 .accessibilityHidden(true)

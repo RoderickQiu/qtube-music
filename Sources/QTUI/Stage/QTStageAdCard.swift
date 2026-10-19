@@ -36,7 +36,7 @@ struct QTStageAdCard: View {
                 .monospacedDigit()
                 .padding(.horizontal, QTTheme.Spacing.s)
                 .frame(height: 26)
-                .background(.ultraThinMaterial, in: Capsule())
+                .qtGlass(.overArt, in: Capsule())
                 .accessibilityIdentifier("qt.stage.adCountdown")
             if ad.canSkip {
                 Button(QTLoc.tr("Skip")) { player.skipAd() }

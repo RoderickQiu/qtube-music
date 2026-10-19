@@ -374,15 +374,30 @@ struct QTQuickPicks: View {
     var source: QTQueueSource? = nil
     var ranked = false
     var columns = 3
+    @State private var width: CGFloat = 0
+
+    private static let minColumnWidth: CGFloat = 180
+    private static let columnSpacing: CGFloat = 20
+
+    /// Up to `columns`, fewer when a column would drop under 180 pt. Counted from the measured width rather than
+    /// `GridItem(.flexible(minimum:))`: a grid minimum becomes the content column's minimum width, and with the
+    /// inspector open that feeds AppKit's split-view constraints into an update-constraints loop (crash) on the
+    /// macOS 26+ design.
+    private var columnCount: Int {
+        guard width > 0 else { return columns }
+        let available = width - QTTheme.Spacing.gutter * 2 + Self.columnSpacing
+        return min(columns, max(1, Int(available / (Self.minColumnWidth + Self.columnSpacing))))
+    }
 
     var body: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 180), spacing: 20, alignment: .leading), count: columns),
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Self.columnSpacing, alignment: .leading), count: columnCount),
                   alignment: .leading, spacing: 4) {
             ForEach(Array(tracks.enumerated()), id: \.element.id) { i, t in
                 QTQuickPickRow(track: t, tracks: tracks, source: source, rank: ranked ? i + 1 : nil)
             }
         }
         .padding(.horizontal, QTTheme.Spacing.gutter)
+        .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width = $0 }
     }
 }
 

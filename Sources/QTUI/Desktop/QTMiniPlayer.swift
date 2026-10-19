@@ -275,7 +275,7 @@ public struct QTMiniPlayerView: View {
 
             // Scrim: stronger with controls, gentle under the lyric line, none otherwise.
             LinearGradient(stops: [.init(color: .clear, location: hovering ? 0.35 : 0.6),
-                                   .init(color: .black.opacity(hovering ? 0.78 : (prefs.showsLyricLine ? 0.55 : 0)), location: 1)],
+                                   .init(color: .black.opacity(hovering ? 0.62 : (prefs.showsLyricLine ? 0.55 : 0)), location: 1)],
                            startPoint: .top, endPoint: .bottom)
                 .allowsHitTesting(false)
 
@@ -291,6 +291,9 @@ public struct QTMiniPlayerView: View {
                     .lineLimit(1)
                     .padding(.horizontal, QTTheme.Spacing.m)
                     QTMiniTransportControls(size: .regular)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .qtGlass(.overArt, in: Capsule())
                 }
                 .padding(.bottom, QTTheme.Spacing.m)
                 .transition(.opacity)
@@ -367,7 +370,7 @@ struct QTMiniCornerButton: View {
                 .labelStyle(.iconOnly)
                 .font(.system(size: 10, weight: .bold))
                 .frame(width: 22, height: 22)
-                .qtFloatingSurface(Circle(), material: .ultraThinMaterial)
+                .qtGlass(.overArt, in: Circle(), interactive: true)
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)

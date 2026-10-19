@@ -35,6 +35,8 @@ public enum QTTheme {
         /// Floating surfaces drawn by us (toast, queue drawer). System popovers/menus keep their own radius.
         public static let floating: CGFloat = 14
         public static let drawer: CGFloat = 16
+        /// The floating player bar (concentric with the window corner at a 10 pt inset) and the Stage transport.
+        public static let playerBar: CGFloat = 22
     }
 
     // MARK: Metrics
@@ -45,7 +47,9 @@ public enum QTTheme {
         public static let panelWidth: CGFloat = 384
         public static let panelMinWidth: CGFloat = 320
         public static let panelMaxWidth: CGFloat = 480
-        public static let playerBarHeight: CGFloat = 80
+        public static let playerBarHeight: CGFloat = 72
+        /// Gap between the floating player bar and the window edges.
+        public static let playerBarInset: CGFloat = 10
         public static let playerBarSideWidth: CGFloat = 320
         public static let scrubberMaxWidth: CGFloat = 560
         public static let tableRowHeight: CGFloat = 60
@@ -214,24 +218,9 @@ public extension View {
         modifier(QTArtworkTint(palette: palette))
     }
 
-    /// Floating surface: Liquid Glass on macOS 26+, a system material before that, solid when Reduce Transparency is on.
+    /// Floating surface (kept for existing callers): the `.chrome` glass primitive (`QTGlass.swift`). `material`
+    /// is ignored — the primitive picks the macOS 15 material and the Reduce Transparency solid in one place.
     func qtFloatingSurface<S: Shape>(_ shape: S, material: Material = .regularMaterial) -> some View {
-        modifier(QTFloatingSurface(shape: shape, material: material))
-    }
-}
-
-struct QTFloatingSurface<S: Shape>: ViewModifier {
-    let shape: S
-    let material: Material
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-
-    func body(content: Content) -> some View {
-        if reduceTransparency {
-            content.background(QTTheme.Colors.windowBackground, in: shape)
-        } else if #available(macOS 26, *) {
-            content.glassEffect(.regular, in: shape)
-        } else {
-            content.background(material, in: shape)
-        }
+        qtGlass(.chrome, in: shape)
     }
 }

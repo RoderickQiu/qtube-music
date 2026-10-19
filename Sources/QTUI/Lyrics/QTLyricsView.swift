@@ -177,7 +177,7 @@ struct QTLyricsCurrentPill: View {
         }
         .buttonStyle(.plain)
         .foregroundStyle(.primary)
-        .qtFloatingSurface(Capsule(), material: overArt ? .thinMaterial : .regularMaterial)
+        .qtGlass(overArt ? .overArt : .chrome, in: Capsule(), interactive: true)
         .shadow(color: .black.opacity(overArt ? 0.3 : 0.14), radius: 14, y: 5)
         .help(QTLoc.tr("Back to the current line"))
         .accessibilityLabel(QTLoc.tr("Back to the current line"))

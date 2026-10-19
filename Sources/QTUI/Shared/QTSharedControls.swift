@@ -52,7 +52,7 @@ public struct QTToastOverlay: View {
                 }
                 .padding(.horizontal, QTTheme.Spacing.m)
                 .padding(.vertical, QTTheme.Spacing.xs)
-                .qtFloatingSurface(Capsule(), material: .regularMaterial)
+                .qtGlass(.chrome, in: Capsule())
                 .shadow(color: .black.opacity(0.18), radius: 12, y: 4)
                 .transition(.opacity.combined(with: .move(edge: .top)))
                 .id(toast.id)

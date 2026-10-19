@@ -29,6 +29,16 @@ BIN="$(swift build -c "$CONFIG" --scratch-path "$SCRATCH" --show-bin-path)"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN/QTubeMusic" "$APP/Contents/MacOS/QTubeMusic"
+# Linked-on SDK. SwiftPM's default build system (swiftbuild) stamps LC_BUILD_VERSION with sdk = the deployment
+# target (15.0) instead of the SDK it compiled against (the deprecated native build system stamps it right).
+# AppKit and SwiftUI choose the macOS 26+ design — Liquid Glass sidebar, toolbar, search field, controls,
+# popovers — from the linked-on SDK, so a "15.0 SDK" binary runs in the old look on Tahoe. Restamp it with the
+# real SDK version (minos stays 15.0).
+SDK_VERSION="$(xcrun --sdk macosx --show-sdk-version)"
+MIN_OS="$(otool -l "$APP/Contents/MacOS/QTubeMusic" | awk '/LC_BUILD_VERSION/{f=1} f&&/minos/{print $2; exit}')"
+xcrun vtool -set-build-version macos "${MIN_OS:-15.0}" "$SDK_VERSION" -replace \
+  -output "$APP/Contents/MacOS/QTubeMusic.stamped" "$APP/Contents/MacOS/QTubeMusic" 2>/dev/null
+mv "$APP/Contents/MacOS/QTubeMusic.stamped" "$APP/Contents/MacOS/QTubeMusic"
 # SwiftPM resource bundles (Bundle.module looks in Contents/Resources first).
 for b in "$BIN"/*.bundle; do
   [[ -e "$b" && "$b" != *Tests.bundle ]] && cp -R "$b" "$APP/Contents/Resources/"

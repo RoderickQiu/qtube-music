@@ -1,7 +1,8 @@
 import QTCore
 import SwiftUI
 
-// Owner: builder "window". Capsule controls for content pages (Home mood chips, Play / Shuffle / More on
+// Owner: builder "window". On macOS 26 pages use system glass buttons through `qtGlassButton` (Theme/QTGlass.swift);
+// these filled capsules are its macOS 15 / Reduce Transparency fallback. Capsule controls for content pages (Home mood chips, Play / Shuffle / More on
 // collection headers, Explore destinations). macOS's bordered styles ignore `.buttonBorderShape(.capsule)` and
 // render grey when the window is inactive, which flattens the one primary action on a page. These styles are
 // built from system fills (`.fill.tertiary` / `.fill.secondary`), the artwork accent as a tint, semantic label
@@ -26,7 +27,8 @@ struct QTPillButtonStyle: ButtonStyle {
     }
 }
 
-/// Mood / genre chip: a roomy capsule toggle. On = accent fill with a white label.
+/// Mood / genre chip: a roomy capsule toggle. On = accent fill with a white label (`.glassProminent` on macOS 26,
+/// `.glass` when off — see `qtGlassButton`).
 struct QTChipToggleStyle: ToggleStyle {
     func makeBody(configuration: Configuration) -> some View {
         Button {
@@ -34,17 +36,8 @@ struct QTChipToggleStyle: ToggleStyle {
         } label: {
             configuration.label
         }
-        .buttonStyle(QTChipButtonStyle(isOn: configuration.isOn))
+        .qtGlassButton(configuration.isOn ? .primary : .secondary)
         .accessibilityAddTraits(configuration.isOn ? [.isSelected] : [])
-    }
-}
-
-struct QTChipButtonStyle: ButtonStyle {
-    var isOn = false
-
-    func makeBody(configuration: Configuration) -> some View {
-        QTPillBody(label: configuration.label, isPressed: configuration.isPressed, prominence: isOn ? .primary : .secondary,
-                   isOn: isOn, iconOnly: false)
     }
 }
 

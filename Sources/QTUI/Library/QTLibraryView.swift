@@ -188,7 +188,7 @@ struct QTLibraryActions: View {
             } label: {
                 Label(QTLoc.tr("Play"), systemImage: QTIcon.play.systemName)
             }
-            .buttonStyle(QTPillButtonStyle(prominence: .primary))
+            .qtGlassButton(.primary)
             .help(QTLoc.tr("Play"))
             .accessibilityIdentifier("qt.library.play")
 
@@ -197,7 +197,7 @@ struct QTLibraryActions: View {
             } label: {
                 Label(QTLoc.tr("Shuffle"), systemImage: QTIcon.shuffle.systemName)
             }
-            .buttonStyle(QTPillButtonStyle(prominence: .secondary))
+            .qtGlassButton(.secondary)
             .help(QTLoc.tr("Shuffle"))
             .accessibilityIdentifier("qt.library.shuffle")
 
@@ -211,7 +211,7 @@ struct QTLibraryActions: View {
             }
             .menuStyle(.button)
             .menuIndicator(.hidden)
-            .buttonStyle(QTPillButtonStyle(prominence: .secondary, iconOnly: true))
+            .qtGlassButton(.secondary, iconOnly: true)
             .fixedSize()
             .help(QTLoc.tr("More"))
             .accessibilityIdentifier("qt.library.more")

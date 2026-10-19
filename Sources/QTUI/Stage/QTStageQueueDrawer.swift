@@ -5,6 +5,7 @@ import SwiftUI
 /// Floating glass (Liquid Glass on macOS 26, dark material before, solid with Reduce Transparency).
 struct QTStageQueueDrawer: View {
     let onClose: () -> Void
+    @Environment(\.qtAccent) private var accent
 
     var body: some View {
         VStack(spacing: 0) {
@@ -27,7 +28,7 @@ struct QTStageQueueDrawer: View {
             QTQueueList(style: .stageDrawer)
         }
         .frame(width: QTTheme.Metrics.stageQueueWidth)
-        .qtFloatingSurface(RoundedRectangle(cornerRadius: QTTheme.Radius.drawer, style: .continuous), material: .regularMaterial)
+        .qtGlass(.overArt, in: RoundedRectangle(cornerRadius: QTTheme.Radius.drawer, style: .continuous), tint: accent.opacity(0.12))
         .clipShape(RoundedRectangle(cornerRadius: QTTheme.Radius.drawer, style: .continuous))
         .shadow(color: .black.opacity(0.45), radius: 30, y: 24)
         .accessibilityElement(children: .contain)

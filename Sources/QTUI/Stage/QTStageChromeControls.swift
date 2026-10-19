@@ -7,9 +7,11 @@ import SwiftUI
 struct QTStageChromeButtonStyle: ButtonStyle {
     var isOn = false
     var glyph: CGFloat = 15
+    /// A 40 pt circle (for a button that sits on its own glass circle) instead of the 32 pt rounded square.
+    var circular = false
 
     func makeBody(configuration: Configuration) -> some View {
-        QTStageChromeButtonBody(configuration: configuration, isOn: isOn, glyph: glyph)
+        QTStageChromeButtonBody(configuration: configuration, isOn: isOn, glyph: glyph, circular: circular)
     }
 }
 
@@ -17,6 +19,7 @@ private struct QTStageChromeButtonBody: View {
     let configuration: ButtonStyleConfiguration
     let isOn: Bool
     let glyph: CGFloat
+    let circular: Bool
     @State private var hovering = false
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.colorSchemeContrast) private var contrast
@@ -27,10 +30,11 @@ private struct QTStageChromeButtonBody: View {
             .font(.system(size: glyph, weight: .regular))
             .symbolRenderingMode(.hierarchical)
             .foregroundStyle(isOn || hovering ? QTTheme.Colors.onArt : QTTheme.Colors.onArt.opacity(contrast == .increased ? 0.9 : 0.72))
-            .frame(width: 32, height: 32)
+            .frame(width: circular ? 40 : 32, height: circular ? 40 : 32)
             .background {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(.white.opacity(isOn ? 0.16 : hovering ? 0.12 : 0))
+                // On glass the glass itself answers hover; only the on state keeps a fill.
+                RoundedRectangle(cornerRadius: circular ? 20 : 8, style: .continuous)
+                    .fill(.white.opacity(isOn ? 0.16 : hovering && !circular ? 0.12 : 0))
             }
             .opacity(configuration.isPressed ? 0.6 : isEnabled ? 1 : 0.35)
             .contentShape(Rectangle())

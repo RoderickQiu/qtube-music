@@ -25,6 +25,7 @@ public struct QTStageView: View {
     @Environment(QTAppModel.self) private var model
     @Environment(QTPlayerModel.self) private var player
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.qtAccent) private var accent
 
     @State private var chromeVisible = true
     @State private var isQueueOpen = false
@@ -353,25 +354,36 @@ public struct QTStageView: View {
 
     private func topBar(_ a: QTStageResolvedAppearance) -> some View {
         @Bindable var model = model
-        return HStack(spacing: 6) {
-            Button(action: closeOrDismissDrawer) {
-                Label(QTLoc.tr("Close"), systemImage: QTIcon.chevD.systemName)
+        // Liquid Glass on macOS 26 (QTGlass): the close button is its own glass circle, the trailing controls
+        // share one capsule; one container so the shapes blend.
+        return QTGlassGroup {
+            HStack(spacing: 6) {
+                Button(action: closeOrDismissDrawer) {
+                    Label(QTLoc.tr("Close"), systemImage: QTIcon.chevD.systemName)
+                }
+                .buttonStyle(QTStageChromeButtonStyle(glyph: 16, circular: true))
+                .qtGlass(.overArt, in: Circle(), interactive: true)
+                .keyboardShortcut(.cancelAction)
+                .help("\(QTLoc.tr("Close"))  Esc")
+                .accessibilityIdentifier("qt.stage.close")
+
+                Spacer(minLength: 0)
+
+                HStack(spacing: 2) {
+                    QTLyricsOptionsButton(overArt: true)
+                        .frame(width: 34, height: 34)
+                    QTStageAppearanceButton(isPresented: $isAppearanceOpen, appearance: a)
+                    QTSongVideoToggle(isVideo: songVideoBinding, hasVideo: player.nowPlaying?.hasVideo ?? false)
+                        .controlSize(.regular)
+                        .padding(.leading, 6)
+                        .padding(.trailing, 2)
+                }
+                .padding(.horizontal, 4)
+                .frame(height: 40)
+                .qtGlass(.overArt, in: Capsule())
             }
-            .buttonStyle(QTStageChromeButtonStyle(glyph: 17))
-            .keyboardShortcut(.cancelAction)
-            .help("\(QTLoc.tr("Close"))  Esc")
-            .accessibilityIdentifier("qt.stage.close")
-
-            Spacer(minLength: 0)
-
-            QTLyricsOptionsButton(overArt: true)
-                .buttonStyle(QTStageChromeButtonStyle())
-            QTStageAppearanceButton(isPresented: $isAppearanceOpen, appearance: a)
-            QTSongVideoToggle(isVideo: songVideoBinding, hasVideo: player.nowPlaying?.hasVideo ?? false)
-                .controlSize(.regular)
-                .padding(.leading, 10)
         }
-        .frame(height: 32)
+        .frame(height: 40)
         .padding(.leading, topBarLeading)
         .padding(.trailing, QTTheme.Spacing.l + 4)
         .padding(.top, topBarRowTop)
@@ -386,8 +398,8 @@ public struct QTStageView: View {
 
     /// The row's top edge: centred on the traffic lights in a window, otherwise centred in the top bar.
     private var topBarRowTop: CGFloat {
-        if hasTrafficLights, !isFullScreen, let mid = trafficLightsMidY { return max(mid - 16, 4) }
-        return QTTheme.Metrics.stageTopBarHeight / 2 - 16
+        if hasTrafficLights, !isFullScreen, let mid = trafficLightsMidY { return max(mid - 20, 4) }
+        return QTTheme.Metrics.stageTopBarHeight / 2 - 20
     }
 
     /// Right-click menu on the Stage: move it to another display, back into the main window, or full screen.
@@ -410,8 +422,10 @@ public struct QTStageView: View {
         }
     }
 
+    /// Scrubber + transport + like / queue / AirPlay on one floating glass panel, faintly tinted with the artwork
+    /// accent (a dark material on macOS 15, solid with Reduce Transparency).
     private var bottomBar: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 6) {
             QTScrubber(overArt: true)
                 .accessibilityIdentifier("qt.stage.scrubber")
             ZStack {
@@ -422,13 +436,14 @@ public struct QTStageView: View {
                 }
             }
         }
+        .padding(.horizontal, 22)
+        .padding(.top, 12)
+        .padding(.bottom, 10)
+        .frame(maxWidth: 860)
+        .qtGlass(.overArt, in: RoundedRectangle(cornerRadius: QTTheme.Radius.playerBar + 6, style: .continuous),
+                 tint: accent.opacity(0.16))
         .padding(.horizontal, QTTheme.Metrics.stageInset)
-        .padding(.bottom, 28)
-        .background(alignment: .bottom) {
-            LinearGradient(colors: [.clear, .black.opacity(0.22)], startPoint: .top, endPoint: .bottom)
-                .frame(height: 170)
-                .allowsHitTesting(false)
-        }
+        .padding(.bottom, 18)
     }
 
     private var sideControls: some View {

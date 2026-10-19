@@ -3,8 +3,8 @@ import QTCore
 import SwiftUI
 
 // Owner: builder "window". The main window: native NavigationSplitView (sidebar material, traffic lights over the
-// sidebar, full-size content) | content with back/forward history | docked inspector; player bar along the
-// bottom; Stage over everything when open. Keep the readiness/placement plumbing at the bottom intact.
+// sidebar, full-size content) | content with back/forward history | docked inspector; floating player bar over
+// the bottom of content + inspector; Stage over everything when open. Keep the readiness/placement plumbing at the bottom intact.
 
 public struct QTMainWindowView: View {
     @Environment(QTAppModel.self) private var model
@@ -34,6 +34,9 @@ public struct QTMainWindowView: View {
                                 .inspectorColumnWidth(min: QTTheme.Metrics.panelMinWidth, ideal: QTTheme.Metrics.panelWidth,
                                                       max: QTTheme.Metrics.panelMaxWidth)
                         }
+                        // The player bar floats over the bottom of the content and the panel (glass on macOS 26,
+                        // a material before): the sidebar keeps the window's full height, pages scroll under it.
+                        .qtFloatingBottomBar { QTPlayerBar() }
                 }
                 .toolbar {
                     ToolbarItemGroup(placement: .navigation) {
@@ -73,7 +76,6 @@ public struct QTMainWindowView: View {
                 .navigationTitle("")
                 .searchable(text: $model.searchText, placement: .toolbar, prompt: Text(QTLoc.tr("Search music")))
                 .searchFocused($isSearchFocused)
-                QTPlayerBar()
             }
             if model.surface == .stage {
                 QTStageView()

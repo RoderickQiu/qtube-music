@@ -3,6 +3,7 @@ import QTPlayback
 import SwiftUI
 
 // Owner: builder "player". Prototype `.playerbar`: now playing (320) | transport + scrubber | tools (320).
+// Floats over the bottom of the content column + panel as one glass bar (`qtGlass`, Theme/QTGlass.swift).
 
 /// The always-visible bottom bar. Owns playback controls (the panel never duplicates them).
 public struct QTPlayerBar: View {
@@ -29,11 +30,14 @@ public struct QTPlayerBar: View {
             }
             .frame(minWidth: 180, maxWidth: QTTheme.Metrics.playerBarSideWidth, alignment: .trailing)
         }
-        .padding(.horizontal, 28)
+        .padding(.leading, 12)
+        .padding(.trailing, 18)
         .frame(height: QTTheme.Metrics.playerBarHeight)
-        .background(.bar)
+        .qtGlass(.bar, in: RoundedRectangle(cornerRadius: QTTheme.Radius.playerBar, style: .continuous))
         .background { QTPlayerKeyAppearanceProbe() }
-        .overlay(alignment: .top) { Divider() }
+        .padding(.horizontal, QTTheme.Metrics.playerBarInset)
+        .padding(.top, 4)
+        .padding(.bottom, QTTheme.Metrics.playerBarInset)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("qt.player.bar")
         // Song⇄Video is app state (`isVideoMode`, also toggled by ⇧⌘V and the Stage); keep the loaded rendition

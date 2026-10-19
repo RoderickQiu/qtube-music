@@ -62,7 +62,7 @@ public struct QTAdCountdownPill: View {
             .foregroundStyle(.white)
             .padding(.horizontal, compact ? 9 : 12)
             .padding(.vertical, compact ? 4 : 5)
-            .background(.ultraThinMaterial, in: Capsule())
+            .qtGlass(.overArt, in: Capsule())
             .environment(\.colorScheme, .dark)
             .fixedSize()
             .accessibilityIdentifier("qt.player.ad.countdown")

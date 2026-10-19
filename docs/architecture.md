@@ -197,8 +197,9 @@ Core:
   `mood(_:) -> [QTShelf]`, `search(_:) -> QTSearchResults`, `album(_:) -> QTAlbumPage?`, `artist(_:) -> QTArtistPage?`
   — the `QTInnerTubeClient` page types. `QTBrowse.service` is `QTMockBrowseService` (derived from the mock catalog)
   until the data layer assigns an InnerTube-backed service; pages reload on interface-language change.
-- Window controls: `QTPillButtonStyle(prominence: .primary | .secondary, iconOnly:)` (capsule; primary = artwork
-  accent fill), `QTChipToggleStyle` (mood/genre chips), `QTChipFlow` (wrapping layout) — Shell/QTWindowButtonStyles.swift.
+- Window controls: page buttons use `.qtGlassButton(.primary | .secondary, iconOnly:)` (Theme/QTGlass.swift);
+  `QTPillButtonStyle` (capsule; primary = artwork accent fill) is its macOS 15 / Reduce Transparency fallback.
+  `QTChipToggleStyle` (mood/genre chips, built on `qtGlassButton`), `QTChipFlow` (wrapping layout) — Shell/QTWindowButtonStyles.swift.
 - Navigation: `QTDestination` adds `.mood(QTMoodChip)` (Explore mood/genre pages).
 
 ## Native UI rules (user requirement)
@@ -208,10 +209,33 @@ The prototype defines layout, hierarchy, copy and states; the app must look like
   `.searchable`, `.inspector` for the docked panel, `Table`/`NSTableView` with system headers, `Picker`
   (segmented/menu), `Toggle` (`.button` style for shuffle/repeat = filled when on), `Slider`, `Stepper`, `Menu`,
   `.popover`, grouped `Form` in Settings, `NSMenu`/`.contextMenu`, sheets/alerts.
-- System semantics only: `QTTheme.Colors` wraps label/secondary/tertiary/separator/window/selection colours,
-  materials (`.bar`, `.regularMaterial`, `.sidebar`), `qtFloatingSurface` = Liquid Glass on macOS 26 via
-  `#available`, material before, solid with Reduce Transparency. Artwork accent is a **tint only**
-  (`.qtArtworkTint(palette)` sets `.tint` + `\.qtAccent`; system accent under Increase Contrast).
+- System semantics only: `QTTheme.Colors` wraps label/secondary/tertiary/separator/window/selection colours.
+  Artwork accent is a **tint only** (`.qtArtworkTint(palette)` sets `.tint` + `\.qtAccent`; system accent under
+  Increase Contrast).
+- **Liquid Glass (R3).** macOS 15 stays the minimum; macOS 26+ gets glass, macOS 15 system materials, Reduce
+  Transparency solid surfaces — decided in ONE place, `Theme/QTGlass.swift`. Feature code never calls
+  `glassEffect` or paints `.material` backgrounds itself:
+  - `qtGlass(_ role, in: shape, tint:, interactive:)` — roles `.chrome` (floating pieces over our content: toasts,
+    lyrics "Current" pill), `.bar` (the player bar: glass with a neutral window-colour wash so titles stay legible
+    over vivid art), `.overArt` (Stage chrome, queue drawer, ad badges, mini player art controls; dark context).
+    Tint = the artwork accent at ~0.12–0.16 opacity, only over art.
+  - `qtGlassButton(.primary | .secondary, iconOnly:)` — `.glassProminent` / `.glass` (capsule or circle; accent via
+    `.tint`): mood chips, collection Play / Shuffle / More, search top result, panel header hide button.
+  - `QTGlassGroup { … }` — `GlassEffectContainer` for neighbouring glass shapes (Stage top bar).
+  - `qtFloatingBottomBar { … }` — `safeAreaBar` on macOS 26 (scroll edge effect under the bar), `safeAreaInset`
+    before. The player bar floats over the bottom of content + inspector (10 pt inset, radius 22); the sidebar
+    keeps the window's full height and pages scroll under the bar.
+  - `QTPanelGlassBackground(cornerRadius:)` — window-level glass for clear panels (`NSGlassEffectView` on 26,
+    `.popover` vibrancy before): mini player strip, desktop lyrics controls.
+  - DEBUG `-qt.reduceTransparency YES` renders every primitive's solid fallback (native chrome follows the real
+    setting). `qtFloatingSurface(_:material:)` remains as a forwarder to `.chrome`.
+  - Native chrome — sidebar, toolbar items and search field, segmented pickers, popovers, menus, the MenuBarExtra
+    window — gets the system glass by itself. Don't paint over it, don't add `.toolbarBackground`, and keep the
+    toolbar/inspector/split view stock.
+  - It only appears if the binary is linked on the macOS 26+ SDK: see `build-app.sh` (SDK stamp) below.
+  - No `GridItem(.flexible(minimum:))` (or other hard minimum widths) in content pages: with the inspector open, a
+    content minimum feeds AppKit's split-view constraints into an update-constraints loop (crash) on the macOS 26+
+    design. Count columns from the measured width instead (`QTQuickPicks`).
 - Type: system text styles via `QTTheme.Typography` (SF Pro; PingFang SC only via the system cascade — never name
   a CJK font first; no forced uppercase/tracking on CJK). Tabular figures with `.monospacedDigit()`.
 - Motion: `QTTheme.Motion` (curve `cubic-bezier(.2,.8,.2,1)`, 320 ms UI, 520 ms lyric scroll, springs,
@@ -288,6 +312,7 @@ Builders add their own as `qt.<area>.<name>` (e.g. `qt.stage.chrome hidden`, `qt
 | player | `qt.player.upNext demo\|id,id` · `qt.player.autoplay NO` · `qt.player.shuffle YES` · `qt.player.repeat off\|all\|one` · `qt.player.adElapsed <s>` (with `qt.ad`: run the ad `<s>` s then pause; 2 = "Skip in 3", 6 = skippable) · DEBUG `qt.player.keyAppearance YES` (best-effort key-window rendering in background captures; check the shot and retake) |
 | lyrics-ui | `qt.lyrics.scrolled` · `qt.lyrics.options` · `qt.lyrics.demoVersions` · `qt.lyrics.translationState same\|translating\|download\|unavailable\|onDevice\|appleIntelligence` · `qt.lyrics.lab` · `qt.lyrics.debug` |
 | stage | `qt.stage.chrome hidden` · `qt.stage.queue YES` · `qt.stage.popover appearance` · `qt.stage.window YES` (detached window) · `qt.stage.reduceMotion YES` · `qt.stage.visualizerOnBattery YES` · `qt.stage.closeAfter <s>` · `qt.stage.noAd YES` (free account without the simulated pre-roll, e.g. the visualizer fallback) |
+| glass | DEBUG `qt.reduceTransparency YES` (every glass primitive draws its Reduce Transparency solid) |
 | desktop | `qt.desktop.miniMode compact\|art` · `qt.desktop.miniLyric` · `qt.desktop.miniHover` · `qt.desktop.lyricsUnlocked` · `qt.desktop.menuBarScroll` · `qt.desktop.lyricsSize <pt>` · `qt.settingsTab general\|playback\|lyrics\|account\|advanced`; DEBUG: `qt.desktop.switchLanguage`, `qt.desktop.popUpMenu <index>`, `qt.desktop.showShortcuts`, `qt.desktop.accountPreview signedIn\|premium\|signingIn\|expired\|signedOut` (Settings › Account without Keychain access) |
 | lyrics-live | `qt.lyrics.unofficial all\|none\|netease,kugou,qq` (session-only Settings override) · `qt.lyrics.engine live\|mock` (default live) · `qt.lyrics.cache memory\|<path>` (fresh lookup; default Application Support/<bundle id>/Lyrics.sqlite) · `qt.lyrics.offline YES` (every source unreachable → fallback path) |
 | data-live | `qt.live.open album:<id\|title>` · `artist:<id\|name>` · `playlist:<id>` (once the library has loaded) · `qt.live.state skeleton\|offline\|unavailable\|expired` (pins every live page's state) · `qt.live.signedOut YES` (signed-out screen, no Keychain read) · with it `qt.live.signIn YES` (Google sign-in window in a throwaway WebKit store; a login there is never kept) |
@@ -306,6 +331,12 @@ InnerTube fixtures), `QT_DUMP=1` (print parser output), `QT_KEYCHAIN_TEST=1` (Ke
   macOS 15, `en` + `zh-Hans`, SwiftPM resource bundles in `Contents/Resources`, mock catalog, ad-hoc signed).
   `QT_VARIANT=<name>` → `QTube Music <name>.app`, `com.roderickqiu.qtube.dev-<name>`, scratch `.build/<name>`,
   so agents run side by side. `QT_CONFIG=release`, `QT_SCRATCH=…`. `--print-path`. Works from worktrees.
+  **SDK stamp:** SwiftPM's default build system (swiftbuild) writes `LC_BUILD_VERSION sdk` = the deployment target
+  (15.0) instead of the SDK it compiled against, and AppKit/SwiftUI choose the macOS 26+ design from the linked-on
+  SDK — so the app ran in the old look on Tahoe (flush grey sidebar, flat toolbar). The script restamps the
+  executable with `xcrun vtool -set-build-version macos <minos> <sdk>` before signing; check with
+  `otool -l <app>/Contents/MacOS/QTubeMusic | grep -A4 LC_BUILD_VERSION` (`minos 15.0`, `sdk 27.0`). Binaries run
+  straight from `swift run` keep the 15.0 stamp (old look).
 - `Scripts/shoot.sh <outname> [--window main|mini|desktopLyrics|menuBarPopover|settings]… [launch args]` —
   quits that variant, `open -g -n` with `-qt.screen U270CA -qt.readyFile …`, waits for the ready file, finds window
   ids with `Scripts/tools/qt-window-id.swift` (compiled to `.build/qt-tools/`, CGWindowList by pid + title; Settings
