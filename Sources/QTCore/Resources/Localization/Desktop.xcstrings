@@ -71,22 +71,22 @@
         }
       }
     },
-    "Apple Intelligence is still getting ready" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Apple 智能仍在准备中"
-          }
-        }
-      }
-    },
     "Apple Intelligence isn’t available right now" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Apple 智能当前不可用"
+          }
+        }
+      }
+    },
+    "Apple Intelligence model isn’t ready" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple 智能模型尚未就绪"
           }
         }
       }
@@ -637,16 +637,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "列表循环"
-          }
-        }
-      }
-    },
-    "Required" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "必填"
           }
         }
       }

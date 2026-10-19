@@ -72,14 +72,30 @@ public enum QTLyricsTranslationPrompt {
 
     public static func instructions(target: String) -> String {
         let name = languageName(target)
-        return """
+        var out = """
         You translate song lyrics into \(name) for a music player that shows the translation under each sung line.
         Translate every numbered line into natural \(name) that keeps the song's tone, slang and imagery; read the \
         song as a whole, so metaphors and idioms keep their meaning instead of being translated word for word.
+        Write the way song lyrics are written, not formal prose: a natural lyric register, short lines, and no full \
+        stop at the end of a line unless the original line has one. Keep question and exclamation marks.
+        """
+        if let register = registerNote(target) { out += "\n" + register }
+        out += """
+
         Return exactly one translation for each numbered line, in the same order. Never merge, split, skip, number, \
         explain or add lines. Keep personal names and place names as they are. If a line is only sounds or \
         vocables (such as "oh", "la la", "yeah"), copy it unchanged.
         """
+        return out
+    }
+
+    /// Languages whose verb endings mark politeness: lyrics use the plain forms.
+    static func registerNote(_ target: String) -> String? {
+        switch QTLanguageCode.normalize(target) {
+        case "ko": "Use the plain endings Korean lyrics use (such as -아/-어, -지, -네, -야), never the formal -습니다/-ㅂ니다 style."
+        case "ja": "Use the plain forms Japanese lyrics use (such as 〜だ, 〜ない, 〜てる), not です/ます."
+        default: nil
+        }
     }
 
     /// - Parameters:

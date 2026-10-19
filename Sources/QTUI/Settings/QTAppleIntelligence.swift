@@ -20,14 +20,16 @@ enum QTAppleIntelligence {
 
         var isAvailable: Bool { self == .available }
 
-        /// One line shown under the disabled toggle.
+        /// One short line: under the disabled toggle in Settings, and in the lyrics options when a fallback
+        /// translates instead. Mirrors `SystemLanguageModel.Availability.UnavailableReason` (`modelNotReady` also
+        /// covers a Mac whose language differs from Siri's — the API doesn't say which).
         var reason: String? {
             switch self {
             case .available: nil
             case .requiresNewerMacOS: QTLoc.tr("Requires macOS 26 or later", table: .desktop)
             case .deviceNotEligible: QTLoc.tr("This Mac doesn’t support Apple Intelligence", table: .desktop)
             case .notEnabled: QTLoc.tr("Turn on Apple Intelligence in System Settings", table: .desktop)
-            case .modelNotReady: QTLoc.tr("Apple Intelligence is still getting ready", table: .desktop)
+            case .modelNotReady: QTLoc.tr("Apple Intelligence model isn’t ready", table: .desktop)
             case .languageUnsupported(let code):
                 QTLoc.tr("Apple Intelligence can’t translate into %@", table: .desktop, QTLyricsTranslationTarget.nativeName(for: code))
             case .unavailable: QTLoc.tr("Apple Intelligence isn’t available right now", table: .desktop)

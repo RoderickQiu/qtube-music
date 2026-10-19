@@ -303,3 +303,10 @@ struct QTLyricsFocusRepresentable: NSViewRepresentable {
         view.apply(configuration)
     }
 }
+
+extension QTLyricsLaneLevel {
+    /// SwiftUI surfaces: the lane's opacity relative to its lyric's style (`.primary`, white over art…).
+    static func current(_ contrast: ColorSchemeContrast) -> Double { Double(current(increaseContrast: contrast == .increased)) }
+    /// The lane under a dimmed (upcoming) line, relative to that line's style.
+    static func inactive(_ contrast: ColorSchemeContrast) -> Double { Double(inactive(increaseContrast: contrast == .increased)) }
+}

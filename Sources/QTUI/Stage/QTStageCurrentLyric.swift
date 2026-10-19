@@ -14,6 +14,7 @@ struct QTStageCurrentLyric: View {
     let showsTranslation: Bool
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorSchemeContrast) private var contrast
     @Environment(QTAppModel.self) private var model: QTAppModel?
 
     private var surface: QTTheme.Typography.LyricSurface { style == .videoOverlay ? .videoOverlay : .artOnly }
@@ -50,7 +51,11 @@ struct QTStageCurrentLyric: View {
                     if showsTranslation, let tr = current?.translation {
                         Text(tr)
                             .font(.system(size: style == .videoOverlay ? 22 : 15, weight: style == .videoOverlay ? .semibold : .regular))
-                            .foregroundStyle(.white.opacity(style == .videoOverlay ? 0.86 : 0.6))
+                            // The shared lane level (`QTLyricsLaneLevel`); over a moving picture it never drops
+                            // below 0.86 so the translation stays legible on bright frames (with shadow + scrim).
+                            .foregroundStyle(.white.opacity(style == .videoOverlay
+                                ? max(0.86, QTLyricsLaneLevel.current(contrast))
+                                : QTLyricsLaneLevel.current(contrast)))
                     }
                 }
             }

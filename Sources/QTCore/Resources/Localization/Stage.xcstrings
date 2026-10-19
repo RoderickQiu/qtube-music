@@ -51,19 +51,14 @@
         }
       }
     },
-    "Visualizer needs the Premium engine" : {
+    "Lyrics over video" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "可视化需要 Premium 引擎"
+            "value" : "视频上显示歌词"
           }
         }
-      }
-    },
-    "Lyrics over video" : {
-      "localizations" : {
-        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "视频上显示歌词" } }
       }
     }
   },

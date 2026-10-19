@@ -147,6 +147,43 @@ public struct QTLyricsOptionsPopover: View {
 
     @ViewBuilder
     private func translationStatus(_ status: QTLyricsTranslationStatus) -> some View {
+        VStack(alignment: .trailing, spacing: 3) {
+            translationEngine(status)
+            if let reason = appleIntelligenceReason(status) {
+                // Why Apple Intelligence isn't the one translating, in Apple's own terms (its availability reason).
+                Label(reason, systemImage: "apple.intelligence")
+                    .foregroundStyle(.tertiary)
+                    .accessibilityIdentifier("qt.lyrics.appleIntelligenceReason")
+            }
+        }
+        .font(.footnote)
+        .foregroundStyle(.secondary)
+        .multilineTextAlignment(.trailing)
+        .frame(maxWidth: .infinity, alignment: .trailing)
+        // A container, so the download button keeps its own identifier (`qt.lyrics.downloadTranslation`) instead
+        // of inheriting this one.
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("qt.lyrics.translationStatus")
+    }
+
+    /// Apple Intelligence is wanted (Settings' toggle) but can't run, and a fallback translates instead: the short
+    /// reason the system gives (model not ready, language not supported…). Not shown for a Mac or macOS that can't
+    /// run it at all, or when Apple Intelligence is turned off system-wide — Settings says so; here it would be noise.
+    private func appleIntelligenceReason(_ status: QTLyricsTranslationStatus) -> String? {
+        switch status {
+        case .onDevice, .needsDownload, .unavailable: break
+        default: return nil
+        }
+        guard model.settings.settings.translateWithAppleIntelligence else { return nil }
+        let ai = QTAppleIntelligence.status(for: model.resolvedTranslationLanguage)
+        switch ai {
+        case .modelNotReady, .languageUnsupported, .unavailable: return ai.reason
+        case .available, .requiresNewerMacOS, .deviceNotEligible, .notEnabled: return nil
+        }
+    }
+
+    @ViewBuilder
+    private func translationEngine(_ status: QTLyricsTranslationStatus) -> some View {
         Group {
             switch status {
             case .noLyrics, .off:
@@ -179,13 +216,6 @@ public struct QTLyricsOptionsPopover: View {
                 Label(QTLoc.tr("Apple Intelligence", table: .lyrics), systemImage: "apple.intelligence")
             }
         }
-        .font(.footnote)
-        .foregroundStyle(.secondary)
-        .frame(maxWidth: .infinity, alignment: .trailing)
-        // A container, so the download button keeps its own identifier (`qt.lyrics.downloadTranslation`) instead
-        // of inheriting this one.
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("qt.lyrics.translationStatus")
     }
 
     // MARK: Sources, timing, versions

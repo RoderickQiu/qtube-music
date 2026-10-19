@@ -269,6 +269,7 @@ struct QTCurrentLyricLine: View {
     @Environment(QTAppModel.self) private var model
     @Environment(QTPlayerModel.self) private var player
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorSchemeContrast) private var contrast
     let style: Style
 
     /// What to show at playback time `t`: the current line, or the upcoming one (`isUpcoming`).
@@ -325,7 +326,9 @@ struct QTCurrentLyricLine: View {
                 if let translation, !translation.isEmpty {
                     Text(translation)
                         .font(.subheadline)
-                        .foregroundStyle(upcoming ? .quaternary : .secondary)
+                        // The shared lane level (`QTLyricsLaneLevel`), relative to the line above it.
+                        .foregroundStyle(upcoming ? AnyShapeStyle(.tertiary.opacity(QTLyricsLaneLevel.inactive(contrast)))
+                                                  : AnyShapeStyle(.primary.opacity(QTLyricsLaneLevel.current(contrast))))
                 }
             }
             .multilineTextAlignment(.center)

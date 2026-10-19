@@ -96,7 +96,8 @@ struct QTStageAppearancePopover: View {
         case .cover: QTLoc.tr("Full-bleed cover")
         case .vinyl: QTLoc.tr("Vinyl")
         case .video: hasVideo ? QTLoc.tr("Music video") : QTLoc.tr("No official music video for this song")
-        case .visualizer: hasVisualizer ? QTLoc.tr("Visualizer") : QTLoc.tr("Visualizer needs the Premium engine", table: .stage)
+        // Every engine feeds the visualizer since R4 (web audio for every account).
+        case .visualizer: QTLoc.tr("Visualizer")
         }
     }
 

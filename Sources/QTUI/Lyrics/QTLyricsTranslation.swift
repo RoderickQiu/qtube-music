@@ -216,7 +216,8 @@ final class QTLyricsTranslationCenter {
         let order: [QTLyricsTranslationEngineKind] = key.allowsAppleIntelligence ? [.appleIntelligence, .translationFramework] : [.translationFramework]
         // Cached translations work offline and before Apple Intelligence is ready.
         for kind in order {
-            if let cached = await c.cachedTranslation(key: key.cacheKey, target: key.target, engine: kind, lineCount: lines.count) {
+            if let cached = await c.cachedTranslation(key: key.cacheKey, target: key.target, engine: kind, lineCount: lines.count,
+                                                     source: lines) {
                 finish(key, cached, engine: kind)
                 return
             }
@@ -290,7 +291,8 @@ final class QTLyricsTranslationCenter {
         do {
             let items = QTTranslationFrameworkBatch.items(for: e.sourceLines)
             let pairs = try await Self.translate(QTTranslationSessionBox(session: session), items: items, prepare: e.consented)
-            let out = try QTTranslationFrameworkBatch.lines(from: pairs, count: e.sourceLines.count, expected: items.count)
+            let raw = try QTTranslationFrameworkBatch.lines(from: pairs, count: e.sourceLines.count, expected: items.count)
+            let out = QTLyricsTranslationPolish.lines(raw, source: e.sourceLines)
             finish(key, out, engine: .translationFramework)
             await coordinator.storeTranslation(out, key: key.cacheKey, target: key.target, engine: .translationFramework)
         } catch is CancellationError {

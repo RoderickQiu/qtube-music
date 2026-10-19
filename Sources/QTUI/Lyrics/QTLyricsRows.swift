@@ -7,6 +7,19 @@ import QuartzCore
 // Core Animation layers that draw them, and the karaoke fill. The fill runs entirely in the render server
 // (keyframe animations scheduled at the word timings), so the app does no per-frame work while a line is sung.
 
+// MARK: - Translation lane level (one metric for every surface)
+
+/// How strong the translation / romanization lane is next to its lyric, on every surface: the panel and Stage rails,
+/// the mini player, desktop lyrics, the Stage's single current line (Art only, over the video) and the menu bar
+/// popover. A fraction of the lyric's own ink (label colour, or white over art) — the secondary level of the lyric
+/// hierarchy, the same everywhere so a translation never looks stronger in one place than another.
+enum QTLyricsLaneLevel {
+    /// Beside the current line.
+    static func current(increaseContrast: Bool) -> Float { increaseContrast ? 0.8 : 0.66 }
+    /// The lane inside a dimmed (inactive / upcoming) row, relative to that row: just under its lyric.
+    static func inactive(increaseContrast: Bool) -> Float { increaseContrast ? 1 : 0.86 }
+}
+
 // MARK: - Metrics per surface (styles.css: .ly-panel / .ly-stage / .desk-lyrics / .pop-lyric)
 
 struct QTLyricsMetrics {
@@ -19,7 +32,7 @@ struct QTLyricsMetrics {
     var laneGap: CGFloat
     /// Horizontal inset of the rail (`.lyrics-rail` left/right).
     var inset: CGFloat
-    /// Where the current line's centre sits, as a fraction of the height (panel 0.31: the first line sits right under the hero, as in the prototype).
+    /// Where the current line's centre sits, as a fraction of the height (panel 0.24: the first line sits right under the hero).
     var anchor: CGFloat
     var inactiveOpacity: Float
     var hoverOpacity: Float
@@ -41,24 +54,29 @@ struct QTLyricsMetrics {
     var outline: (width: CGFloat, color: NSColor)?
     var dotSize: CGFloat
     /// Translation / romanization lanes beside the current line, as a fraction of the main ink: the secondary level
-    /// of the lyric hierarchy (`.ly-tr` colour: `--fg-2` in the panel, white 62 % on the Stage).
-    var laneOpacity: Float = 0.62
+    /// of the lyric hierarchy, `QTLyricsLaneLevel.current` on every surface.
+    var laneOpacity: Float = QTLyricsLaneLevel.current(increaseContrast: false)
     /// The lanes' own opacity inside a dimmed (inactive) row. Without it a lane would be a fraction of a fraction
-    /// (62 % × 32 % ≈ 0.2) and vanish into a tinted panel; with it an inactive translation sits just under its
+    /// (66 % × 32 % ≈ 0.2) and vanish into a tinted panel; with it an inactive translation sits just under its
     /// inactive lyric (≈ tertiary label level).
-    var inactiveLaneOpacity: Float = 0.86
+    var inactiveLaneOpacity: Float = QTLyricsLaneLevel.inactive(increaseContrast: false)
+    /// Desktop overlay: the lane level is baked into the glyph fill, so the outline + shadow that keep it legible on
+    /// any wallpaper stay at full strength (dimming the whole layer would thin the halo too).
+    var bakesLaneLevelIntoFill = false
 
     var mainColor: NSColor { overArt ? .white : .labelColor }
-    /// Ink of the translation / romanization lanes (their level comes from `laneOpacity(rowOpacity:)`).
-    var laneColor: NSColor { mainColor }
+    /// Ink of the translation / romanization lanes (their level comes from `laneOpacity(rowOpacity:)`, or is baked
+    /// in here on the desktop overlay).
+    var laneColor: NSColor { bakesLaneLevelIntoFill ? mainColor.withAlphaComponent(CGFloat(laneOpacity)) : mainColor }
 
     /// Opacity of the lane layers for a row whose container is at `rowOpacity`: `laneOpacity` on the current line,
     /// rising to `inactiveLaneOpacity` as the row dims, so the lane's absolute level never drops far below the
     /// row's lyric.
     func laneOpacity(rowOpacity: Float) -> Float {
+        let level = bakesLaneLevelIntoFill ? 1 : laneOpacity
         let span = max(0.001, 1 - inactiveOpacity)
         let t = min(1, max(0, (1 - rowOpacity) / span))
-        return laneOpacity + (inactiveLaneOpacity - laneOpacity) * t
+        return level + (max(level, inactiveLaneOpacity) - level) * t
     }
 
     /// Same metrics with every lane in the given system font design.
@@ -73,6 +91,8 @@ struct QTLyricsMetrics {
     static func make(_ style: QTLyricsStyle, textScale: CGFloat = 1, increaseContrast: Bool = false,
                      desktopFontSize: CGFloat? = nil) -> QTLyricsMetrics {
         let dim: Float = increaseContrast ? 0.5 : 0.32
+        let lane = QTLyricsLaneLevel.current(increaseContrast: increaseContrast)
+        let inactiveLane = QTLyricsLaneLevel.inactive(increaseContrast: increaseContrast)
         switch style {
         case .panel:
             let s = QTTheme.Typography.lyricSizes(.panel)
@@ -84,7 +104,7 @@ struct QTLyricsMetrics {
                 farOpacity: nil, unsungOpacity: increaseContrast ? 0.5 : 0.36, inactiveScale: 0.97,
                 futureBlur: 0, farBlur: 0, edge: 10 * textScale, fadeTop: 0.14, fadeBottom: 0.80, overArt: false,
                 shadow: nil, outline: nil, dotSize: 7 * textScale,
-                laneOpacity: increaseContrast ? 0.78 : 0.62, inactiveLaneOpacity: increaseContrast ? 1 : 0.86)
+                laneOpacity: lane, inactiveLaneOpacity: inactiveLane)
         case .stage(let centered):
             let s = QTTheme.Typography.lyricSizes(.stage)
             return QTLyricsMetrics(
@@ -96,7 +116,7 @@ struct QTLyricsMetrics {
                 inactiveScale: 0.955, futureBlur: increaseContrast ? 0 : 0.6, farBlur: increaseContrast ? 0 : 1.6,
                 edge: 18 * textScale, fadeTop: 0.14, fadeBottom: 0.80, overArt: true, shadow: nil, outline: nil,
                 dotSize: 12 * textScale,
-                laneOpacity: increaseContrast ? 0.8 : 0.66, inactiveLaneOpacity: increaseContrast ? 1 : 0.86)
+                laneOpacity: lane, inactiveLaneOpacity: inactiveLane)
         case .mini:
             let s = QTTheme.Typography.lyricSizes(.mini)
             return QTLyricsMetrics(
@@ -106,7 +126,7 @@ struct QTLyricsMetrics {
                 rowPadding: 0, laneGap: 1, inset: 0, anchor: 0.5, inactiveOpacity: dim, hoverOpacity: 1,
                 farOpacity: nil, unsungOpacity: 0.45, inactiveScale: 1, futureBlur: 0, farBlur: 0, edge: 6,
                 fadeTop: 0, fadeBottom: 1, overArt: false, shadow: nil, outline: nil, dotSize: 5,
-                laneOpacity: increaseContrast ? 0.8 : 0.66, inactiveLaneOpacity: increaseContrast ? 1 : 0.86)
+                laneOpacity: lane, inactiveLaneOpacity: inactiveLane)
         case .desktop:
             let s = QTTheme.Typography.lyricSizes(.desktop)
             let main = (desktopFontSize ?? s.main) * textScale
@@ -125,8 +145,8 @@ struct QTLyricsMetrics {
                 farOpacity: nil, unsungOpacity: 0.7, inactiveScale: 1, futureBlur: 0, farBlur: 0, edge: 16,
                 fadeTop: 0, fadeBottom: 1, overArt: true, shadow: shadow,
                 outline: (width: max(2, main / 13), color: NSColor.black.withAlphaComponent(0.5)), dotSize: 10,
-                // Over any wallpaper: near the lyric's own level; the outline + shadow give the hierarchy.
-                laneOpacity: increaseContrast ? 1 : 0.9, inactiveLaneOpacity: 1)
+                // The shared level in the fill; the outline + shadow stay full so it reads on any wallpaper.
+                laneOpacity: lane, inactiveLaneOpacity: 1, bakesLaneLevelIntoFill: true)
         }
     }
 }

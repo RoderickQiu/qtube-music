@@ -214,11 +214,13 @@ public actor QTLyricsTranslationCoordinator {
     }
 
     /// A translation stored earlier for this song + language + engine, if its line count still matches.
+    /// - Parameter source: the sung lines, for the lyric polish (`QTLyricsTranslationPolish`); empty = unknown.
     public func cachedTranslation(key: String, target: String, engine kind: QTLyricsTranslationEngineKind,
-                                  lineCount: Int) async -> [String]? {
+                                  lineCount: Int, source: [String] = []) async -> [String]? {
         guard let cached = await cache?.translation(videoId: key, language: target, engine: kind.rawValue),
               cached.count == lineCount else { return nil }
-        return cached
+        // Entries stored before the lyric polish existed get it on the way out.
+        return QTLyricsTranslationPolish.lines(cached, source: source)
     }
 
     /// Stores a complete translation (one entry per source line) for this song + language + engine.
@@ -231,12 +233,14 @@ public actor QTLyricsTranslationCoordinator {
     /// - Parameter key: the song's cache key (videoId, or a lyrics fingerprint).
     public func run(_ kind: QTLyricsTranslationEngineKind, lines: [String], key: String,
                     context: QTLyricsTranslationContext) async throws -> [String] {
-        if let cached = await cachedTranslation(key: key, target: context.targetLanguage, engine: kind, lineCount: lines.count) {
+        if let cached = await cachedTranslation(key: key, target: context.targetLanguage, engine: kind, lineCount: lines.count,
+                                                source: lines) {
             return cached
         }
         guard let engine = engine(kind) else { throw QTLyricsTranslationError.unavailable("noEngine") }
         var out = try await engine.translate(lines, context: context)
         try QTLyricsTranslationValidator.validate(out, source: lines, context: context)
+        out = QTLyricsTranslationPolish.lines(out, source: lines)
         // Blank lines and "♪" markers never get a translation line, whatever the engine echoed.
         for i in out.indices where !QTLyricsTranslationInput.isTranslatable(lines[i]) { out[i] = "" }
         await storeTranslation(out, key: key, target: context.targetLanguage, engine: kind)
@@ -290,6 +294,48 @@ public enum QTLyricsTranslationValidator {
     private static func fold(_ s: String) -> String {
         s.folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: nil)
             .filter { $0.isLetter || $0.isNumber }
+    }
+}
+
+/// Machine translation reads like prose; lyrics don't. Every engine's output (and every cached result) passes
+/// through here before it is shown: trimmed, and the sentence-final full stop an engine adds ("저는 여전히 숨이
+/// 막혔습니다.", "I can't breathe.") dropped — unless the sung line itself ends with one. "?" and "!" stay (they carry
+/// the tone), and so does an ellipsis ("...", "…", "。。。"), which is a pause rather than a full stop.
+///
+/// Register: the Translation framework has no formality or register option, so its Korean comes in the formal
+/// 습니다 style and its Japanese in です/ます; nothing here rewrites endings (a wrong guess would change the meaning).
+/// Apple Intelligence is asked for the plain register lyrics use instead (`QTLyricsTranslationPrompt.instructions`).
+public enum QTLyricsTranslationPolish {
+    /// ASCII, ideographic, fullwidth and halfwidth full stops.
+    static let fullStops: Set<Character> = [".", "。", "．", "｡"]
+    /// Closing quotes and brackets a full stop may sit inside ("그래.”").
+    static let closers: Set<Character> = ["\"", "'", "”", "’", "」", "』", ")", "）", "»", "›"]
+
+    /// - Parameters:
+    ///   - translation: one engine output line.
+    ///   - source: the sung line it translates; nil when unknown (cached results), treated as "no full stop".
+    public static func line(_ translation: String, source: String?) -> String {
+        let t = translation.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let source, endsWithFullStop(source.trimmingCharacters(in: .whitespacesAndNewlines)) { return t }
+        var chars = Array(t)
+        var end = chars.count
+        while end > 0, closers.contains(chars[end - 1]) { end -= 1 }
+        guard end > 1, fullStops.contains(chars[end - 1]), !fullStops.contains(chars[end - 2]) else { return t }
+        chars.remove(at: end - 1)
+        return String(chars).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// `line(_:source:)` for a whole song; `source` aligned with `translations` (shorter = unknown source).
+    public static func lines(_ translations: [String], source: [String]) -> [String] {
+        translations.enumerated().map { i, t in line(t, source: source.indices.contains(i) ? source[i] : nil) }
+    }
+
+    /// A single full stop at the end (an ellipsis doesn't count).
+    static func endsWithFullStop(_ text: String) -> Bool {
+        var chars = Array(text)
+        while let last = chars.last, closers.contains(last) { chars.removeLast() }
+        guard let last = chars.last, fullStops.contains(last) else { return false }
+        return chars.count < 2 || !fullStops.contains(chars[chars.count - 2])
     }
 }
 

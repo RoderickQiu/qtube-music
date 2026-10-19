@@ -202,8 +202,12 @@ Views:
 - `QTLyricsView(document:time:style:showsTranslation:onSeek:)` — `time` is a `QTPlaybackTimeline` (anchor + rate);
   the view interpolates itself, so parents re-render only on play/pause/seek. `style`: `.panel`, `.stage(centered:)`,
   `.mini`, `.desktop`. `onSeek` gets a playback time. Lanes (translation / romanization) are drawn in the main ink
-  and get their level from `QTLyricsMetrics.laneOpacity(rowOpacity:)`: ~0.62–0.66 beside the current line
-  (secondary), rising to 0.86 of a dimmed row's own opacity (≈ tertiary) — never lane alpha × row alpha.
+  and get their level from `QTLyricsMetrics.laneOpacity(rowOpacity:)`: `QTLyricsLaneLevel.current` (0.66, Increase
+  Contrast 0.8) beside the current line (secondary), rising to `QTLyricsLaneLevel.inactive` (0.86) of a dimmed row's
+  own opacity (≈ tertiary) — never lane alpha × row alpha. **One level on every surface**: panel / Stage rails, mini,
+  desktop lyrics (baked into the fill so the outline + shadow stay full), the Stage's single current line and the
+  menu bar popover (`QTLyricsLaneLevel.current(_ contrast:)` in SwiftUI). One exception: the current line over the
+  music video keeps its translation at ≥ 0.86 (legibility on bright frames, with its shadow and scrim).
 - `QTLyricsOptionsButton(overArt:)` → system popover with `QTLyricsOptionsPopover()` (source + timing kind of what is
   showing, Translate to + status, one "Unofficial sources" switch — per-provider switches live in Settings › Lyrics —,
   timing stepper, Other versions with an "Automatic" entry that unpins). Opening it re-checks a translation that
@@ -220,7 +224,13 @@ Views:
   are cached in the lyrics SQLite (`translations` table) under `lyrics:<FNV-1a of the lines>` + language + engine;
   jobs belong to the center (they survive the view that asked). `QTLyricsTranslationCoordinator` (QTLyrics) holds the
   engines, validation (`QTLyricsTranslationValidator`) and the cache. Popover labels the engine ("Apple
-  Intelligence" / "On-device translation" / provider) and says "Song is already in …" when it skips.
+  Intelligence" / "On-device translation" / provider) and says "Song is already in …" when it skips; when the
+  Apple Intelligence toggle is on but the model can't run (`modelNotReady`, language unsupported, unavailable) it adds
+  the system's reason on a second line (`QTAppleIntelligence.Status.reason`, shared with Settings). Every machine
+  translation (engine output, hosted session, cache reads) goes through `QTLyricsTranslationPolish`: trimmed, the
+  sentence-final full stop dropped unless the sung line has one (`?`/`!`/ellipses kept). The Foundation Models prompt
+  asks for a lyric register (plain Korean/Japanese endings, no line-final full stops); the Translation framework has
+  no register option, so its Korean stays in the formal 습니다 style.
 - `QTLocalizedAppKitText` / `NSView.qtLocalizedAccessibility(_:toolTip:)` / `NSWindow.qtLocalizedAccessibility(_:)`
   (Lyrics/QTLocalizedAppKitText.swift): AppKit accessibility labels and tooltips that follow a live language switch.
   Use instead of a one-shot `setAccessibilityLabel(QTLoc.tr(…))` in AppKit inits.

@@ -129,6 +129,22 @@ import Testing
         #expect(contrast.inactiveOpacity * contrast.laneOpacity(rowOpacity: contrast.inactiveOpacity) >= 0.45)
     }
 
+    /// One translation-lane level on every surface (r5): the rails and the mini player dim the lane layer, the
+    /// desktop overlay bakes the same level into the fill so its outline stays full.
+    @Test func translationLaneLevelIsSharedAcrossSurfaces() {
+        for contrast in [false, true] {
+            let level = QTLyricsLaneLevel.current(increaseContrast: contrast)
+            for style in [QTLyricsStyle.panel, .stage(centered: true), .mini] {
+                let m = QTLyricsMetrics.make(style, increaseContrast: contrast)
+                #expect(m.laneOpacity(rowOpacity: 1) == level)
+                #expect(m.laneColor.alphaComponent == m.mainColor.alphaComponent)
+            }
+            let desktop = QTLyricsMetrics.make(.desktop, increaseContrast: contrast)
+            #expect(desktop.laneOpacity(rowOpacity: 1) == 1)
+            #expect(abs(Float(desktop.laneColor.alphaComponent) - level) < 0.001)
+        }
+    }
+
     func doc(_ starts: [Double], durations: [Double?]) -> QTLyricsDocument {
         QTLyricsDocument(lines: zip(starts, durations).enumerated().map { i, p in
             QTLyricsLine(start: p.0, duration: p.1, text: "Line \(i)")

@@ -217,6 +217,56 @@ struct QTFakeTranslationEngine: QTLyricsTranslationEngine {
         #expect(QTLyricsTranslationPrompt.languageName("zh-TW") == "Traditional Chinese")
     }
 
+    @Test func instructionsAskForALyricRegister() {
+        let ko = QTLyricsTranslationPrompt.instructions(target: "ko")
+        #expect(ko.contains("no full stop at the end of a line"))
+        #expect(ko.contains("-습니다"))
+        #expect(QTLyricsTranslationPrompt.instructions(target: "ja-JP").contains("です/ます"))
+        #expect(!QTLyricsTranslationPrompt.instructions(target: "en").contains("습니다"))
+    }
+
+    /// Machine translations drop the sentence-final full stop engines add (r4 acceptance: Korean read like prose).
+    @Test func polishDropsProseFullStops() {
+        let p = QTLyricsTranslationPolish.self
+        #expect(p.line("저는 어제 밤에도 여전히 숨이 막혔습니다.", source: "Đêm qua anh vẫn nghẹt thở") == "저는 어제 밤에도 여전히 숨이 막혔습니다")
+        #expect(p.line("  I can't breathe. ", source: "Em không thở được") == "I can't breathe")
+        #expect(p.line("风还在吹。", source: "Gió cứ rít") == "风还在吹")
+        #expect(p.line("“그래.”", source: "Ừ") == "“그래”")
+        // Tone marks and ellipses stay.
+        #expect(p.line("왜 떠났어?", source: "Sao em đi") == "왜 떠났어?")
+        #expect(p.line("Stay!", source: "Ở lại") == "Stay!")
+        #expect(p.line("And then...", source: "Rồi") == "And then...")
+        #expect(p.line("그리고…", source: "Rồi") == "그리고…")
+        // The sung line's own full stop is mirrored, not removed.
+        #expect(p.line("It's over.", source: "Hết rồi.") == "It's over.")
+        #expect(p.line("It's over.", source: "Hết rồi...") == "It's over")
+        #expect(p.line(".", source: "♪") == ".")
+        #expect(p.line("", source: "x") == "")
+        #expect(p.lines(["A.", "B."], source: ["a."]) == ["A.", "B"])
+    }
+
+    @Test func coordinatorPolishesEngineOutputAndCache() async throws {
+        struct Engine: QTLyricsTranslationEngine {
+            let kind = QTLyricsTranslationEngineKind.translationFramework
+            func availability(from source: String?, to target: String) async -> QTLyricsTranslationAvailability { .available }
+            func translate(_ lines: [String], context: QTLyricsTranslationContext) async throws -> [String] {
+                ["밤이 깊었습니다.", "", "왜?"]
+            }
+        }
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("qt-polish-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let cache = try QTLyricsCache(url: dir.appendingPathComponent("Lyrics.sqlite"))
+        let c = QTLyricsTranslationCoordinator(engines: [Engine()], cache: cache)
+        let context = QTLyricsTranslationContext(title: "t", artist: "a", sourceLanguage: "vi", targetLanguage: "ko")
+        let lines = ["Đêm đã khuya", "♪", "Tại sao"]
+        let out = try await c.run(.translationFramework, lines: lines, key: "k", context: context)
+        #expect(out == ["밤이 깊었습니다", "", "왜?"])
+        // A result cached before the polish existed is polished on the way out.
+        await c.storeTranslation(["밤이 깊었습니다.", "", "왜?"], key: "old", target: "ko", engine: .translationFramework)
+        let cached = await c.cachedTranslation(key: "old", target: "ko", engine: .translationFramework, lineCount: 3, source: lines)
+        #expect(cached == ["밤이 깊었습니다", "", "왜?"])
+    }
+
     @Test func translationFrameworkBatchKeepsLinesAligned() throws {
         let lines = ["Gió cứ rít", "", "♪", "Bao đêm qua"]
         let items = QTTranslationFrameworkBatch.items(for: lines)
