@@ -11,26 +11,29 @@ YouTube Music account to see your library. You can browse and play without one, 
 
 ## Why QTube Music?
 
-You can already listen to YouTube Music in a browser tab, in the website wrapped as a desktop app, or in other
-third-party clients. QTube Music exists because none of those feel like a Mac music app.
+The inspiration is NetEase Cloud Music. Its player is the best I've used: lyrics that light up word by word with
+a translation under each line, a full-screen player with a spinning record, and lyrics on the desktop. I wanted that
+for YouTube Music, and none of the YouTube Music apps on the Mac comes close. Here's what each one is missing
+(tried hands-on and read through their code in October 2026):
 
-- **Native, not a web page in a frame.** It's built in SwiftUI and AppKit, with real menus, keyboard shortcuts,
-  tables, Settings and Liquid Glass. Other clients usually wrap the YouTube Music website in Electron or a hidden
-  web view. Here YouTube's player runs only for playback, and everything you see and touch is the app's own.
-- **Light on your battery.** Measured on Apple silicon: under 1 % CPU when idle, and about 4–5 % in total (the app
-  plus YouTube's player) while playing in the window or on the Stage. Method and numbers are in
-  [docs/perf.md](docs/perf.md).
-- **Plays nicely with macOS.** Media keys, Control Center and AirPlay control QTube Music, and it shows up once in
-  Now Playing, not twice.
-- **Lyrics are the point.** Word-by-word sync where a source has it, several lyric sources matched to the exact
-  recording, translation on your Mac, pronunciation, Simplified ⇄ Traditional Chinese, desktop lyrics, and a
-  full-screen Stage.
-- **Song ⇄ Video without losing your place.** Switch between the song and its music video at the same moment. The
-  video keeps playing, without a hiccup, as it moves between the panel, the Stage and Picture in Picture.
-- **Free accounts work.** You don't need Premium; free accounts play with ads, the same as on the website. Premium
-  removes the ads and unlocks the experimental native engine (gapless playback, crossfade and an EQ).
-- **Music only.** No Shorts, no comments, no podcasts, no video feeds.
-- **Private by default.** No analytics or telemetry, and searches are sent signed out.
+- **The YouTube Music website.** There's no Mac app at all. The library loads as you scroll, so you can't sort it or
+  jump to a letter, and the queue is hard to find. Lyrics are never word by word, and there's no translation.
+- **Electron wrappers** such as th-ch's YouTube Music. They put the website in a window and run a whole copy of
+  Chrome underneath it. You get the website's interface, and every gap the website has.
+- **Kaset.** No full-screen player. The music video button is greyed out for most songs, and there's no way to switch
+  between a song and its video. Tracks sometimes stop instead of moving on (issues #280, #409), it can show up twice
+  in Now Playing (#457), and a single click plays a song instead of selecting it (#446).
+- **YTubic.** Premium accounts only. Its Song/Video switch only swaps the audio; you never see a video. Lyrics go line
+  by line, with no translation. Every track starts a separate yt-dlp process, so there's no gapless playback, and it
+  breaks when YouTube changes something.
+- **JustAnotherMusicClient.** No full-screen player and no music videos. It plays through a hidden YouTube player, so
+  some songs just fail with an error. On my Mac it used about 100% CPU and 800 MB of memory while paused. The window
+  buttons sit on the right, Windows-style, and ⌘Space for search clashes with Spotlight.
+
+QTube Music has all of it: a full-screen player with five backgrounds, lyrics that light up word by word with a
+translation under each line, real music videos you can switch to without losing your place, desktop lyrics and a
+mini player. It's built in SwiftUI and AppKit, idles under 1% CPU and uses about 4–5% while playing
+([measurements](docs/perf.md)), and works with free accounts.
 
 ## What it does
 

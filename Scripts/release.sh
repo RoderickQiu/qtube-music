@@ -253,5 +253,9 @@ if ! git remote get-url origin >/dev/null 2>&1; then
 fi
 git push origin main
 git push origin "$TAG"
-gh release create "$TAG" "$DMG" "$ZIP" "$SUMS" --repo "$REPO_SLUG" --title "$APP_NAME $VERSION" --notes-file "$NOTES"
+# An unversioned copy too: qtube.r-q.name/download points at releases/latest/download/QTube-Music.dmg, so the
+# website never names a version.
+LATEST_DMG="$(dirname "$DMG")/QTube-Music.dmg"
+cp "$DMG" "$LATEST_DMG"
+gh release create "$TAG" "$DMG" "$LATEST_DMG" "$ZIP" "$SUMS" --repo "$REPO_SLUG" --title "$APP_NAME $VERSION" --notes-file "$NOTES"
 echo "Published: https://github.com/$REPO_SLUG/releases/tag/$TAG"

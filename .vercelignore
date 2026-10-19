@@ -1,0 +1,3 @@
+# Vercel deploys only the website (project Root Directory = site). Never upload the app build.
+/*
+!/site

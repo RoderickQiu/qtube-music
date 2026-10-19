@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>QTube Music: a native Mac app for YouTube Music</title>
+  <meta name="description" content="A native Mac app for YouTube Music: lyrics that follow the song word by word, a full-screen player, and Song ⇄ Video without losing your place. Free, for macOS 15 and later.">
+  <meta property="og:title" content="QTube Music">
+  <meta property="og:description" content="A native Mac app for YouTube Music. Lyrics that follow the song word by word, a full-screen player, and a window that takes its colour from the song.">
+  <meta property="og:image" content="https://qtube.r-q.name/img/og.png">
+  <meta property="og:url" content="https://qtube.r-q.name/">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="theme-color" content="#0d3d56">
+  <link rel="icon" href="img/favicon-64.png" sizes="64x64" type="image/png">
+  <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="stage">
+    <header class="top">
+      <a class="top-btn glass" href="https://r-q.name" aria-label="Tianrun Qiu's homepage">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 9.5 12 15.5 18 9.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </a>
+      <nav class="top-right">
+        <button type="button" class="top-pill glass" data-why data-i18n="whyBtn">Why QTube?</button>
+        <a class="top-pill glass" href="https://github.com/RoderickQiu/qtube-music">GitHub</a>
+        <div class="segmented glass" role="group" aria-label="Interface language">
+          <button type="button" data-lang="en" aria-pressed="true">English</button>
+          <button type="button" data-lang="zh" aria-pressed="false">中文</button>
+        </div>
+      </nav>
+    </header>
+
+    <main class="body">
+      <div class="art">
+        <img src="img/icon-512.png" alt="The QTube Music icon: a vinyl record whose tonearm forms the Q" width="512" height="512">
+      </div>
+
+      <div class="text">
+        <div class="title">
+          <h1>QTube Music</h1>
+          <p data-i18n="subtitle">A native Mac app for YouTube Music</p>
+        </div>
+        <div class="lyrics-view">
+          <ol class="lyrics" data-lyrics>
+            <li data-i18n="l1">Lyrics light up word by word.</li>
+            <li data-i18n="l2">A translation sits under each line.</li>
+            <li data-i18n="l3">Switch between the song and its music video.</li>
+            <li data-i18n="l4">Full-screen player, mini player, menu bar player.</li>
+            <li data-i18n="l5">Works with free and Premium accounts.</li>
+            <li data-i18n="l6">Under 1% CPU when idle.</li>
+            <li data-i18n="l7">Only music: no Shorts, no podcasts, no comments.</li>
+          </ol>
+        </div>
+      </div>
+    </main>
+
+    <div class="player glass">
+      <div class="time" aria-hidden="true">
+        <span data-elapsed>0:31</span>
+        <span class="track"><span class="fill" data-fill></span></span>
+        <span data-i18n="free">Free</span>
+      </div>
+      <div class="controls">
+        <p class="note" data-i18n-html="req">macOS 15 or later<br>Apple silicon and Intel</p>
+        <a class="play" href="/download" aria-label="Download QTube Music for Mac" data-i18n-aria="download">
+          <svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path d="M12 4.5v10.5m0 0-4.4-4.4M12 15l4.4-4.4M5.5 19.5h13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+        <div class="note right">
+          <a href="/download" data-i18n="downloadLink">Download for Mac</a>
+          <button type="button" class="link" aria-expanded="false" aria-controls="install" data-install data-i18n="howTo">How to install</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="popover glass" id="install" role="dialog" aria-label="How to install" hidden>
+      <h2 data-i18n="installTitle">Install</h2>
+      <ol>
+        <li data-i18n-html="s1">Open the disk image and drag <b>QTube Music</b> to <b>Applications</b>.</li>
+        <li data-i18n-html="s2">The app isn't notarized yet. The first time you open it, click <b>Done</b>, then <b>System Settings › Privacy &amp; Security › Open Anyway</b>.</li>
+      </ol>
+      <p class="fine" data-i18n="s3">Or, in Terminal:</p>
+      <pre><code>xattr -dr com.apple.quarantine "/Applications/QTube Music.app"</code></pre>
+    </div>
+
+    <dialog class="why glass" id="why" aria-labelledby="why-title">
+      <button type="button" class="why-close" data-why-close aria-label="Close">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+      <h2 id="why-title" data-i18n="whyTitle">Why QTube Music</h2>
+      <p class="why-lead" data-i18n-html="whyLead">The inspiration is <b>NetEase Cloud Music</b>. Its player is the best I've used: lyrics that light up word by word with a translation under each line, a full-screen player with a spinning record, and lyrics on the desktop. I wanted that for YouTube Music, and none of the YouTube Music apps on the Mac comes close.</p>
+      <dl class="why-list">
+        <dt data-i18n="w1t">The YouTube Music website</dt>
+        <dd data-i18n="w1d">There's no Mac app at all. The library loads as you scroll, so you can't sort it or jump to a letter, and the queue is hard to find. Lyrics are never word by word, and there's no translation.</dd>
+        <dt data-i18n="w5t">Electron wrappers</dt>
+        <dd data-i18n="w5d">Apps like th-ch's YouTube Music put the website in a window and run a whole copy of Chrome underneath it. You get the website's interface, and every gap the website has.</dd>
+        <dt>Kaset</dt>
+        <dd data-i18n="w2d">No full-screen player. The music video button is greyed out for most songs, and there's no way to switch between a song and its video. Tracks sometimes stop instead of moving on, it can show up twice in Now Playing, and a single click plays a song instead of selecting it.</dd>
+        <dt>YTubic</dt>
+        <dd data-i18n="w3d">Premium accounts only. Its Song/Video switch only swaps the audio; you never see a video. Lyrics go line by line, with no translation. Every track starts a separate yt-dlp process, so there's no gapless playback, and it breaks when YouTube changes something.</dd>
+        <dt>JustAnotherMusicClient</dt>
+        <dd data-i18n="w4d">No full-screen player and no music videos. It plays through a hidden YouTube player, so some songs just fail with an error. On my Mac it used about 100% CPU and 800 MB of memory while paused. The window buttons sit on the right, Windows-style, and ⌘Space for search clashes with Spotlight.</dd>
+      </dl>
+      <p class="why-ours" data-i18n-html="whyOurs"><b>QTube Music</b> has all of it: a full-screen player with five backgrounds, lyrics that light up word by word with a translation under each line, real music videos you can switch to without losing your place, desktop lyrics and a mini player. It's built in SwiftUI and AppKit, idles under 1% CPU, and works with free accounts.</p>
+    </dialog>
+
+    <footer class="foot" data-i18n-html="foot">Unofficial, not made or endorsed by Google or YouTube. <a href="https://github.com/RoderickQiu/qtube-music">Open source</a> under MPL-2.0. Made by <a href="https://r-q.name">Tianrun Qiu</a>.</footer>
+  </div>
+
+  <script src="main.js" defer></script>
+</body>
+</html>

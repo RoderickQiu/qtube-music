@@ -170,3 +170,18 @@ the lyrics test fixtures hold short excerpts only (at most 8 lines per song, see
 
 `Scripts/release.sh <version>` builds, checks and packages a release locally (dry run by default) and publishes it
 with `--publish`. See the comments at the top of the script and [CHANGELOG.md](../CHANGELOG.md).
+
+## Website (qtube.r-q.name)
+
+`site/` is a static one-page site (no build) laid out like the app's full-screen player. It's on Vercel as the
+project `qtube` (team roderick-qius-projects) with **Root Directory `site`**, linked at the **repo root**
+(`.vercel/` at the root, git-ignored).
+
+- Pushes to `main` deploy through the Vercel GitHub integration; `site/vercel.json`'s `ignoreCommand` skips commits
+  that don't touch `site/`.
+- A manual deploy is `vercel deploy --prod` **from the repo root**. Never deploy from `site/` (the root directory
+  would resolve to `site/site` and fail), and never clear the Root Directory setting (the whole repo would be served
+  and every page 404s). The root `.vercelignore` uploads only `site/`.
+- `/download` redirects to `releases/latest/download/QTube-Music.dmg`; `Scripts/release.sh` uploads that unversioned
+  copy with every release, so the site never names a version.
+- DNS: `qtube` CNAME on Cloudflare (DNS only), value from `vercel domains inspect qtube.r-q.name`.

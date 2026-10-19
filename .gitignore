@@ -16,3 +16,7 @@ Generated/
 # Local tooling
 .claude/worktrees/
 HANDOFF.md
+
+# Vercel link (project lives at the repo root, Root Directory = site)
+.vercel
+.env*
