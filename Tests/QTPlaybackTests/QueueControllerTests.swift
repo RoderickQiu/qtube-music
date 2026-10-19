@@ -329,7 +329,7 @@ import Testing
         #expect(rig.controller.engine === other)
         #expect(other.state.item?.track.videoId == "t1")
         #expect(abs((other.state.item?.startTime ?? 0) - 32) < 0.01)
-        #expect(rig.controller.capabilities == .free)
+        #expect(rig.controller.capabilities == .web)
     }
 
     @Test func engineSelectionFollowsTierAndData() {
@@ -337,8 +337,9 @@ import Testing
         #expect(QTPlaybackEngineSelector.kind(tier: .premium, usesMockData: false, nativeAvailable: false) == .web)
         #expect(QTPlaybackEngineSelector.kind(tier: .premium, usesMockData: false, nativeAvailable: true) == .native)
         #expect(QTPlaybackEngineSelector.kind(tier: .free, usesMockData: true) == .simulated)
-        #expect(QTPlaybackEngineSelector.capabilities(of: .web, tier: .premium) == .free)
+        #expect(QTPlaybackEngineSelector.capabilities(of: .web, tier: .premium) == .web)
         #expect(QTPlaybackEngineSelector.capabilities(of: .native, tier: .premium).contains(.gapless))
-        #expect(!QTPlaybackEngineSelector.capabilities(of: .web, tier: .free).contains(.visualizerData))
+        #expect(QTPlaybackEngineSelector.capabilities(of: .web, tier: .free).contains(.visualizerData))
+        #expect(!QTPlaybackEngineSelector.capabilities(of: .web, tier: .free).contains(.equalizer))
     }
 }

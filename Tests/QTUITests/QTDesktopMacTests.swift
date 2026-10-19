@@ -132,9 +132,9 @@ import Testing
 
     @Test func playbackEffectsFollowTheEngineNotTheAccount() {
         // Premium account on the web engine (today's live playback): explained, not offered.
-        let web = QTPlaybackSettings.unsupportedNote(capabilities: .free, account: .premium)
+        let web = QTPlaybackSettings.unsupportedNote(capabilities: .web, account: .premium)
         #expect(web == QTLoc.tr("YouTube’s player, which plays your music for now, doesn’t support these.", table: .desktop))
-        #expect(QTPlaybackSettings.unsupportedNote(capabilities: .free, account: .free)
+        #expect(QTPlaybackSettings.unsupportedNote(capabilities: .web, account: .free)
             == QTLoc.tr("Free accounts play through YouTube’s own player, which doesn’t support these.", table: .desktop))
         // An engine with gapless + crossfade + EQ (the native engine, M5): no note.
         #expect(QTPlaybackSettings.unsupportedNote(capabilities: .premium, account: .premium) == nil)

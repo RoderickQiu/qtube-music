@@ -2,7 +2,7 @@
 // YouTube Music web player. Anonymous (non-persistent data store) and silent (media volume pinned to 0).
 // Never activates: no Dock icon, no windows on screen, no focus change.
 //
-//   swift run --scratch-path .build/playback QTPlaybackLab [--ids a,b,c] [--scenario basic|advance|cue|power|errors|switch] [--queries "a|b|c"] [--count N]
+//   swift run --scratch-path .build/playback QTPlaybackLab [--ids a,b,c] [--scenario basic|advance|cue|power|errors|switch|spectrum] [--queries "a|b|c"] [--count N]
 //
 // Prints one line per engine state change and a PASS/FAIL summary per check.
 
@@ -31,7 +31,7 @@ struct LabOptions {
             case "--count": count = Int(it.next() ?? "") ?? count
             case "--queries": queries = (it.next() ?? "").split(separator: "|").map(String.init)
             case "--help", "-h":
-                print("QTPlaybackLab [--ids a,b,c] [--scenario basic|advance|cue|power|errors|switch] [--queries a|b|c] [--count N]")
+                print("QTPlaybackLab [--ids a,b,c] [--scenario basic|advance|cue|power|errors|switch|spectrum] [--queries a|b|c] [--count N]")
                 exit(0)
             default: break
             }
@@ -382,6 +382,68 @@ final class Lab {
         }
     }
 
+    /// web-audio: the visualizer's spectrum tap (`QTWebAudioTap`). Asks for `spectrum(bandCount: 96)` at 60 fps like
+    /// the Stage visualizer: bands must flow, move frame to frame, survive mute and a seek; once nobody asks, the
+    /// page's tap must switch off. CPU (WebContent + this process) with the visualizer "hidden" vs "visible".
+    func spectrumScenario() async {
+        await controller.play(options.ids.prefix(1).map(track), startingAt: 0)
+        guard await waitForContent() else { return check("content plays", false) }
+        try? await Task.sleep(for: .seconds(3))
+        let hidden = await measureCPUBoth("playing, visualizer hidden", seconds: 10)
+
+        var frames: [[Float]] = []
+        let poller = Task { @MainActor [engine] in
+            while !Task.isCancelled {
+                if let b = engine.spectrum(bandCount: 96) { frames.append(b) }
+                try? await Task.sleep(for: .milliseconds(16))
+            }
+        }
+        try? await Task.sleep(for: .seconds(2))
+        let received0 = engine.audio.framesReceived, t0 = now
+        let visible = await measureCPUBoth("playing, visualizer visible", seconds: 10)
+        let rate = Double(engine.audio.framesReceived - received0) / (now - t0)
+        let info = await engine.debugAudioInfo()
+        log("tap \(engine.audio.status.rawValue) \(info?["mime"] ?? "-"): \(String(format: "%.1f", rate)) frames/s; page: \(info.map { String(describing: $0) } ?? "nil")")
+        let live = frames.suffix(300)
+        let nonZero = Double(live.filter { $0.contains { $0 > 0.05 } }.count) / Double(max(1, live.count))
+        let deltas = zip(live.dropFirst(), live.dropLast()).map { a, b in zip(a, b).map { abs($0 - $1) }.reduce(0, +) / Float(a.count) }
+        let moving = deltas.isEmpty ? 0 : deltas.reduce(0, +) / Float(deltas.count)
+        if let last = live.last { log("bands " + stride(from: 0, to: last.count, by: 4).map { String(format: "%.2f", last[$0]) }.joined(separator: " ")) }
+        check("spectrum flows while the visualizer asks", engine.audio.status == .ok && nonZero > 0.8,
+              String(format: "%.0f%% of %d frames have signal, %.0f batch frames/s", nonZero * 100, live.count, rate))
+        check("spectrum moves frame to frame", moving > 0.005, String(format: "mean |Δ| %.3f", moving))
+
+        engine.setMuted(true)
+        try? await Task.sleep(for: .seconds(2))
+        let mutedFrames = frames.suffix(30)
+        check("muted playback still feeds the visualizer", mutedFrames.contains { $0.contains { $0 > 0.05 } })
+        engine.setMuted(false)
+
+        engine.seek(to: 60)
+        try? await Task.sleep(for: .seconds(2.5))
+        check("bands resume after a seek", frames.suffix(30).contains { $0.contains { $0 > 0.05 } } && engine.audio.status == .ok,
+              "status \(engine.audio.status.rawValue)")
+
+        poller.cancel()
+        try? await Task.sleep(for: .seconds(1.8))
+        let after = await engine.debugAudioInfo()
+        check("tap releases once nobody asks", !engine.audio.isActive && (after?["on"] as? Bool) == false)
+        let off = await measureCPUBoth("playing, visualizer hidden again", seconds: 10)
+        log(String(format: "CPU summary: hidden %.1f%% + %.1f%%, visible %.1f%% + %.1f%%, hidden again %.1f%% + %.1f%% (WebContent + app)",
+                   hidden.web, hidden.app, visible.web, visible.app, off.web, off.app))
+    }
+
+    /// CPU of the WebContent process and of this process over an interval.
+    func measureCPUBoth(_ label: String, seconds: Double) async -> (web: Double, app: Double) {
+        let own = ProcessInfo.processInfo.processIdentifier
+        guard let pid = engine.webContentProcessIdentifier, let a = cpuTime(of: pid), let b = cpuTime(of: own) else { return (-1, -1) }
+        try? await Task.sleep(for: .seconds(seconds))
+        guard let a2 = cpuTime(of: pid), let b2 = cpuTime(of: own) else { return (-1, -1) }
+        let r = ((a2 - a) / seconds * 100, (b2 - b) / seconds * 100)
+        log(String(format: "CPU %@: WebContent %.1f%%, app %.1f%%", label, r.0, r.1))
+        return r
+    }
+
     /// Diagnostics: what the page looks like a few seconds into loading `--ids` first id.
     func probe() async {
         let id = options.ids[0]
@@ -402,6 +464,7 @@ final class Lab {
         watchState()
         switch options.scenario {
         case "probe": await probe()
+        case "spectrum": await spectrumScenario()
         case "power": await power()
         case "errors": await errors()
         case "cue": await cued()

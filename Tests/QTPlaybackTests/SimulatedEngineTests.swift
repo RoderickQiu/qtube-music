@@ -46,7 +46,7 @@ final class ManualClock {
 
     @Test func freeAccountPlaysASkippableAdFirst() async throws {
         let e = engine(.free)
-        #expect(e.capabilities == .free)
+        #expect(e.capabilities == .web)
         try await e.load(QTPlaybackItem(track: track), autoplay: true)
         #expect(e.state.ad?.remaining == 12)
         #expect(e.state.ad?.canSkip == false)

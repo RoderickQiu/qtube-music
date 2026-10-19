@@ -1,7 +1,8 @@
 import Foundation
 import QTCore
 
-/// What an engine can do. Free (web) engine: video + AirPlay. Premium (native) engine adds the rest.
+/// What an engine can do. Web engine (every account today): video, AirPlay and visualizer data. The native engine
+/// adds gapless, crossfade and EQ.
 /// Free users see the missing features greyed out with a one-line reason, never an upsell.
 public struct QTPlaybackCapabilities: OptionSet, Sendable, Hashable {
     public let rawValue: Int
@@ -17,6 +18,8 @@ public struct QTPlaybackCapabilities: OptionSet, Sendable, Hashable {
 
     public static let premium: QTPlaybackCapabilities = [.gapless, .crossfade, .equalizer, .visualizerData, .video, .airPlay]
     public static let free: QTPlaybackCapabilities = [.video, .airPlay]
+    /// The web engine (free and Premium accounts): YouTube's player plus the spectrum tap for the visualizer.
+    public static let web: QTPlaybackCapabilities = [.video, .airPlay, .visualizerData]
 }
 
 /// Song or Video rendition of a track (Song⇄Video).

@@ -17,7 +17,8 @@ public final class QTSimulatedPlaybackEngine: QTPlaybackEngine {
         }
     }
 
-    public var capabilities: QTPlaybackCapabilities { account == .premium ? .premium : .free }
+    /// Mirrors what the account really gets: Premium the native set, free the web engine's (visualizer included).
+    public var capabilities: QTPlaybackCapabilities { account == .premium ? .premium : .web }
     public private(set) var state = QTPlaybackState()
 
     private let clock: @MainActor () -> TimeInterval

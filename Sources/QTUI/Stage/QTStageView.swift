@@ -7,7 +7,8 @@ import SwiftUI
 ///
 /// - Layouts: Standard (art left, lyrics right), Lyrics only (centred lyrics, art as background), Art only
 ///   (automatic when a track has no lyrics).
-/// - Backgrounds: blurred art, full-bleed frosted cover, vinyl, music video, Metal visualizer (Premium).
+/// - Backgrounds: blurred art, full-bleed frosted cover, vinyl, music video, Metal visualizer (audio-reactive with the
+///   playing engine's spectrum data).
 /// - Chrome: icon-only top bar (close, lyrics options, appearance, Song | Video) centred on the window's traffic
 ///   lights, which stay put on a transparent title bar (`QTStageTitlebar`); a bottom row (progress, transport with
 ///   a filled play disc, ♥, queue, AirPlay). Fades out after 3 s without mouse movement while playing.
@@ -73,7 +74,8 @@ public struct QTStageView: View {
     private var resolved: QTStageResolvedAppearance {
         QTStageResolvedAppearance(layout: model.stageLayout, background: model.stageBackground,
                                   videoMode: model.isVideoMode, hasVideo: player.nowPlaying?.hasVideo ?? false,
-                                  hasLyrics: hasLyrics, isPremium: model.account == .premium, isAd: player.ad != nil)
+                                  hasLyrics: hasLyrics, hasVisualizerData: player.capabilities.contains(.visualizerData),
+                                  isAd: player.ad != nil)
     }
 
     private var showsTranslation: Bool { model.resolvedTranslationLanguage != nil }

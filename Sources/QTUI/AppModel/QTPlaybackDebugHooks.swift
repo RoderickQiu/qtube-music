@@ -161,6 +161,9 @@ final class QTPlaybackDebugHooks {
             status["networkAvailable"] = web.isNetworkAvailable
             if let pid = web.webContentProcessIdentifier { status["webContentPID"] = Int(pid) }
             if let mediaInfo { status["media"] = mediaInfo }
+            // web-audio: the visualizer's spectrum tap (pulled only while a visualizer shows).
+            status["audio"] = ["status": web.audio.status.rawValue, "active": web.audio.isActive,
+                               "frames": web.audio.framesReceived, "pulls": web.audio.pulls] as [String: Any]
             // stage-video (M5): the video surface and every measured Song⇄Video switch.
             status["video"] = [
                 "presenting": web.video.isPresenting, "hasFrame": web.video.hasFrame, "pip": web.video.isPictureInPictureActive,

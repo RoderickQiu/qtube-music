@@ -29,7 +29,7 @@ public enum QTPlaybackEngineSelector {
     public static func capabilities(of kind: QTPlaybackEngineKind, tier: QTPlaybackAccountTier) -> QTPlaybackCapabilities {
         switch kind {
         case .native: .premium
-        case .web: .free
+        case .web: .web
         case .simulated: tier == .premium ? .premium : .free
         }
     }

@@ -33,7 +33,8 @@ struct QTStageAppearancePopover: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(QTStageVideoLyrics.defaultsKey) private var showsVideoLyrics = true
 
-    private var isPremium: Bool { model.account == .premium }
+    /// The playing engine has spectrum data for the visualizer (the web engine does, for every account).
+    private var hasVisualizer: Bool { player.capabilities.contains(.visualizerData) }
     private var hasVideo: Bool { player.nowPlaying?.hasVideo ?? false }
 
     var body: some View {
@@ -74,7 +75,7 @@ struct QTStageAppearancePopover: View {
     private func isEnabled(_ bg: QTStageBackground) -> Bool {
         switch bg {
         case .video: hasVideo
-        case .visualizer: isPremium
+        case .visualizer: hasVisualizer
         default: true
         }
     }
@@ -95,7 +96,7 @@ struct QTStageAppearancePopover: View {
         case .cover: QTLoc.tr("Full-bleed cover")
         case .vinyl: QTLoc.tr("Vinyl")
         case .video: hasVideo ? QTLoc.tr("Music video") : QTLoc.tr("No official music video for this song")
-        case .visualizer: isPremium ? QTLoc.tr("Visualizer") : QTLoc.tr("Visualizer needs the Premium engine", table: .stage)
+        case .visualizer: hasVisualizer ? QTLoc.tr("Visualizer") : QTLoc.tr("Visualizer needs the Premium engine", table: .stage)
         }
     }
 

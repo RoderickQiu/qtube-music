@@ -6,7 +6,8 @@ import QTCore
 /// Rules (prototype stage.jsx + spec §4.1):
 /// - Video shows when the user picked Video (pill or swatch) *and* the track has a linked music video.
 /// - A stored "video" background on a track without a video falls back to blurred art.
-/// - The visualizer needs the Premium engine; free accounts fall back to blurred art.
+/// - The visualizer needs an engine with spectrum data (the web engine has it for every account); without it the
+///   background falls back to blurred art.
 /// - Tracks without lyrics switch to Art only automatically (not while lyrics are still loading).
 /// - Full-bleed cover in the Standard layout has no art tile: the cover *is* the background.
 /// - During an ad the song's art is shown blurred and dimmed, and the art slot holds the ad card.
@@ -33,10 +34,10 @@ public struct QTStageResolvedAppearance: Equatable, Sendable {
     public var selectedSwatch: QTStageBackground
 
     public init(layout: QTStageLayout, background: QTStageBackground, videoMode: Bool, hasVideo: Bool,
-                hasLyrics: Bool?, isPremium: Bool, isAd: Bool) {
+                hasLyrics: Bool?, hasVisualizerData: Bool, isAd: Bool) {
         let isVideo = (videoMode || background == .video) && hasVideo
         var bg: QTStageBackground = isVideo ? .video : (background == .video ? .blur : background)
-        if bg == .visualizer && !isPremium { bg = .blur }
+        if bg == .visualizer && !hasVisualizerData { bg = .blur }
         if isAd { bg = .blur }
         let layout: QTStageLayout = hasLyrics == false ? .artOnly : layout
 

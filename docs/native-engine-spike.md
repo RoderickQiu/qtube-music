@@ -240,6 +240,13 @@ feeding `AVAudioConverter`. AAC 256 is good enough that this isn't worth it.
 
 **Your call:** A, B, C or D, and whether to run the Web Audio spike.
 
+**Update (web-audio):** the Web Audio follow-up ran; see `docs/web-audio.md`. A Web Audio graph can't process the
+page's audio in WKWebView, because a realtime `AudioContext` doesn't render while media runs in the WebContent
+process, and an MSE `<video>` gives a media-element source silence. What did work: the web engine now decodes the
+audio the page appends to its MediaSource for the visualizer, so **visualizer data is available for every
+account**. EQ and crossfade stay native-only. A Core Audio process tap could add EQ, at the cost of a system
+permission prompt; that is your call.
+
 ## 7. If B is chosen: what's left
 
 1. Wire `QTNativePlaybackEngine` (in `QTPlaybackEngineSelector.swift`) to the resolver and graph:

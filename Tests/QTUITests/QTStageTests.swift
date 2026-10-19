@@ -4,10 +4,10 @@ import Testing
 
 @Suite struct QTStageResolvedAppearanceTests {
     private func resolve(layout: QTStageLayout = .standard, background: QTStageBackground = .blur, videoMode: Bool = false,
-                         hasVideo: Bool = true, hasLyrics: Bool? = true, isPremium: Bool = true,
+                         hasVideo: Bool = true, hasLyrics: Bool? = true, hasVisualizerData: Bool = true,
                          isAd: Bool = false) -> QTStageResolvedAppearance {
         QTStageResolvedAppearance(layout: layout, background: background, videoMode: videoMode, hasVideo: hasVideo,
-                                  hasLyrics: hasLyrics, isPremium: isPremium, isAd: isAd)
+                                  hasLyrics: hasLyrics, hasVisualizerData: hasVisualizerData, isAd: isAd)
     }
 
     @Test func defaultsToStandardBlurWithArtwork() {
@@ -24,9 +24,9 @@ import Testing
         #expect(resolve(videoMode: true).artSlot == .none)
     }
 
-    @Test func visualizerIsPremiumOnly() {
+    @Test func visualizerNeedsSpectrumData() {
         #expect(resolve(background: .visualizer).background == .visualizer)
-        let free = resolve(background: .visualizer, isPremium: false)
+        let free = resolve(background: .visualizer, hasVisualizerData: false)
         #expect(free.background == .blur)
         #expect(free.selectedSwatch == .visualizer)  // the user's choice stays selected; it just can't render
     }

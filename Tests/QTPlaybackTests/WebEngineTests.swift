@@ -89,7 +89,7 @@ import WebKit
 
     @Test func freeEngineCapabilitiesAndUnplayableItems() async {
         let engine = QTWebPlaybackEngine(configuration: .init(isSilent: true), dataStore: .nonPersistent())
-        #expect(engine.capabilities == .free)
+        #expect(engine.capabilities == .web && engine.capabilities.contains(.visualizerData))
         #expect(!engine.capabilities.contains(.gapless))
         await #expect(throws: QTPlaybackError.unavailable(.regionLocked)) {
             try await engine.load(QTPlaybackItem(track: PB.track("x", playable: false)), autoplay: true)

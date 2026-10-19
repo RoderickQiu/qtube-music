@@ -26,6 +26,9 @@ import WebKit
 ///   music video (the page becomes a bare `<video>` surface, quality sized to the slot) and back into the hidden
 ///   host when it doesn't; native Picture in Picture goes through WebKit. Song⇄Video switches of the same track
 ///   are measured (`lastModeSwitch`: requested vs landed position, latency).
+/// - **Visualizer data (web-audio):** `audio` (`QTWebAudioTap`) decodes the audio the page appends to its
+///   MediaSource and returns spectra, pulled only while a visualizer shows. Nothing is routed: media element,
+///   volume, ads and Now Playing are untouched. EQ/crossfade can't be done in the page (`docs/web-audio.md`).
 @MainActor
 public final class QTWebPlaybackEngine: QTPlaybackEngine {
     public struct Configuration: Sendable {
@@ -67,7 +70,8 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         }
     }
 
-    public var capabilities: QTPlaybackCapabilities { .free }
+    /// Video, AirPlay and visualizer data (the page's spectrum tap, `audio`); gapless/crossfade/EQ stay native-only.
+    public var capabilities: QTPlaybackCapabilities { .web }
     public private(set) var state = QTPlaybackState(volume: 1)
 
     public let configuration: Configuration
@@ -80,6 +84,8 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
     var hostWindow: NSWindow?
     /// The page's video in the app's own views, and Picture in Picture.
     public let video: QTWebVideoOutput
+    /// Spectrum data for the visualizer, decoded from the stream the page plays (web-audio).
+    public let audio = QTWebAudioTap()
     /// The last Song⇄Video switch of one track: where it was asked to start and where the new rendition started.
     public private(set) var lastModeSwitch: QTModeSwitchReport?
     /// Called once per Song⇄Video switch when the new rendition starts playing (logs, acceptance scripts).
@@ -129,6 +135,8 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         self.dataStore = dataStore
         video = QTWebVideoOutput()
         video.engine = self
+        audio.fetchFrames = { [weak self] bands, ahead, step in await self?.audioFrames(bands: bands, ahead: ahead, step: step) }
+        audio.releasePage = { [weak self] in await self?.audioRelease() }
         startNetworkMonitor()
     }
 
@@ -193,6 +201,7 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         playingVideoID = nil
         requestedVideoID = videoID
         video.itemDidChange(isVideo: item.mode == .video)
+        audio.itemDidChange()
         loadRetriesLeft = 1
         cancelFreeze()
         failPendingLoads(except: gen)
@@ -444,6 +453,8 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         var sources = [bootstrap, QTWebPlaybackBridgeScript.mediaSessionShield]
         if configuration.isSilent { sources.append(QTWebPlaybackBridgeScript.silence) }
         sources.append(QTWebPlaybackBridgeScript.videoSurface)
+        sources.append(QTWebAudioScript.parsers)
+        sources.append(QTWebAudioScript.tap)
         sources.append(QTWebPlaybackBridgeScript.bridge)
         for source in sources {
             ucc.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
@@ -454,6 +465,7 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         isPageReady = false
         needsFreshPage = false
         playIntentBeforeReady = nil
+        audio.itemDidChange()
         let bootstrap = QTWebPlaybackBridgeScript.bootstrap(generation: gen, videoID: videoID, hold: !autoplay,
                                                             volume: state.volume, muted: state.isMuted,
                                                             silent: configuration.isSilent,
@@ -487,6 +499,39 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         let js = "return window.__qtBridge ? window.__qtBridge.\(name)(\(list.joined(separator: ", "))) : false"
         let result = try? await webView.callAsyncJavaScript(js, arguments: arguments, in: nil, contentWorld: .page)
         return (result as? Bool) ?? false
+    }
+
+    // MARK: Spectrum (web-audio)
+
+    /// Spectrum for the visualizer, decoded from the stream the page plays; nil when the stream can't be read
+    /// (the visualizer then animates on its own). Each call pulls the page's next frame; nothing runs between calls.
+    public func spectrum(bandCount: Int) -> [Float]? {
+        Self.isSpectrumTapEnabled ? audio.spectrum(bandCount: bandCount) : nil
+    }
+
+    /// `-qt.webaudio.tap NO` turns the tap off (the visualizer then animates on its own): A/B measurements.
+    nonisolated static let isSpectrumTapEnabled = UserDefaults.standard.object(forKey: "qt.webaudio.tap") == nil
+        || UserDefaults.standard.bool(forKey: "qt.webaudio.tap")
+
+    /// `window.__qtAudio.frames(…)`. Never thaws a frozen page (the visualizer only asks while playing).
+    private func audioFrames(bands: Int, ahead: Int, step: TimeInterval) async -> Any? {
+        guard let webView, isPageReady else { return nil }
+        return try? await webView.callAsyncJavaScript(
+            "return window.__qtAudio ? window.__qtAudio.frames(bands, ahead, step) : 'nodata'",
+            arguments: ["bands": bands, "ahead": ahead, "step": step], in: nil, contentWorld: .page)
+    }
+
+    private func audioRelease() async {
+        guard let webView, isPageReady else { return }
+        _ = try? await webView.callAsyncJavaScript("return window.__qtAudio ? window.__qtAudio.release() : false",
+                                                    arguments: [:], in: nil, contentWorld: .page)
+    }
+
+    /// The page tap's own view (state, segments kept, decode stats) — lab and debug hooks.
+    public func debugAudioInfo() async -> [String: Any]? {
+        guard let webView, isPageReady else { return nil }
+        return try? await webView.callAsyncJavaScript("return window.__qtAudio ? window.__qtAudio.info() : null",
+                                                       arguments: [:], in: nil, contentWorld: .page) as? [String: Any]
     }
 
     // MARK: Bridge messages

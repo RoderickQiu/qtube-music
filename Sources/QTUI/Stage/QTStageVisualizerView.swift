@@ -5,7 +5,7 @@ import QTCore
 import QTPlayback
 import SwiftUI
 
-/// Audio-reactive spectrum drawn in Metal over the blurred art (Premium only).
+/// Audio-reactive spectrum drawn in Metal over the blurred art (engines with `.visualizerData`: web and native).
 ///
 /// A row of rounded, art-tinted bars rises from the bottom edge with a soft bloom above them and a warm floor
 /// glow beneath. Paused, the bars rest at a calm, visible spectrum shape (so the background still reads as a
