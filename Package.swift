@@ -42,6 +42,8 @@ let package = Package(
         .executableTarget(name: "QTPlaybackLab", dependencies: ["QTPlayback"]),
         // Dev-only (DEBUG): import/inspect the shared dev session (HANDOFF §8). `swift run QTDevSession status`.
         .executableTarget(name: "QTDevSession", dependencies: ["QTAuth"]),
+        // Dev-only (DEBUG) M5 spike: native stream resolution + AVAudioEngine, muted. docs/native-engine-spike.md.
+        .executableTarget(name: "QTNativeSpike", dependencies: ["QTPlayback", "QTAuth"]),
 
         .testTarget(name: "QTCoreTests", dependencies: ["QTCore"], resources: [.copy("Fixtures")]),
         .testTarget(name: "QTLyricsTests", dependencies: ["QTLyrics"], resources: [.copy("Fixtures")]),
