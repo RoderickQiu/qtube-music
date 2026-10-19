@@ -1,40 +1,52 @@
 import QTCore
 import SwiftUI
 
-// Owner: builder "window". Native source list (system sidebar material + selection).
+// Owner: builder "window". Native source list (system sidebar material + selection, collapsible sections).
+// Songs dragged from any table or card onto a playlist are added to it ("Added “x” to y" + Undo);
+// onto Liked Songs they're liked.
 
 public struct QTSidebarView: View {
     @Environment(QTAppModel.self) private var model
+    @AppStorage("qt.sidebar.libraryExpanded") private var libraryExpanded = true
+    @AppStorage("qt.sidebar.playlistsExpanded") private var playlistsExpanded = true
 
     public init() {}
 
     public var body: some View {
-        @Bindable var model = model
-        List(selection: Binding<QTSidebarItem?>(get: { model.sidebarSelection }, set: { if let v = $0 { model.sidebarSelection = v } })) {
+        // Highlight follows the page actually shown (none on album/artist pages, so clicking the section you came
+        // from navigates back to it); selecting goes through the navigator so it lands in back/forward history.
+        let navigator = QTNavigator.shared
+        List(selection: Binding<QTSidebarItem?>(
+            get: { navigator.current.sidebarItem },
+            set: { if let v = $0 { navigator.go(.section(v)) } }
+        )) {
             Section {
-                item(.home)
-                item(.explore)
+                row(.home)
+                row(.explore)
             }
-            Section(QTLoc.tr("Library")) {
-                item(.songs)
-                item(.albums)
-                item(.artists)
-                item(.liked)
-                item(.history)
+            Section(isExpanded: $libraryExpanded) {
+                row(.songs)
+                row(.albums)
+                row(.artists)
+                row(.liked)
+                row(.history)
+            } header: {
+                Text(QTLoc.tr("Library"))
             }
-            Section(QTLoc.tr("Playlists")) {
+            Section(isExpanded: $playlistsExpanded) {
                 ForEach(model.catalog.playlists) { p in
-                    Label(p.title.resolved, systemImage: QTIcon.playlist.systemName)
-                        .tag(QTSidebarItem.playlist(p.id))
+                    QTSidebarRow(item: .playlist(p.id), title: p.title.resolved, icon: .playlist, playlist: p)
                 }
+            } header: {
+                Text(QTLoc.tr("Playlists"))
             }
         }
         .listStyle(.sidebar)
         .accessibilityIdentifier("qt.sidebar")
     }
 
-    private func item(_ i: QTSidebarItem) -> some View {
-        Label(Self.title(for: i), systemImage: Self.icon(for: i).systemName).tag(i)
+    private func row(_ item: QTSidebarItem) -> some View {
+        QTSidebarRow(item: item, title: Self.title(for: item), icon: Self.icon(for: item), playlist: nil)
     }
 
     static func title(for item: QTSidebarItem) -> String {
@@ -61,5 +73,63 @@ public struct QTSidebarView: View {
         case .history: .clock
         case .playlist: .playlist
         }
+    }
+}
+
+/// One sidebar row; playlists and Liked Songs accept dropped songs.
+struct QTSidebarRow: View {
+    let item: QTSidebarItem
+    let title: String
+    let icon: QTIcon
+    let playlist: QTPlaylist?
+    @Environment(QTAppModel.self) private var model
+    @Environment(QTPlayerModel.self) private var player
+    @Environment(\.qtAccent) private var accent
+    @State private var isTargeted = false
+
+    var body: some View {
+        let label = Label {
+            Text(verbatim: title).lineLimit(1)
+        } icon: {
+            icon.image
+        }
+        .tag(item)
+        .accessibilityIdentifier("qt.sidebar.\(item.argument)")
+        if acceptsDrops {
+            label
+                .dropDestination(for: String.self) { items, _ in drop(items) } isTargeted: { isTargeted = $0 }
+                .overlay {
+                    // Finder-style drop highlight around the row.
+                    RoundedRectangle(cornerRadius: QTTheme.Radius.control, style: .continuous)
+                        .strokeBorder(accent, lineWidth: 2)
+                        .padding(.horizontal, -8)
+                        .padding(.vertical, -4)
+                        .opacity(isTargeted ? 1 : 0)
+                        .allowsHitTesting(false)
+                }
+        } else {
+            label
+        }
+    }
+
+    private var acceptsDrops: Bool {
+        if case .playlist = item { return true }
+        return item == .liked
+    }
+
+    private func drop(_ items: [String]) -> Bool {
+        let tracks = QTTrackActions.tracks(fromDropped: items, catalog: model.catalog)
+        guard !tracks.isEmpty else { return false }
+        if let playlist {
+            QTTrackActions.add(tracks, to: playlist)
+        } else {
+            let fresh = tracks.filter { !player.isLiked($0) && $0.availability.isPlayable }
+            if fresh.isEmpty {
+                model.showToast(QTLoc.tr("Already in %@", table: .main, QTLoc.tr("Liked Songs")))
+            } else {
+                QTTrackActions.toggleLike(fresh)
+            }
+        }
+        return true
     }
 }

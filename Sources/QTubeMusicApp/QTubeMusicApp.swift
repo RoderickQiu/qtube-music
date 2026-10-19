@@ -18,7 +18,10 @@ struct QTubeMusicApp: App {
         }
         .defaultSize(QTTheme.Metrics.defaultWindow)
         .windowToolbarStyle(.unified)
-        .commands { QTCommands(model: model) }
+        .commands {
+            QTCommands(model: model)
+            QTNavigationCommands(model: model)
+        }
 
         Settings {
             QTSettingsView()
