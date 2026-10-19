@@ -62,8 +62,101 @@ function KaraokeLine({ line, offset }) {
   });
 }
 
-function LyricsView({ track, mode = "panel", align = "left", translation = true, anchor = 0.36 }) {
+// ── Lyric translation: a separate setting from the interface language ───────────────
+// pref: "auto" (follow interface language) | "off" | a language code below.
+// Source: the provider's own translation when it matches the target (NetEase ships zh-Hans),
+// otherwise on-device machine translation (Apple Translation framework in the app; Chrome's
+// built-in Translator API in this prototype). Songs already in the target language get none.
+const TRANSLATION_LANGS = [
+  ["zh-Hans", "简体中文"], ["zh-Hant", "繁體中文"], ["en", "English"], ["ko", "한국어"], ["ja", "日本語"],
+  ["vi", "Tiếng Việt"], ["es", "Español"], ["fr", "Français"], ["de", "Deutsch"],
+];
+const langName = (code) => TRANSLATION_LANGS.find(([c]) => c === code)?.[1] || code;
+
+function resolveTranslationTarget(pref) {
+  if (!pref || pref === "off") return null;
+  if (pref === "auto") return window.QT_LANG === "zh-CN" ? "zh-Hans" : "en";
+  return pref;
+}
+
+function detectLyricLang(lines) {
+  const s = lines.slice(0, 12).map((l) => l.text).join(" ");
+  if (/[぀-ヿ]/.test(s)) return "ja";
+  if (/[가-힯]/.test(s)) return "ko";
+  if (/[一-鿿]/.test(s)) return "zh-Hans";
+  if (/[ăâđêôơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ]/i.test(s)) return "vi";
+  return "en";
+}
+const sameLang = (a, b) => a === b || (a.startsWith("zh") && b.startsWith("zh"));
+const chromeCode = (c) => (c === "zh-Hans" ? "zh" : c);
+
+const trCache = new Map();      // `${trackId}|${target}` -> { status, lines }
+const trListeners = new Set();
+const trNotify = () => trListeners.forEach((l) => l());
+
+// Language models must be downloaded with the user's consent (a click) — same as Apple's Translation framework.
+async function machineTranslate(lines, from, to, { allowDownload = false } = {}) {
+  if (!("Translator" in self)) throw new Error("unavailable");
+  const opts = { sourceLanguage: chromeCode(from), targetLanguage: chromeCode(to) };
+  const av = await Translator.availability(opts);
+  if (av === "unavailable") throw new Error("unavailable");
+  if (av !== "available" && !allowDownload) throw new Error("download");
+  const translator = await Translator.create(opts);
+  const memo = new Map();
+  const out = [];
+  for (const l of lines) {
+    if (!memo.has(l.text)) memo.set(l.text, await translator.translate(l.text));
+    out.push(memo.get(l.text));
+  }
+  return out;
+}
+
+function useLyricTranslation(track, pref) {
+  const [, force] = useState(0);
+  useEffect(() => { const l = () => force((n) => n + 1); trListeners.add(l); return () => trListeners.delete(l); }, []);
+  const target = resolveTranslationTarget(pref);
+  const L = track.lyrics;
+  const songLang = L ? detectLyricLang(L.lines) : null;
+  const key = `${track.id}|${target}`;
+  const needsDevice = !!(L && target && !sameLang(songLang, target) && !(target === "zh-Hans" && L.lines.some((l) => l.tr)));
+  useEffect(() => {
+    if (!needsDevice || trCache.has(key)) return;
+    const entry = { status: "pending", lines: null };
+    trCache.set(key, entry);
+    trNotify();
+    machineTranslate(L.lines, songLang, target)
+      .then((lines) => { entry.status = "ready"; entry.lines = lines; })
+      .catch((e) => { entry.status = e.message === "download" ? "download" : "unavailable"; })
+      .finally(trNotify);
+  }, [key, needsDevice]);
+  const download = () => {   // must run inside the click handler
+    const entry = trCache.get(key);
+    entry.status = "pending"; trNotify();
+    machineTranslate(L.lines, songLang, target, { allowDownload: true })
+      .then((lines) => { entry.status = "ready"; entry.lines = lines; })
+      .catch(() => { entry.status = "unavailable"; })
+      .finally(trNotify);
+  };
+  if (!L || !target) return { target, status: "off", lines: null, source: null };
+  if (sameLang(songLang, target)) return { target, status: "same", lines: null, source: null };
+  if (!needsDevice) return { target, status: "ready", lines: L.lines.map((l) => l.tr || null), source: L.source.replace(/ \(.*\)/, "") };
+  const e = trCache.get(key) || { status: "pending", lines: null };
+  return { target, status: e.status, lines: e.lines, source: "device", download };
+}
+
+// Current line + its translation, for single-line surfaces (video overlay, desktop lyrics, menu bar).
+function useCurrentLyric(track, pref, fps = 10) {
+  const pos = usePosition(fps);
+  const T = useLyricTranslation(track, pref);
+  const lines = track.lyrics?.lines;
+  if (!lines) return { ln: null, tr: null };
+  const i = lyricLineIndex(lines, pos + player.state.lyricOffset);
+  return { ln: i >= 0 ? lines[i] : null, tr: i >= 0 ? T.lines?.[i] || null : null };
+}
+
+function LyricsView({ track, mode = "panel", align = "left", translation = "auto", anchor = 0.36 }) {
   const p = usePlayer();
+  const T = useLyricTranslation(track, translation);
   const pos = usePosition(10);
   const offset = p.state.lyricOffset;
   const lines = track.lyrics?.lines;
@@ -79,7 +172,7 @@ function LyricsView({ track, mode = "panel", align = "left", translation = true,
     const el = railRef.current.children[Math.max(0, idx)];
     if (!el) return;
     setY(boxRef.current.clientHeight * anchor - el.offsetTop - el.offsetHeight / 2);
-  }, [idx, track.id, translation, mode, lines]);
+  }, [idx, track.id, translation, T.status, mode, lines]);
 
   useEffect(() => { setScrollY(null); }, [track.id]);
   useEffect(() => () => clearTimeout(resumeTimer.current), []);
@@ -110,7 +203,7 @@ function LyricsView({ track, mode = "panel", align = "left", translation = true,
               <div className="ly-main">
                 {i === idx && ln.words ? <KaraokeLine line={ln} offset={offset} /> : ln.text}
               </div>
-              {translation && ln.tr && <div className="ly-tr">{ln.tr}</div>}
+              {T.lines?.[i] && <div className="ly-tr">{T.lines[i]}</div>}
             </div>
           );
         })}
@@ -156,6 +249,7 @@ function LyricsOptionsButton({ track, translation, setTranslation, onToast, clas
   const [unofficial, setUnofficial] = useState(true);
   const L = track.lyrics;
   const off = p.state.lyricOffset;
+  const T = useLyricTranslation(track, translation);
   return (
     <>
       <button className={className} title={tr("Lyrics")} aria-label={tr("Lyrics options")} onClick={(e) => setAnchor(anchor ? null : e.currentTarget)}>
@@ -167,7 +261,24 @@ function LyricsOptionsButton({ track, translation, setTranslation, onToast, clas
             <b>{L ? tr(L.source.replace(/ \(.*\)/, "")) : tr("No lyrics")}</b>
             {L && <span>{tr(L.wordSynced ? "Word timing" : "Line timing")}</span>}
           </div>
-          <div className="pop-row"><span>{tr("Translation")}</span><Switch on={translation} onChange={setTranslation} label={tr("Translation")} /></div>
+          <div className="pop-row">
+            <span>{tr("Translate to")}</span>
+            <select className="pop-select" value={translation} onChange={(e) => setTranslation(e.target.value)} aria-label={tr("Translate to")}>
+              <option value="auto">{tr("Interface language")} · {langName(resolveTranslationTarget("auto"))}</option>
+              <option value="off">{tr("Off")}</option>
+              <option disabled>──────────</option>
+              {TRANSLATION_LANGS.map(([c, n]) => <option key={c} value={c}>{n}</option>)}
+            </select>
+          </div>
+          {T.status !== "off" && (
+            <div className="pop-note">
+              {T.status === "same" ? tr("Song is already in {x}", { x: langName(T.target) })
+                : T.status === "pending" ? tr("Translating…")
+                : T.status === "download" ? <button className="pop-link" onClick={T.download}>{tr("Download {x} for offline translation", { x: langName(T.target) })}</button>
+                : T.status === "unavailable" ? tr("Translation unavailable on this device")
+                : T.source === "device" ? tr("On-device translation") : tr("Translation by {x}", { x: tr(T.source) })}
+            </div>
+          )}
           <div className="pop-row" title={tr("NetEase, Kugou and QQ Music — unofficial, may stop working")}>
             <span>{tr("Unofficial sources")}</span><Switch on={unofficial} onChange={setUnofficial} label={tr("Unofficial sources")} />
           </div>
@@ -196,4 +307,4 @@ function currentLyric(track, t) {
   return i >= 0 ? lines[i] : null;
 }
 
-Object.assign(window, { NativeMenu, Popover, Switch, LyricsView, LyricsOptionsButton, KaraokeLine, lyricLineIndex, currentLyric, LYRIC_PROVIDERS });
+Object.assign(window, { TRANSLATION_LANGS, langName, resolveTranslationTarget, useLyricTranslation, useCurrentLyric, NativeMenu, Popover, Switch, LyricsView, LyricsOptionsButton, KaraokeLine, lyricLineIndex, currentLyric, LYRIC_PROVIDERS });

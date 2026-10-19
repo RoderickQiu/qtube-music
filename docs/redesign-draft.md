@@ -185,7 +185,7 @@ This is YouTube Music's best idea, and Kaset doesn't have it.
   - results are cached in SQLite by videoId.
 - **Gaps covered on device:** romanization through ICU (pinyin, Devanagari); English translation of Vietnamese through Apple's Translation framework, labelled "machine translation", since no provider supplies it.
 - **Word-level highlight** when the timing data has it, otherwise line-level. The current line is large and full-opacity, the rest is dimmed and smaller. Lines spring-scroll into place.
-- **Translation line** under each lyric, in a language you choose, with romanization for Japanese, Korean, Chinese, Thai and others.
+- **Translation line** under each lyric, in the *Lyrics translation* language (separate from the interface language, see §7b), with romanization for Japanese, Korean, Chinese, Thai and others.
 - **Interaction**: click a line to seek. ⌥↑ and ⌥↓ nudge the lyric timing by ±0.1 s, saved per track (NetEase has this too).
 - **Fonts per script**: each script gets a font chosen for it. This avoids NetEase's mixed-font Vietnamese bug.
 - **Copying**: lyrics are selectable text, so ⌘C works.
@@ -228,7 +228,11 @@ i18n is a launch requirement, not a later pass. Both locales are first-class and
 - **Formatting:** dates, times, durations and counts use `Date.FormatStyle` / `Duration.UnitsFormatStyle` / `formatted()` with the current locale, so you get "Sun 18 Oct 9:41" in English and "10月18日 周日 9:41" in Chinese, never hand-built strings.
 - **Typography:** the system font (SF Pro) stays first in every locale with PingFang SC as the fallback for Han. Do **not** put PingFang first in zh-CN: its Latin glyphs break Vietnamese stacked diacritics ("Đối" renders as "Đôí"), which the prototype hit and fixed. Lyrics choose a font per line's script. No forced uppercase or letter-spacing on CJK; layouts allow 30–40% longer English and denser Chinese without clipping.
 - **Content language:** YouTube Music requests send `hl` = the app language (`zh-CN` / `en`), so shelf titles, moods and genres come back localized. `gl` (region) stays the account's region and is separate from language.
-- **Lyrics translation follows the app:** in zh-CN the translation line defaults to Chinese (NetEase/QQ/Kugou translations, then on-device Translation); in en-US it defaults to English via Apple's Translation framework, labelled machine translation where it is.
+- **Two separate language settings.** *Interface language* (menus, labels: en-US / zh-CN, follows the system) and *Lyrics translation* (the language of the translation line) are independent. An English-interface user can read Chinese or Korean translations; a Chinese-interface user can turn translations off or pick English.
+  - **Lyrics translation options:** Interface language (default) · Off · 简体中文 · 繁體中文 · English · 한국어 · 日本語 · Tiếng Việt · Español · Français · Deutsch (language names shown in their own language). Settable globally and per song from the lyrics popover.
+  - **Source order:** the lyrics provider's own translation when it matches the target (NetEase / QQ / Kugou give Simplified Chinese; licensed Musixmatch covers many languages), otherwise on-device machine translation via Apple's Translation framework (available on macOS 15, matching our minimum), labelled "On-device translation".
+  - **Model download needs consent:** when a language model isn't installed, the popover offers "Download {language} for offline translation"; nothing downloads silently. (The prototype mirrors this with Chrome's on-device Translator API, which also requires a click.)
+  - **No pointless translation:** if the song is already in the target language (a Chinese song with Chinese selected), no translation line is shown and the popover says so.
 - **Search:** works across scripts. Matching folds diacritics and Traditional/Simplified Chinese (see §6 matching), so "ha phom", "Hạ Phỏm" and "出牌" find the same song.
 - **Prototype:** the Claude Design prototype ships both locales (`i18n.jsx`); switch with the Language tweak or `?lang=zh-CN` / `?lang=en-US`, default follows the browser.
 
@@ -304,6 +308,7 @@ General YouTube (Shorts, subscriptions feed, comments), podcasts (decided: skipp
 5. **Minimum macOS:** 15, with Liquid Glass on 26+.
 6. **Unofficial lyrics sources** (NetEase, Kugou, QQ): off by default, one opt-in toggle each.
 7. **i18n:** zh-CN and en-US ship by default; the app follows the system language (§7b).
+8. **Lyrics translation language is its own setting**, independent of the interface language (§7b).
 
 ---
 

@@ -53,7 +53,10 @@ const QT_STRINGS = {
     "Tweaks": "调整", "Surface": "界面", "Mini + menu bar": "迷你 + 菜单栏", "Stage layout": "沉浸布局", "Stage background": "沉浸背景",
     "Account": "账户", "Premium engine": "Premium 引擎", "Free (ads)": "免费（含广告）", "Play an ad now": "立即播放广告",
     "Window theme": "窗口主题", "Dark": "深色", "Light": "浅色", "Translation line": "翻译行", "On": "开", "Off": "关",
-    "Language": "语言", "Auto": "跟随系统",
+    "Language": "语言", "Auto": "自动", "Interface language": "界面语言", "Lyrics translation": "歌词翻译",
+    "Translate to": "翻译为", "Song is already in {x}": "歌曲本身就是{x}", "Translating…": "正在翻译…",
+    "Translation unavailable on this device": "此设备不支持该翻译", "On-device translation": "设备端机器翻译",
+    "Translation by {x}": "翻译来自{x}", "Download {x} for offline translation": "下载{x}离线翻译模型",
   },
 };
 

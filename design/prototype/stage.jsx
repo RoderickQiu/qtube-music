@@ -64,7 +64,13 @@ function Visualizer({ track }) {
 
 function StageBackground({ kind, track }) {
   if (kind === "video") return <div className="st-bg video"><div className="img" style={{ backgroundImage: `url(${track.mv.still})` }} /><div className="shade" /></div>;
-  if (kind === "cover") return <div className="st-bg cover"><div className="img" style={{ backgroundImage: `url(${track.cover})` }} /></div>;
+  if (kind === "cover") return (
+    <div className="st-bg cover">
+      <div className="img" style={{ backgroundImage: `url(${track.cover})` }} />
+      <div className="frost" />
+      <div className="grain" />
+    </div>
+  );
   return (
     <div className="st-bg blur">
       <div className="img" style={{ backgroundImage: `url(${track.cover})` }} />
@@ -76,16 +82,15 @@ function StageBackground({ kind, track }) {
 }
 
 function VideoLyricsOverlay({ track, translation }) {
-  const pos = usePosition(10);
   const off = player.state.lyricOffset;
-  const ln = currentLyric(track, pos + off);
+  const { ln, tr: trLine } = useCurrentLyric(track, translation);
   if (!ln) return null;
   return (
     <div style={{ position: "absolute", left: 64, right: 64, bottom: 150, "--ly-on": "#fff", "--ly-off": "rgba(255,255,255,.45)" }}>
       <div style={{ font: "700 40px/1.2 var(--font-display)", textShadow: "0 2px 18px rgba(0,0,0,.5)", maxWidth: 1000 }}>
         {ln.words ? <KaraokeLine line={ln} offset={off} /> : ln.text}
       </div>
-      {translation && ln.tr && <div style={{ font: "600 22px/1.3 var(--font)", color: "rgba(255,255,255,.75)", marginTop: 6 }}>{ln.tr}</div>}
+      {trLine && <div style={{ font: "600 22px/1.3 var(--font)", color: "rgba(255,255,255,.75)", marginTop: 6 }}>{trLine}</div>}
     </div>
   );
 }
@@ -236,13 +241,12 @@ function Stage({ layout, setLayout, background, setBackground, videoMode, setVid
 }
 
 function ArtOnlyLyric({ track, translation }) {
-  const pos = usePosition(10);
   const off = player.state.lyricOffset;
-  const ln = currentLyric(track, pos + off);
+  const { ln, tr: trLine } = useCurrentLyric(track, translation);
   return (
     <div style={{ textAlign: "center", minHeight: 64, "--ly-on": "#fff", "--ly-off": "rgba(255,255,255,.4)" }}>
       <div style={{ font: "600 22px/1.3 var(--font-display)" }}>{ln ? (ln.words ? <KaraokeLine line={ln} offset={off} /> : ln.text) : tr("Instrumental")}</div>
-      {translation && ln?.tr && <div style={{ color: "rgba(255,255,255,.6)", marginTop: 4, fontSize: 15 }}>{ln.tr}</div>}
+      {trLine && <div style={{ color: "rgba(255,255,255,.6)", marginTop: 4, fontSize: 15 }}>{trLine}</div>}
     </div>
   );
 }

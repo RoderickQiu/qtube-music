@@ -21,12 +21,11 @@ function controlsMenuItems(p, ui) {
   ];
 }
 
-function MenuBarExtra() {
+function MenuBarExtra({ translation }) {
   const p = usePlayer();
-  const pos = usePosition(4);
   const [open, setOpen] = useState(true);
   const t = p.track;
-  const ln = currentLyric(t, pos + p.state.lyricOffset);
+  const { ln, tr: trLine } = useCurrentLyric(t, translation, 4);
   return (
     <>
       <button className={`mb-extra ${open ? "open" : ""}`} onClick={() => setOpen(!open)} title="QTube Music">
@@ -54,7 +53,7 @@ function MenuBarExtra() {
           {!p.state.ad && ln && (
             <div className="mbp-lyric">
               {ln.text}
-              {ln.tr && <small>{ln.tr}</small>}
+              {trLine && <small>{trLine}</small>}
             </div>
           )}
         </div>
@@ -101,16 +100,15 @@ function MiniPlayer() {
 
 function DesktopLyrics({ translation }) {
   const p = usePlayer();
-  const pos = usePosition(10);
   const off = p.state.lyricOffset;
   const t = p.track;
+  const { ln, tr: trLine } = useCurrentLyric(t, translation);
   if (p.state.ad) return null;
-  const ln = currentLyric(t, pos + off);
   if (!ln) return null;
   return (
     <div className="desk-lyrics">
       <div className="dl-main">{ln.words ? <KaraokeLine line={ln} offset={off} /> : ln.text}</div>
-      {translation && ln.tr && <div className="dl-tr">{ln.tr}</div>}
+      {trLine && <div className="dl-tr">{trLine}</div>}
     </div>
   );
 }
@@ -132,7 +130,7 @@ function DesktopSurface({ translation, ui }) {
           </span>
         ))}
         <div className="right">
-          <MenuBarExtra />
+          <MenuBarExtra translation={translation} />
           <span>{formatClock()}</span>
         </div>
       </div>

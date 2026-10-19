@@ -6,9 +6,13 @@ const loadTweaks = () => {
   let saved = {};
   try { saved = JSON.parse(localStorage.getItem(TWEAK_KEY) || "{}"); } catch {}
   const url = Object.fromEntries(new URLSearchParams(location.search));
-  if (url.translation) url.translation = url.translation !== "false";
+
   if (url.lang) { url.language = url.lang; delete url.lang; }
-  return { ...window.QT_TWEAK_DEFAULTS, ...saved, ...url };
+  const tw = { ...window.QT_TWEAK_DEFAULTS, ...saved, ...url };
+  // earlier builds stored a boolean; translation is now a target language
+  if (tw.translation === true || tw.translation === "true") tw.translation = "auto";
+  if (tw.translation === false || tw.translation === "false") tw.translation = "off";
+  return tw;
 };
 
 function useFitScale() {
@@ -32,14 +36,14 @@ function TweaksPanel({ tw, set, open, setOpen }) {
   return (
     <div className="tweaks" onKeyDown={(e) => e.stopPropagation()}>
       <h4>{tr("Tweaks")} <button onClick={() => setOpen(false)}><Icon name="close" size={12} /></button></h4>
-      {row("Language", "language", [["auto", "Auto"], ["en-US", "English"], ["zh-CN", "简体中文"]])}
+      {row("Interface language", "language", [["auto", "Auto"], ["en-US", "English"], ["zh-CN", "简体中文"]])}
       {row("Surface", "surface", [["window", "Window"], ["stage", "Stage"], ["desktop", "Mini + menu bar"]])}
       {row("Stage layout", "stageLayout", [["standard", "Art + lyrics"], ["lyrics-only", "Lyrics"], ["art-only", "Art"]])}
       {row("Stage background", "stageBackground", [["blur", "Blur"], ["cover", "Cover"], ["vinyl", "Vinyl"], ["video", "Video"], ["visual", "Visualizer"]])}
       {row("Account", "account", [["premium", "Premium engine"], ["free", "Free (ads)"]])}
       {tw.account === "free" && <div className="tw-row"><div className="tw-opts"><button onClick={() => p.playAd()}>{tr("Play an ad now")}</button></div></div>}
       {row("Window theme", "theme", [["dark", "Dark"], ["light", "Light"]])}
-      {row("Translation line", "translation", [[true, "On"], [false, "Off"]])}
+      {row("Lyrics translation", "translation", [["auto", "Auto"], ["off", "Off"], ["zh-Hans", "中文"], ["en", "EN"], ["ko", "한국어"]])}
     </div>
   );
 }
