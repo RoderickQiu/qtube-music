@@ -89,7 +89,7 @@ public struct QTStageView: View {
         GeometryReader { geo in
             ZStack {
                 QTStageBackgroundView(track: player.nowPlaying, appearance: appearance, isPlaying: player.isPlaying,
-                                      policy: policy, accent: QTTheme.Colors.accent(player.nowPlaying?.palette, scheme: .dark))
+                                      policy: policy, accent: QTTheme.Colors.accent(model.palette, scheme: .dark))
                     .id(appearance.background)
                     .transition(.opacity)
 
@@ -140,7 +140,7 @@ public struct QTStageView: View {
             .animation(motion, value: appearance.artSlot)
             .animation(motion, value: isQueueOpen)
         }
-        .qtArtworkTint(player.nowPlaying?.palette)
+        .qtArtworkTint(model.palette)
         .environment(\.colorScheme, .dark)
         .foregroundStyle(QTTheme.Colors.onArt)
         .ignoresSafeArea()

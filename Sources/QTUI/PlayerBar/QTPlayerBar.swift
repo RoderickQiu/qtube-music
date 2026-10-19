@@ -96,7 +96,7 @@ struct QTPlayerBarNowPlaying: View {
     }
 }
 
-/// ♥ for a track: filled in `.tint` when liked (the system accent in the window, like every liked heart there),
+/// ♥ for a track: filled in `.tint` when liked (the app's accent, like every liked heart),
 /// quiet otherwise.
 struct QTLikeButton: View {
     let track: QTTrack

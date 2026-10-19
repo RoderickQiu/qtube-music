@@ -120,8 +120,8 @@ public struct QTMainWindowView: View {
         }
         // The in-window Stage keeps the window's own title bar and toolbar; QTStageTitlebar (Stage/) hides its items.
         .overlay { QTLyricsLabOverlay() }
-        // System accent for selection and system controls; the artwork accent only as `\.qtAccent` (light tints).
-        .qtArtworkAccent(model.palette)
+        // The app's accent: the song's colour, or the system accent (Settings › Accent colour).
+        .qtArtworkTint(model.palette)
         .frame(minWidth: 960, minHeight: 600)
         .onChange(of: model.sidebarSelection) { _, item in navigator.sidebarSelectionChanged(to: item) }
         .onChange(of: navigator.searchFocusRequest) { isSearchFocused = true }

@@ -19,6 +19,8 @@ struct QTTrackTable: NSViewRepresentable {
     var reduceMotion: Bool
     var emptyText: String?
     var showsAlphabet: Bool
+    /// The app's accent (selection, now-playing marks, hearts): `QTTheme.Colors.nsAccent`.
+    var accent: NSColor = .controlAccentColor
     /// Interface language the cells were drawn in; a runtime switch redraws every cached cell (badges, tooltips).
     var language: QTResolvedInterfaceLanguage = QTLoc.language
 
@@ -151,6 +153,10 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
             page.emptyLabel.stringValue = new.emptyText ?? ""
             page.emptyLabel.isHidden = !(rows.isEmpty && new.emptyText != nil)
             page.needsLayout = true
+        } else if old?.accent != new.accent {
+            rows = new.rows
+            reloadVisibleRows()
+            for i in 0..<t.numberOfRows { (t.rowView(atRow: i, makeIfNecessary: false) as? QTTrackRowView)?.accent = new.accent }
         } else if old?.playingID != new.playingID || old?.isPlaying != new.isPlaying || old?.likedIDs != new.likedIDs {
             rows = new.rows
             // The rows whose marks changed (old/new now-playing, liked changes) by index — not only the visible
@@ -278,6 +284,7 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
             return r
         }()
         v.isUnavailable = rows.indices.contains(row) && !rows[row].availability.isPlayable
+        v.accent = config?.accent
         return v
     }
 
@@ -285,9 +292,8 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
         guard let tableColumn, let column = Column(rawValue: tableColumn.identifier.rawValue), rows.indices.contains(row),
               let config else { return nil }
         let track = rows[row]
-        // Now-playing marks (speaker glyph, title) use the system accent like every mark and control in the window;
-        // the artwork colour stays an ambient wash (accent policy).
-        let accent = NSColor.controlAccentColor
+        // Now-playing marks (speaker glyph, title) and hearts in the app's accent, like every mark in the window.
+        let accent = config.accent
         let isCurrent = track.videoId == config.playingID
         let cellID = NSUserInterfaceItemIdentifier(column.rawValue + ".cell")
         let view: NSView

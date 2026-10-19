@@ -120,6 +120,101 @@ public struct QTArtworkPalette: Codable, Sendable, Hashable {
     public var accentOnLight: QTRGBColor { accent.normalized(lightness: 0.56, chroma: 0.09...0.17) }
     /// Deep ink version of the accent (Liked Songs tile gradient end).
     public var accentInk: QTRGBColor { accent.normalized(lightness: 0.32, chroma: 0.04...0.12) }
+
+    /// The app-wide control tint on dark surfaces (Settings › Accent colour › Song): filled controls carry white text
+    /// and the tint marks controls on the window background, so its luminance sits where both read — at least 3:1
+    /// against a dark window (#1e1e1e) and at least 3:1 for white text on it.
+    public var tintOnDark: QTRGBColor { accent.withLuminance(Self.darkTintLuminance, chroma: 0.09...0.19) }
+    /// The app-wide control tint on light surfaces: at least 3:1 against the light window (#ececec) and white,
+    /// at least 4.5:1 for white text on it.
+    public var tintOnLight: QTRGBColor { accent.withLuminance(Self.lightTintLuminance, chroma: 0.09...0.17) }
+
+    /// Target WCAG luminance for `tintOnDark` (3.6:1 on #1e1e1e, 3.9:1 under white text).
+    public static let darkTintLuminance = 0.22
+    /// Target WCAG luminance for `tintOnLight` (4.4:1 on #ececec, 5.2:1 under white text).
+    public static let lightTintLuminance = 0.15
+
+    // MARK: Extraction
+
+    /// The palette of an artwork image given as 8-bit RGBA pixels (sRGB, alpha last, rows packed), or nil when it has
+    /// no usable colour (greyscale, near-black, near-white art): the caller then uses the system accent.
+    ///
+    /// The accent is the most colourful hue family: pixels vote into 24 OKLCH hue bins with their chroma (pixels
+    /// that are nearly grey, black or white don't vote); the winning bin and its neighbours are averaged in OKLab.
+    /// The deep colour is the same hue, dark and muted (the Stage's base layer).
+    public static func extract(rgba: [UInt8], width: Int, height: Int) -> QTArtworkPalette? {
+        let count = width * height
+        guard count > 0, rgba.count >= count * 4 else { return nil }
+        let bins = 24
+        var weight = [Double](repeating: 0, count: bins)
+        var sumL = [Double](repeating: 0, count: bins)
+        var sumA = [Double](repeating: 0, count: bins)
+        var sumB = [Double](repeating: 0, count: bins)
+        var opaque = 0
+        var vivid = 0
+        for i in 0..<count {
+            let o = i * 4
+            guard rgba[o + 3] >= 128 else { continue }
+            opaque += 1
+            let c = QTRGBColor(red: Double(rgba[o]) / 255, green: Double(rgba[o + 1]) / 255, blue: Double(rgba[o + 2]) / 255).oklch
+            guard c.chroma >= minimumChroma, (0.22...0.94).contains(c.lightness) else { continue }
+            vivid += 1
+            let bin = Int(c.hue / 360 * Double(bins)) % bins
+            // Chroma squared favours the colour that reads as "the colour of the cover" over large muted areas.
+            let w = c.chroma * c.chroma
+            weight[bin] += w
+            let h = c.hue * .pi / 180
+            sumL[bin] += w * c.lightness
+            sumA[bin] += w * c.chroma * cos(h)
+            sumB[bin] += w * c.chroma * sin(h)
+        }
+        // At least ~4% of the cover must be colourful, or it reads as greyscale.
+        guard opaque > 0, Double(vivid) / Double(opaque) >= minimumVividShare else { return nil }
+        let best = (0..<bins).max { a, b in
+            let wa = weight[a] + 0.5 * (weight[(a + bins - 1) % bins] + weight[(a + 1) % bins])
+            let wb = weight[b] + 0.5 * (weight[(b + bins - 1) % bins] + weight[(b + 1) % bins])
+            return wa < wb
+        }!
+        var w = 0.0, l = 0.0, a = 0.0, b = 0.0
+        for k in [best, (best + bins - 1) % bins, (best + 1) % bins] {
+            w += weight[k]; l += sumL[k]; a += sumA[k]; b += sumB[k]
+        }
+        guard w > 0 else { return nil }
+        var hue = atan2(b / w, a / w) * 180 / .pi
+        if hue < 0 { hue += 360 }
+        let chroma = (a * a + b * b).squareRoot() / w
+        let accent = QTRGBColor(oklch: .init(lightness: l / w, chroma: chroma, hue: hue))
+        let deep = QTRGBColor(oklch: .init(lightness: 0.24, chroma: min(chroma, 0.06), hue: hue))
+        return QTArtworkPalette(accent: accent, deep: deep)
+    }
+
+    /// OKLCH chroma below which a pixel counts as grey.
+    static let minimumChroma = 0.045
+    /// Share of opaque pixels that must be colourful.
+    static let minimumVividShare = 0.04
+}
+
+public extension QTRGBColor {
+    /// WCAG contrast ratio with another colour (1…21).
+    func contrast(with other: QTRGBColor) -> Double {
+        let a = relativeLuminance, b = other.relativeLuminance
+        return (max(a, b) + 0.05) / (min(a, b) + 0.05)
+    }
+
+    /// The same hue with chroma clamped to `range`, at the OKLCH lightness whose WCAG luminance is `luminance`
+    /// (bisection; luminance grows with lightness for a fixed hue and chroma).
+    func withLuminance(_ luminance: Double, chroma range: ClosedRange<Double>) -> QTRGBColor {
+        var c = oklch
+        c.chroma = c.chroma.clamped(to: range)
+        var lo = 0.0, hi = 1.0
+        for _ in 0..<32 {
+            let mid = (lo + hi) / 2
+            c.lightness = mid
+            if QTRGBColor(oklch: c).relativeLuminance < luminance { lo = mid } else { hi = mid }
+        }
+        c.lightness = (lo + hi) / 2
+        return QTRGBColor(oklch: c)
+    }
 }
 
 extension Comparable {

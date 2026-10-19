@@ -5,9 +5,8 @@ import SwiftUI
 
 // Owner: builder "player". Shared by the player bar, Stage, mini player and menu bar popover.
 
-/// Elapsed · progress · remaining. The fill is `.tint`: the system accent in the main window (one control colour
-/// with Play, the volume slider and the hearts — accent policy), the artwork accent on art-themed surfaces that set
-/// `qtArtworkTint` (mini player, menu bar popover), white over art (Stage).
+/// Elapsed · progress · remaining. The fill is `.tint`: the app's accent (the song's colour, or the system accent —
+/// Settings › Accent colour), one control colour with Play, the volume slider and the hearts; white over art (Stage).
 ///
 /// Drawn like the progress bar in Music.app's player (a thin capsule that thickens and shows its knob on hover)
 /// rather than an `NSSlider`, because a slider's fill turns grey whenever the window isn't key. It behaves like a native adjustable control: VoiceOver adjustable action,

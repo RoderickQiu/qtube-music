@@ -86,6 +86,7 @@ struct QTSidebarRow: View {
     let playlist: QTPlaylist?
     @Environment(QTAppModel.self) private var model
     @Environment(QTPlayerModel.self) private var player
+    @Environment(\.qtAccent) private var accent
     @State private var isTargeted = false
 
     var body: some View {
@@ -101,9 +102,9 @@ struct QTSidebarRow: View {
             label
                 .dropDestination(for: String.self) { items, _ in drop(items) } isTargeted: { isTargeted = $0 }
                 .overlay {
-                    // Finder-style drop highlight around the row, in the system accent like the selection.
+                    // Finder-style drop highlight around the row, in the app's accent.
                     RoundedRectangle(cornerRadius: QTTheme.Radius.control, style: .continuous)
-                        .strokeBorder(QTTheme.Colors.systemAccent, lineWidth: 2)
+                        .strokeBorder(accent, lineWidth: 2)
                         .padding(.horizontal, -8)
                         .padding(.vertical, -4)
                         .opacity(isTargeted ? 1 : 0)

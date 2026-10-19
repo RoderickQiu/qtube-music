@@ -28,6 +28,7 @@ public struct QTSettingsView: View {
         }
         .frame(width: 560)
         .scrollContentBackground(.visible)
+        .qtArtworkTint(model.palette)
         .onAppear {
             if let t = model.launch.string(QTDesktopLaunchKey.settingsTab).flatMap(QTSettingsTab.init(rawValue:)) { tab = t }
         }
@@ -108,6 +109,12 @@ struct QTGeneralSettings: View {
                     Text(QTLoc.tr("Dark")).tag(QTThemePreference.dark)
                 }
                 .pickerStyle(.segmented)
+                Picker(QTLoc.tr("Accent colour"), selection: Binding(get: { model.accentSource }, set: { model.accentSource = $0 })) {
+                    Text(QTLoc.tr("Song")).tag(QTAccentSource.song)
+                    Text(QTLoc.tr("System")).tag(QTAccentSource.system)
+                }
+                .pickerStyle(.segmented)
+                .accessibilityIdentifier("qt.settings.accentSource")
             }
             QTNotificationsSettingsSection()
             Section(QTLoc.tr("Menu Bar", table: .desktop)) {

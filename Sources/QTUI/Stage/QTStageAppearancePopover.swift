@@ -340,9 +340,10 @@ private struct QTStageSwatchRecord: View {
 /// The visualizer's resting spectrum in miniature, in the artwork's colours.
 private struct QTStageSwatchBars: View {
     let palette: QTArtworkPalette?
+    @Environment(\.qtAccent) private var accent
 
     var body: some View {
-        let colors = QTStageVisualizerView.colors(palette: palette, accent: QTTheme.Colors.systemAccent)
+        let colors = QTStageVisualizerView.colors(palette: palette, accent: accent)
         let base = Color(.sRGB, red: Double(colors.base.x), green: Double(colors.base.y), blue: Double(colors.base.z))
         let tip = Color(.sRGB, red: Double(colors.tip.x), green: Double(colors.tip.y), blue: Double(colors.tip.z))
         Canvas { ctx, size in

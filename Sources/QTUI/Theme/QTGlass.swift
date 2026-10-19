@@ -65,7 +65,7 @@ extension View {
         modifier(QTGlassButtonModifier(prominence: prominence, iconOnly: iconOnly))
     }
 
-    /// Mood / genre chip: clear glass when off; when on, the same glass with a light wash of the system accent
+    /// Mood / genre chip: clear glass when off; when on, the same glass with a light wash of the app's accent
     /// (never a solid saturated fill). macOS 15 / Reduce Transparency: the subtle system-fill capsule, accent wash
     /// when on.
     func qtGlassChip(isOn: Bool) -> some View {
@@ -160,14 +160,15 @@ private struct QTGlassButtonModifier: ViewModifier {
     let prominence: QTPillProminence
     let iconOnly: Bool
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.qtAccent) private var accent
 
     func body(content: Content) -> some View {
         if #available(macOS 26, *), !reduceTransparency, !QTGlassDebug.forcesSolid {
             Group {
                 switch prominence {
-                // The page's one primary action (Play): prominent glass filled with the *system* accent, set
-                // explicitly so it never inherits an artwork tint or reads as a grey capsule like Shuffle.
-                case .primary: content.buttonStyle(.glassProminent).tint(QTTheme.Colors.systemAccent)
+                // The page's one primary action (Play): prominent glass filled with the app's accent, set
+                // explicitly so it never reads as a grey capsule like Shuffle.
+                case .primary: content.buttonStyle(.glassProminent).tint(accent)
                 case .secondary: content.buttonStyle(.glass)
                 }
             }
@@ -183,8 +184,9 @@ private struct QTGlassChipModifier: ViewModifier {
     let isOn: Bool
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.qtAccent) private var accent
 
-    private var wash: Color { QTTheme.Colors.systemAccent.opacity(scheme == .dark ? 0.55 : 0.42) }
+    private var wash: Color { accent.opacity(scheme == .dark ? 0.55 : 0.42) }
 
     func body(content: Content) -> some View {
         if #available(macOS 26.1, *), !reduceTransparency, !QTGlassDebug.forcesSolid {

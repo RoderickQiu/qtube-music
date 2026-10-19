@@ -457,7 +457,7 @@ Core:
   interface-language or source change); `QTBrowseActions.playAlbum/playArtist/playPlaylist` fetch a page first
   when needed.
 - Window controls: page buttons use `.qtGlassButton(.primary | .secondary, iconOnly:)` (Theme/QTGlass.swift);
-  `QTPillButtonStyle` (capsule; primary = artwork accent fill) is its macOS 15 / Reduce Transparency fallback.
+  `QTPillButtonStyle` (capsule; primary = accent fill) is its macOS 15 / Reduce Transparency fallback.
   `QTChipToggleStyle` (mood/genre chips, built on `qtGlassButton`), `QTChipFlow` (wrapping layout) — Shell/QTWindowButtonStyles.swift.
 - Navigation: `QTDestination` adds `.mood(QTMoodChip)` (Explore mood/genre pages).
 
@@ -469,17 +469,27 @@ The prototype defines layout, hierarchy, copy and states; the app must look like
   (segmented/menu), `Toggle` (`.button` style for shuffle/repeat = filled when on), `Slider`, `Stepper`, `Menu`,
   `.popover`, grouped `Form` in Settings, `NSMenu`/`.contextMenu`, sheets/alerts.
 - System semantics only: `QTTheme.Colors` wraps label/secondary/tertiary/separator/window/selection colours.
-- **Accent policy (R5).** The main window is system-themed: every control, mark and selection uses the *system*
-  accent — sidebar and table selection, Play, toggles, segmented pickers, focus rings, the scrubber fill and volume
-  slider, liked hearts (filled accent when liked, `tertiaryLabel` outline otherwise; one colour in the player bar,
-  the track tables and Home quick picks, shown on hover, selection and the now-playing row), now-playing marks
-  (title colour, speaker glyph), the selected mood chip's wash, drop highlights. The Liked Songs tile is a fixed,
-  calm system-accent gradient (it never changes with the song); collections without art get a neutral system fill.
-  The main window applies `.qtArtworkAccent(palette)` — it sets only `\.qtAccent`, `.tint` stays the system accent —
-  and the artwork colour appears only as ambient wash (window tint, panel backdrop), never as a control colour.
-  Surfaces drawn over the art (Stage, mini player, menu bar popover) are art-themed and keep
-  `.qtArtworkTint(palette)` (`.tint` + `\.qtAccent`, contrast-guarded); the Stage's own slab draws its controls white.
-  Increase Contrast: system accent everywhere.
+- **Accent colour (R7, replaces the R5 system-only policy).** Settings › General › Accent colour: **Song** (default)
+  or **System** (`QTSettings.accentSource`, launch `-qt.accent song|system`). With Song, the playing song's artwork
+  colour is the app's accent everywhere: `.qtArtworkTint(model.palette)` (`.tint` + `\.qtAccent`) sits at every
+  window root — main window, hosted table headers, Stage, mini player, menu bar popover, Settings — so Play, toggles,
+  sliders, the scrubber, links (See All), hearts, now-playing marks, the selected mood chip, drop highlights and the
+  Liked Songs tile all follow; AppKit pieces take `QTTheme.Colors.nsAccent` (track table selection fill, now-playing
+  marks and hearts; the AirPlay button's active colour). `model.palette` is nil with System (or colourless art), and
+  every accent then falls back to the system accent.
+  - Where the colour comes from: demo tracks carry a palette from `make-mock-catalog.py`; real tracks get one from
+    `QTArtworkAccentService` (Theme/): a 32 × 32 thumbnail of the artwork through `QTArtworkPalette.extract`
+    (QTCore; chroma²-weighted vote over 24 OKLCH hue bins, the winning bin and its neighbours averaged in OKLab; nil
+    when under 4% of the cover is colourful — greyscale, black or white art), cached per song. Sticky: the previous
+    song's colour stays until the new one is known; changes animate with `QTTheme.Motion.ui` (Reduce Motion: a short
+    fade). DEBUG `-qt.accent.fromArt YES` reads demo covers too (screenshots of the extractor and the fallback).
+  - Legibility: the accent is `QTArtworkPalette.tintOnDark` / `tintOnLight` — the artwork hue with clamped chroma at
+    a fixed WCAG luminance (0.22 dark, 0.15 light), so it is ≥ 3:1 against the window and ≥ 3:1 (dark) / ≥ 4.5:1
+    (light) under white text, for any hue (`ArtworkAccentTests`). `accentOnDark` / `accentOnLight` (lighter, OKLCH
+    L .74 / .56) stay for ambient washes (window tint) and the visualizer glow. Increase Contrast: system accent.
+  - What may not follow: the sidebar's selection highlight (stock `List` selection; unchecked in a key window) and
+    the menu bar's system menus (drawn by AppKit in the
+    system accent); controls in an inactive window go grey as usual. The Stage's own slab draws its controls white.
 - **Window chrome (R4).** Sidebar: the stock `NavigationSplitView` sidebar, full height — what Apple's own apps
   (Music, Finder, System Settings) show on this macOS 27 host (references `screenshots/r4-shell-ref-*.png`); no
   custom sidebar background. Search: `.searchable(placement: .toolbarPrincipal)` puts the system field in the
@@ -488,8 +498,8 @@ The prototype defines layout, hierarchy, copy and states; the app must look like
   Now Playing | Queue, flexible spacer, Hide Panel; only while the panel is shown and not under the Stage), so the
   art-tinted backdrop runs under the title bar and there are no header rows or hard dividers. Content pages use
   `qtSoftScrollEdges()` (soft scroll-edge effect under the toolbar).
-- **Track tables.** System selection colours (accent when focused, unemphasized grey otherwise; white text on the
-  accent). Type-to-select and sortable headers are the jump aids; the A–Z strip appears only for lists of more than
+- **Track tables.** Finder-style selection (the app's accent when focused, unemphasized grey otherwise; white
+  text on the accent). Type-to-select and sortable headers are the jump aids; the A–Z strip appears only for lists of more than
   60 rows sorted by title (`QTTrackTableCoordinator.wantsAlphabet`), with script-aware letters (Latin initial, pinyin
   initial for Han via ICU, "#" otherwise; cached per row set). The collection header steps down (smaller tile and
   filter, then the filter on the actions row) instead of truncating Play / Shuffle.
@@ -512,10 +522,10 @@ The prototype defines layout, hierarchy, copy and states; the app must look like
     ghosts through the title; in light mode it also gets a hairline + soft outside shadow so it has an edge over
     white content), `.overArt` (Stage chrome, queue drawer, ad badges, mini player art controls; dark context).
     Tint = the artwork accent at ~0.12–0.16 opacity, only over art.
-  - `qtGlassButton(.primary | .secondary, iconOnly:)` — `.glassProminent` tinted with the system accent (the page's
+  - `qtGlassButton(.primary | .secondary, iconOnly:)` — `.glassProminent` tinted with the app's accent (the page's
     one primary action: collection / search top result Play) / `.glass` (Shuffle, More, open); capsule or circle.
-    `QTPillButtonStyle` (macOS 15 / Reduce Transparency) fills primary with the system accent too.
-  - `qtGlassChip(isOn:)` — mood / genre chips: untinted glass off, `.glass` with a translucent system-accent tint on
+    `QTPillButtonStyle` (macOS 15 / Reduce Transparency) fills primary with the app's accent too.
+  - `qtGlassChip(isOn:)` — mood / genre chips: untinted glass off, `.glass` with a translucent accent tint on
     (`QTChipToggleStyle`); never a solid saturated fill.
   - `qtSoftScrollEdges()` — `.scrollEdgeEffectStyle(.soft, for: .top)` on macOS 26+.
   - `QTGlassGroup { … }` — `GlassEffectContainer` for neighbouring glass shapes (Stage top bar).

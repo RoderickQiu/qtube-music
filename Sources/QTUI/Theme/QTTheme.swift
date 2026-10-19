@@ -5,6 +5,8 @@ import SwiftUI
 /// Design tokens. Layout numbers come from the prototype's styles.css (v2 spacing pass); colours, materials and
 /// fonts map onto macOS system semantics so the app looks native in light, dark, Increase Contrast and Reduce
 /// Transparency. The artwork accent is only ever a *tint* — never a replacement for system chrome.
+/// Settings › Accent colour › Song (default): the playing song's colour is the app's `.tint` everywhere; System: the
+/// system accent.
 public enum QTTheme {
     // MARK: Spacing (4 / 8 / 12 / 16 / 24 / 32, + 44 page gutter)
 
@@ -139,11 +141,19 @@ public enum QTTheme {
         public static let onArtSecondary = Color.white.opacity(0.62)
         public static let onArtTertiary = Color.white.opacity(0.34)
 
-        /// The artwork accent normalised for legibility (oklch L .74 on dark, .56 on light). Falls back to the
-        /// system accent when there is no artwork or when Increase Contrast is on.
+        /// The app's accent: the artwork colour at a luminance that reads as a tint on the window and under white
+        /// text (`QTArtworkPalette.tintOnDark` / `tintOnLight`, WCAG ≥ 3:1 both ways). The system accent when there
+        /// is no palette (Settings › Accent colour › System, colourless art) or Increase Contrast is on.
         public static func accent(_ palette: QTArtworkPalette?, scheme: ColorScheme, increaseContrast: Bool = false) -> Color {
             guard let palette, !increaseContrast else { return systemAccent }
-            return Color(qt: scheme == .dark ? palette.accentOnDark : palette.accentOnLight)
+            return Color(qt: scheme == .dark ? palette.tintOnDark : palette.tintOnLight)
+        }
+
+        /// AppKit twin of `accent` for NSTableView cells and other AppKit controls.
+        public static func nsAccent(_ palette: QTArtworkPalette?, dark: Bool, increaseContrast: Bool = false) -> NSColor {
+            guard let palette, !increaseContrast else { return .controlAccentColor }
+            let c = dark ? palette.tintOnDark : palette.tintOnLight
+            return NSColor(srgbRed: c.red, green: c.green, blue: c.blue, alpha: 1)
         }
 
         /// Base colour behind the Stage's blurred art.
@@ -192,8 +202,8 @@ private struct QTAccentKey: EnvironmentKey {
 }
 
 public extension EnvironmentValues {
-    /// The artwork-driven accent for the current track — a light tint only (progress, now-playing marks, washes).
-    /// In the main window `.tint` is the system accent (`qtArtworkAccent`); over art it's this too (`qtArtworkTint`).
+    /// The app's accent (`.tint` set by `qtArtworkTint` at each window root), readable where a view needs the colour
+    /// itself: custom fills, AppKit cells, washes. The system accent unless a root sets it.
     var qtAccent: Color {
         get { self[QTAccentKey.self] }
         set { self[QTAccentKey.self] = newValue }
@@ -214,29 +224,11 @@ public struct QTArtworkTint: ViewModifier {
     }
 }
 
-/// The artwork accent as `\.qtAccent` only — `.tint` stays the system accent. The main window's policy: system accent
-/// for selection and system controls (sidebar, table selection, Play, toggles, menus); the artwork accent only as a
-/// light tint read from `\.qtAccent` (scrubber progress, now-playing marks, panel wash).
-public struct QTArtworkAccent: ViewModifier {
-    let palette: QTArtworkPalette?
-    @Environment(\.colorScheme) private var scheme
-    @Environment(\.colorSchemeContrast) private var contrast
-
-    public func body(content: Content) -> some View {
-        content.environment(\.qtAccent, QTTheme.Colors.accent(palette, scheme: scheme, increaseContrast: contrast == .increased))
-    }
-}
-
 public extension View {
-    /// Artwork accent as `.tint` *and* `\.qtAccent`: for surfaces drawn over the artwork (Stage, mini player, menu
-    /// bar popover), where the system accent would clash with the art. Browsing chrome uses `qtArtworkAccent`.
+    /// The app's accent as `.tint` *and* `\.qtAccent`, at the root of every window (main, Stage, mini player, menu
+    /// bar popover, Settings). Pass `model.palette` (nil = the system accent).
     func qtArtworkTint(_ palette: QTArtworkPalette?) -> some View {
         modifier(QTArtworkTint(palette: palette))
-    }
-
-    /// Artwork accent as `\.qtAccent` only (the main window): `.tint` stays the system accent.
-    func qtArtworkAccent(_ palette: QTArtworkPalette?) -> some View {
-        modifier(QTArtworkAccent(palette: palette))
     }
 
     /// Floating surface (kept for existing callers): the `.chrome` glass primitive (`QTGlass.swift`). `material`

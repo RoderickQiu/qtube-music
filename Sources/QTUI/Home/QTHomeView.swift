@@ -573,7 +573,7 @@ struct QTQuickPickRow: View {
         let isCurrent = player.nowPlaying?.videoId == track.videoId
         let liked = player.isLiked(track)
         // The heart is a control, not decoration: it appears on hover and on the now-playing row, filled in the
-        // system accent when liked — the same heart as the player bar and the track tables (accent policy).
+        // app's accent when liked — the same heart as the player bar and the track tables.
         let showsHeart = isHovered || isCurrent
         HStack(spacing: 14) {
             if let rank {

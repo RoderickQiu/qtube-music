@@ -113,6 +113,12 @@ public enum QTThemePreference: String, Codable, Sendable, Hashable, CaseIterable
     case dark
 }
 
+/// Where the app's accent colour comes from: the playing song's artwork (default), or the system accent.
+public enum QTAccentSource: String, Codable, Sendable, Hashable, CaseIterable {
+    case song
+    case system
+}
+
 /// Opt-in unofficial lyric sources; all off by default.
 public struct QTUnofficialLyricsSources: Codable, Sendable, Hashable {
     public var netease = false
@@ -174,6 +180,8 @@ public struct QTSettings: Codable, Sendable, Hashable {
     public var stageLayout: QTStageLayout = .standard
     public var stageBackground: QTStageBackground = .blur
     public var theme: QTThemePreference = .automatic
+    /// Settings › Accent colour: the playing song's artwork colour tints the whole app, or the system accent does.
+    public var accentSource: QTAccentSource = .song
     /// Closing the main window keeps music playing (setting to quit instead).
     public var closeWindowKeepsPlaying = true
     public var showsTitleInMenuBar = true
@@ -198,6 +206,7 @@ public struct QTSettings: Codable, Sendable, Hashable {
         stageLayout = (try? c.decodeIfPresent(QTStageLayout.self, forKey: .stageLayout)) ?? d.stageLayout
         stageBackground = (try? c.decodeIfPresent(QTStageBackground.self, forKey: .stageBackground)) ?? d.stageBackground
         theme = (try? c.decodeIfPresent(QTThemePreference.self, forKey: .theme)) ?? d.theme
+        accentSource = (try? c.decodeIfPresent(QTAccentSource.self, forKey: .accentSource)) ?? d.accentSource
         closeWindowKeepsPlaying = (try? c.decodeIfPresent(Bool.self, forKey: .closeWindowKeepsPlaying)) ?? d.closeWindowKeepsPlaying
         showsTitleInMenuBar = (try? c.decodeIfPresent(Bool.self, forKey: .showsTitleInMenuBar)) ?? d.showsTitleInMenuBar
         desktopLyrics = (try? c.decodeIfPresent(QTDesktopLyricsPrefs.self, forKey: .desktopLyrics)) ?? d.desktopLyrics

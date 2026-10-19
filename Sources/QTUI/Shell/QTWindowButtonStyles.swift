@@ -5,18 +5,18 @@ import SwiftUI
 // these filled capsules are its macOS 15 / Reduce Transparency fallback. Capsule controls for content pages (Home mood chips, Play / Shuffle / More on
 // collection headers, Explore destinations). macOS's bordered styles ignore `.buttonBorderShape(.capsule)` and
 // render grey when the window is inactive, which flattens the one primary action on a page. These styles are
-// built from system fills (`.fill.tertiary` / `.fill.secondary`), the system accent for the primary action, semantic
+// built from system fills (`.fill.tertiary` / `.fill.secondary`), the app's accent for the primary action, semantic
 // label colours, and keep the system's press, hover, disabled and keyboard-focus behaviour.
 
 /// How prominent a capsule control is.
 enum QTPillProminence {
-    /// Filled with the system accent, white label — the page's primary action (Play).
+    /// Filled with the app's accent, white label — the page's primary action (Play).
     case primary
     /// Subtle system fill, primary label — secondary actions (Shuffle, More), unselected chips.
     case secondary
 }
 
-/// Capsule button: `.primary` (system accent fill) or `.secondary` (system fill, optionally washed with a light
+/// Capsule button: `.primary` (accent fill) or `.secondary` (system fill, optionally washed with a light
 /// tint — a selected chip). `iconOnly` makes it a circle.
 struct QTPillButtonStyle: ButtonStyle {
     var prominence: QTPillProminence = .secondary
@@ -29,7 +29,7 @@ struct QTPillButtonStyle: ButtonStyle {
     }
 }
 
-/// Mood / genre chip: a roomy capsule toggle — clear glass, a light system-accent wash when on (`qtGlassChip`).
+/// Mood / genre chip: a roomy capsule toggle — clear glass, a light accent wash when on (`qtGlassChip`).
 struct QTChipToggleStyle: ToggleStyle {
     func makeBody(configuration: Configuration) -> some View {
         Button {
@@ -53,6 +53,7 @@ private struct QTPillBody<Label: View>: View {
     @Environment(\.controlSize) private var controlSize
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.qtAccent) private var appAccent
     @State private var isHovered = false
 
     private var height: CGFloat {
@@ -64,7 +65,7 @@ private struct QTPillBody<Label: View>: View {
     }
 
     var body: some View {
-        let accent = QTTheme.Colors.systemAccent
+        let accent = appAccent
         label
             .font(controlSize == .large ? .body.weight(.medium) : .callout.weight(.medium))
             .labelStyle(QTPillLabelStyle(iconOnly: iconOnly))

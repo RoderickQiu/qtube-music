@@ -20,17 +20,17 @@ public struct QTAirPlayButton: NSViewRepresentable {
         view.setAccessibilityIdentifier("qt.player.airplay")
         // Label and tooltip follow a live language switch (updateNSView alone isn't called for it).
         view.qtLocalizedAccessibility("AirPlay", toolTip: true)
-        apply(to: view)
+        apply(to: view, accent: context.environment.qtAccent)
         return view
     }
 
     public func updateNSView(_ view: AVRoutePickerView, context: Context) {
-        apply(to: view)
+        apply(to: view, accent: context.environment.qtAccent)
     }
 
-    private func apply(to view: AVRoutePickerView) {
+    private func apply(to view: AVRoutePickerView, accent: Color) {
         let normal: NSColor = overArt ? .white.withAlphaComponent(0.72) : .secondaryLabelColor
-        let active: NSColor = overArt ? .white : .controlAccentColor
+        let active: NSColor = overArt ? .white : NSColor(accent)
         view.setRoutePickerButtonColor(normal, for: .normal)
         view.setRoutePickerButtonColor(overArt ? .white : .labelColor, for: .normalHighlighted)
         view.setRoutePickerButtonColor(active, for: .active)

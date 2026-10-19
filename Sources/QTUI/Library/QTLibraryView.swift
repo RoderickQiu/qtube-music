@@ -13,6 +13,8 @@ public struct QTLibraryView: View {
     @Environment(QTAppModel.self) private var model
     @Environment(QTPlayerModel.self) private var player
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.colorSchemeContrast) private var contrast
 
     static let headerHeight: CGFloat = 36 + QTTheme.Metrics.playlistTile + 28
 
@@ -52,7 +54,8 @@ public struct QTLibraryView: View {
             likedIDs: player.likedTrackIDs,
             reduceMotion: reduceMotion,
             emptyText: q.isEmpty ? nil : QTLoc.tr("No songs match “%@”.", q),
-            showsAlphabet: true
+            showsAlphabet: true,
+            accent: QTTheme.Colors.nsAccent(model.palette, dark: scheme == .dark, increaseContrast: contrast == .increased)
         )
         .accessibilityIdentifier("qt.library")
     }
@@ -68,7 +71,7 @@ struct QTHostedEnvironment {
         view
             .environment(model)
             .environment(player)
-            .qtArtworkAccent(model.palette)
+            .qtArtworkTint(model.palette)
     }
 }
 
@@ -83,11 +86,12 @@ struct QTCollectionTile: View {
     var cornerRadius: CGFloat = QTTheme.Radius.artworkLarge
     var showsShadow = true
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.qtAccent) private var appAccent
 
     var body: some View {
         Group {
             if collection.kind == .liked {
-                let accent = QTTheme.Colors.systemAccent
+                let accent = appAccent
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(LinearGradient(colors: [accent.mix(with: .white, by: scheme == .dark ? 0.12 : 0.22),
                                                   accent.mix(with: .black, by: scheme == .dark ? 0.30 : 0.16)],

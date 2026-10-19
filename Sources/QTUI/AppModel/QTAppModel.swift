@@ -73,6 +73,7 @@ public final class QTAppModel {
         settings.override { s in
             if let v = launch.language { s.interfaceLanguage = v }
             if let v = launch.theme { s.theme = v }
+            if let v = launch.string("qt.accent").flatMap(QTAccentSource.init(rawValue:)) { s.accentSource = v }
             if let v = launch.stageLayout { s.stageLayout = v }
             if let v = launch.stageBackground { s.stageBackground = v }
             if let v = launch.translation { s.lyricsTranslation = v }
@@ -127,6 +128,8 @@ public final class QTAppModel {
         QTVideoModeService.shared.install(model: model)
         // Lyrics follow the rendition that plays (an MV of another length gets its own timing or unsynced lyrics).
         QTLyricsRenditionCoordinator.shared.install(player: player)
+        // The app-wide accent from the playing song's artwork (Theme/QTArtworkAccentService.swift).
+        QTArtworkAccentService.shared.install(model: model)
         model.applyAppearance()
         return model
     }
@@ -211,8 +214,17 @@ public final class QTAppModel {
     /// The lyrics service every surface reads (`QTLyricsSession`); same object as `player.lyricsSession`.
     public var lyricsSession: QTLyricsSession? { player.lyricsSession }
 
-    /// Artwork palette driving the accent tint.
-    public var palette: QTArtworkPalette? { player.nowPlaying?.palette }
+    /// Artwork palette driving the app-wide accent (`QTArtworkAccentService`, sticky between songs); nil when
+    /// Settings › Accent colour is System, or the art has no usable colour — the system accent then.
+    public var palette: QTArtworkPalette? {
+        settings.settings.accentSource == .system ? nil : QTArtworkAccentService.shared.palette
+    }
+
+    /// Settings › Accent colour.
+    public var accentSource: QTAccentSource {
+        get { settings.settings.accentSource }
+        set { settings.update { $0.accentSource = newValue } }
+    }
 
     // MARK: Toasts
 
