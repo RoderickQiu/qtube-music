@@ -57,6 +57,8 @@ private struct QTScrubberContent: View {
     private var leading: String { ad != nil ? QTLoc.tr("Ad") : QTFormat.duration(shownTime) }
     private var trailing: String {
         if let ad { return ad.qtRemainingText ?? "" }
+        // Nothing loaded (or no length yet): no "-0:01" from the 1 s floor above.
+        guard duration > 0 else { return "" }
         return QTFormat.remaining(safeDuration - shownTime)
     }
 

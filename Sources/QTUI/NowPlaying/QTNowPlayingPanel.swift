@@ -163,15 +163,18 @@ struct QTNowPlayingHero: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .padding(.top, 3)
-                HStack(spacing: QTTheme.Spacing.xs) {
-                    QTSongVideoToggle(isVideo: Binding(get: { model.isVideoMode }, set: { model.isVideoMode = $0 }),
-                                      hasVideo: track?.hasVideo ?? false)
-                        // Secondary to the Now Playing | Queue switch above it: a small segmented control under the title.
-                        .controlSize(.small)
-                    Spacer(minLength: 0)
-                    QTLyricsOptionsButton()
+                // Song|Video and lyrics options only with something playing.
+                if track != nil {
+                    HStack(spacing: QTTheme.Spacing.xs) {
+                        QTSongVideoToggle(isVideo: Binding(get: { model.isVideoMode }, set: { model.isVideoMode = $0 }),
+                                          hasVideo: track?.hasVideo ?? false)
+                            // Secondary to the Now Playing | Queue switch above it: a small segmented control under the title.
+                            .controlSize(.small)
+                        Spacer(minLength: 0)
+                        QTLyricsOptionsButton()
+                    }
+                    .padding(.top, 12)
                 }
-                .padding(.top, 12)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
