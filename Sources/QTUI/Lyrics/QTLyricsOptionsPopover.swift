@@ -83,6 +83,10 @@ public struct QTLyricsOptionsPopover: View {
             if model.launch.bool("qt.lyrics.demoVersions") == true, let t = player.nowPlaying, let doc = player.lyrics {
                 versions.installDemoVersions(for: t, document: doc)
             }
+            // Opening the options looks again at what may have changed meanwhile: a language model installed,
+            // Apple Intelligence ready, the sources reachable again.
+            center.recheck(center.resolve(player.lyrics, target: model.resolvedTranslationLanguage).machineKey)
+            model.lyricsSession?.retryIfUnreachable()
         }
         .accessibilityIdentifier("qt.lyrics.optionsPopover")
     }
@@ -91,7 +95,7 @@ public struct QTLyricsOptionsPopover: View {
 
     private func header(_ doc: QTLyricsDocument?) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(doc.map { QTLoc.tr($0.source.name) } ?? QTLoc.tr("No lyrics"))
+            Text(doc.map { QTLoc.tr($0.source.name) } ?? emptyTitle)
                 .font(.headline)
             if let doc, doc.confidence < 0.8 {
                 Image(systemName: "exclamationmark.triangle.fill")
@@ -111,6 +115,12 @@ public struct QTLyricsOptionsPopover: View {
         .padding(.top, 16)
         .padding(.bottom, 2)
         .accessibilityElement(children: .combine)
+    }
+
+    /// "No lyrics", or "Offline" while the sources can't be reached (the lookup retries on reconnect).
+    private var emptyTitle: String {
+        guard let session = model.lyricsSession, session.phase == .unreachable else { return QTLoc.tr("No lyrics") }
+        return session.isNetworkAvailable ? QTLoc.tr("Can’t reach lyrics", table: .lyrics) : QTLoc.tr("Offline", table: .lyrics)
     }
 
     // MARK: Translation
@@ -225,10 +235,17 @@ public struct QTLyricsOptionsPopover: View {
         let id = player.nowPlaying?.videoId ?? ""
         let all = versions.versions[id] ?? []
         let others = versions.others(for: id)
+        let pinned = isPinned(id)
         return Menu {
             if !all.isEmpty {
+                // "Automatic" is the resolver's own pick; choosing it drops a pinned version for this track.
+                Toggle(isOn: Binding(get: { !pinned }, set: { on in if on { unpin(id) } })) {
+                    Text(QTLoc.tr("Automatic", table: .lyrics))
+                }
+                .accessibilityIdentifier("qt.lyrics.versionAutomatic")
+                Divider()
                 ForEach(all) { v in
-                    Toggle(isOn: Binding(get: { versions.selected[id] == v.id }, set: { _ in versions.pin(v, for: id) })) {
+                    Toggle(isOn: Binding(get: { pinned && versions.selected[id] == v.id }, set: { _ in versions.pin(v, for: id) })) {
                         Text(verbatim: versionTitle(v))
                     }
                 }
@@ -244,6 +261,17 @@ public struct QTLyricsOptionsPopover: View {
         }
         .fixedSize()
         .accessibilityIdentifier("qt.lyrics.versionsMenu")
+    }
+
+    /// The user chose a version for this track (the session's persisted pin; the store's when there is no session).
+    private func isPinned(_ videoId: String) -> Bool {
+        if let session = model.lyricsSession, session.engine == .live, session.track?.videoId == videoId { return session.isPinned }
+        return versions.pinned[videoId] != nil
+    }
+
+    private func unpin(_ videoId: String) {
+        versions.unpin(videoId)
+        if let session = model.lyricsSession, session.track?.videoId == videoId { session.unpin() }
     }
 
     private func versionTitle(_ v: QTLyricsVersion) -> String {

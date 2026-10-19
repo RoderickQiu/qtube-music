@@ -84,7 +84,7 @@ final class QTLyricsRailView: NSView, NSMenuItemValidation {
         layerContentsRedrawPolicy = .never
         setAccessibilityElement(true)
         setAccessibilityRole(.list)
-        setAccessibilityLabel(QTLoc.tr("Lyrics"))
+        qtLocalizedAccessibility("Lyrics")
     }
 
     @available(*, unavailable)

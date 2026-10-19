@@ -16,7 +16,7 @@ SwiftPM package `QTubeMusic` (`Package.swift`, tools 6.2, Swift 6 language mode,
 | `QTPlayback` | QTCore, QTInnerTube | `QTPlaybackEngine` protocol, `QTSimulatedPlaybackEngine`, `QTQueueController` (queue + context, shuffle/repeat, autoplay continuation, persistence via `QTQueueStore`, holds a process activity while playing), `QTNowPlayingController` (sole owner of Now Playing + remote commands), `Web/QTWebPlaybackEngine` (hidden WKWebView in the non-persistent session jar `QTWebKitCookieStore.session`, `sessionDidChange()`, JS bridge, ads, playability errors, offline recovery, 144p decode, page freeze while paused; `QTWebKitTuning` keeps the hidden page scheduled), `Web/QTWebVideoOutput` (M5: the page's music video in app views, native PiP, `QTModeSwitchReport`), `QTPlaybackEngineSelector`, `QTNativePlaybackEngine` stub (M5) | playback (Web video parts: stage-video) |
 | `QTDevSession` | QTAuth | DEBUG-only executable: import the dev session from CDP cookie JSON on stdin; read-only `status` / `summary` / `probe` / `ytcfg` (never prints cookie values) | data-live |
 | `QTPlaybackLab` | QTPlayback | dev-only executable: drives the web engine live, muted and anonymous (`swift run --scratch-path .build/<you> QTPlaybackLab --scenario basic`) | playback |
-| `QTLyrics` | QTCore | `QTLyricsResolver` (actor, `QTLyricsProviding`): parsers (LRC, YRC, QRC, KRC, TTML), QRC/KRC decryption, providers (YouTube Music, LRCLIB, AMLL; NetEase/Kugou/QQ opt-in), matcher, `QTLyricsCache` (SQLite), romanization, translation plan; `QTMockLyricsProvider` | lyrics |
+| `QTLyrics` | QTCore | `QTLyricsResolver` (actor, `QTLyricsProviding`): parsers (LRC, YRC, QRC, KRC, TTML), QRC/KRC decryption, providers (YouTube Music, LRCLIB, AMLL; NetEase/Kugou/QQ opt-in), matcher, `QTLyricsCache` (SQLite), romanization, translation (selector, coordinator, Apple Intelligence + Translation framework engines); `QTMockLyricsProvider` | lyrics |
 | `QTUI` | all | SwiftUI/AppKit UI, app model, theme | per folder, below |
 | `QTubeMusicApp` (product `QTubeMusic`) | QTUI | `@main` app: `Window` (main), `Settings`, `MenuBarExtra`, `QTCommands`, app delegate | desktop |
 
@@ -179,7 +179,24 @@ Views:
   `.mini`, `.desktop`. `onSeek` gets a playback time.
 - `QTLyricsOptionsButton(overArt:)` → system popover with `QTLyricsOptionsPopover()` (source + timing kind of what is
   showing, Translate to + status, one "Unofficial sources" switch — per-provider switches live in Settings › Lyrics —,
-  timing stepper, Other versions).
+  timing stepper, Other versions with an "Automatic" entry that unpins). Opening it re-checks a translation that
+  waited for a download / Apple Intelligence and retries an unreachable lookup.
+- Machine translation (M6, `QTLyricsTranslationCenter`, Lyrics/QTLyricsTranslation.swift): provider lane in the
+  target → Apple Intelligence (`QTAppleIntelligenceTranslationEngine`, Foundation Models, macOS 26+, only when
+  Settings' "Translate lyrics with Apple Intelligence" is on and `SystemLanguageModel` is available and supports the
+  target; guided generation with a `@Generable` result whose schema fixes exactly one string per source line; chunks of
+  ≤24 lines / ~900 chars with title, artist and the 4 previous lines as context; permissive-transformation guardrails;
+  45 s per chunk) → Translation framework (`QTTranslationFrameworkEngine`: direct `TranslationSession(installedSource:)`
+  on macOS 26+, SwiftUI-hosted `.translationTask` session before that; a missing model is `.needsDownload` and only the
+  popover's "Download {language}…" button starts the system's consent/download). Refusal, wrong line count, an
+  untranslated echo or timeout falls back to the Translation framework for the whole song — never partial. Results
+  are cached in the lyrics SQLite (`translations` table) under `lyrics:<FNV-1a of the lines>` + language + engine;
+  jobs belong to the center (they survive the view that asked). `QTLyricsTranslationCoordinator` (QTLyrics) holds the
+  engines, validation (`QTLyricsTranslationValidator`) and the cache. Popover labels the engine ("Apple
+  Intelligence" / "On-device translation" / provider) and says "Song is already in …" when it skips.
+- `QTLocalizedAppKitText` / `NSView.qtLocalizedAccessibility(_:toolTip:)` / `NSWindow.qtLocalizedAccessibility(_:)`
+  (Lyrics/QTLocalizedAppKitText.swift): AppKit accessibility labels and tooltips that follow a live language switch.
+  Use instead of a one-shot `setAccessibilityLabel(QTLoc.tr(…))` in AppKit inits.
 - `QTAppModel.resolvedLyrics` → `QTResolvedLyrics` (Lyrics/): the document + the **one** translation lane every surface
   shows (`translation(forLine:)`, `currentLine(atPlaybackTime:)` → line + translation, `isInstrumental(atPlaybackTime:)`,
   `translationStatus`). Never read `QTLyricsLine.translation` in a view: it is the provider's lane in whatever language
@@ -244,7 +261,9 @@ Coordinators (one per process, `@MainActor`):
   `syncKind`, `sourceName`, `attribution`, `versions`/`otherVersions`/`chosenVersionID`/`isPinned`,
   `isPossibleMismatch`, `translationPlan`/`translationTarget`/`translationEngineName`, `romanizationSource`/
   `hasRomanization`, `offset`, `unreachableSources`, `isShowingFallback`. Actions: `load(_:)` (track change),
-  `reload()`, `pin(versionID:)`/`unpin()` (persisted; also wired to `QTLyricsVersionStore.onPin`),
+  `reload()`, `retryIfUnreachable(force:)`, `networkDidChange(available:)` (own `NWPathMonitor`; coming back online
+  re-runs an `.unreachable` lookup; `isNetworkAvailable` lets the empty state say "Offline" rather than "No lyrics",
+  or "Can’t reach lyrics" + Try Again when online), `pin(versionID:)`/`unpin()` (persisted; also wired to `QTLyricsVersionStore.onPin`),
   `nudgeOffset(by:)`/`setOffset(_:)` (live, persisted per track, debounced). Reacts to Settings (unofficial sources,
   translation target, interface language) by itself. All network/SQLite work is off the main actor.
 

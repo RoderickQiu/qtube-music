@@ -1,13 +1,21 @@
 import Foundation
 import Observation
+import OSLog
 import QTCore
+import QTLyrics
 import SwiftUI
 import Translation
 
-// Owner: builder "lyrics-ui". Which translation lane the lyrics show and what the options popover says about it
-// (draft §7b): the provider's own translation when it matches the target, otherwise on-device machine translation
-// through Apple's Translation framework (macOS 15+), which needs a consented model download. Songs already in the
-// target language get no translation line.
+// Owner: builder "lyrics-ui" / lyrics-translate (M6). Which translation lane the lyrics show and what the options
+// popover says about it (draft §7b, HANDOFF §4), in this order:
+//   1. the lyrics provider's own translation when it is in the target language;
+//   2. Apple Intelligence (Foundation Models, macOS 26+) when "Translate lyrics with Apple Intelligence" is on and
+//      the model is available for the target — it reads the whole song, so imagery and slang survive;
+//   3. Apple's Translation framework (macOS 15+), "On-device translation", whose language models download only
+//      after the user clicks "Download {language} for offline translation".
+// Songs already in the target language get no translation line. A failed Apple Intelligence run (refusal, wrong
+// line count, untranslated echo, timeout) falls back to the Translation framework for the whole song; nothing partial
+// or misaligned is ever shown. Results are cached in SQLite per lyrics + language + engine.
 
 /// What the options popover reports about the translation line.
 public enum QTLyricsTranslationStatus: Equatable, Sendable {
@@ -42,25 +50,32 @@ public enum QTLyricsTranslationStatus: Equatable, Sendable {
 struct QTLyricsTranslationResolution: Equatable {
     var status: QTLyricsTranslationStatus
     var lanes: QTLyricsLanes
-    /// Set when on-device translation is (or could be) involved.
+    /// Set when machine translation is (or could be) involved.
     var machineKey: QTLyricsTranslationCenter.Key?
 }
 
-/// On-device lyric translation (Translation framework). One per process; views host the sessions.
+/// Machine translation of lyrics (Apple Intelligence, Translation framework). One per process; views host the
+/// Translation framework's sessions where the OS needs SwiftUI for them.
 @MainActor
 @Observable
 final class QTLyricsTranslationCenter {
     static let shared = QTLyricsTranslationCenter()
 
     struct Key: Hashable, Sendable {
-        var fingerprint: Int
+        /// Stable hash of the lyric lines (also the SQLite cache key).
+        var fingerprint: String
         var source: String
         var target: String
+        /// "Translate lyrics with Apple Intelligence" was on when the job was keyed.
+        var allowsAppleIntelligence: Bool = true
+
+        var cacheKey: String { "lyrics:\(fingerprint)" }
     }
 
     enum Phase: Equatable {
         case checking
         case needsDownload
+        /// Waiting for a SwiftUI-hosted Translation framework session.
         case ready
         case translating
         case done
@@ -70,18 +85,38 @@ final class QTLyricsTranslationCenter {
     struct Entry {
         var phase: Phase
         var lines: [String?]?
+        /// The engine that produced `lines`.
+        var engine: QTLyricsTranslationEngineKind?
         var configuration: TranslationSession.Configuration?
         var consented = false
         var inFlight = false
+        /// What the job translates (kept for re-checks and the hosted session).
+        var sourceLines: [String] = []
+        var title = ""
+        var artist = ""
     }
 
     private(set) var entries: [Key: Entry] = [:]
     /// Launch option `qt.lyrics.translationState` (popover screenshots); nil in normal use.
     var forcedStatus: String?
+    /// Settings (for the Apple Intelligence toggle); nil = toggle treated as on.
+    @ObservationIgnored var settings: QTSettingsStore?
+    @ObservationIgnored private(set) var coordinator: QTLyricsTranslationCoordinator
+    @ObservationIgnored private var jobs: [Key: Task<Void, Never>] = [:]
+    @ObservationIgnored private let log = Logger(subsystem: "com.roderickqiu.qtube", category: "lyrics-translate")
 
-    init(launch: QTLaunchOptions = .current) {
+    init(launch: QTLaunchOptions = .current, coordinator: QTLyricsTranslationCoordinator = .standard(cache: nil)) {
         forcedStatus = launch.string("qt.lyrics.translationState")
+        self.coordinator = coordinator
     }
+
+    /// The app's wiring: translations cached next to the lyrics (same SQLite file), the settings' toggle respected.
+    func attach(settings: QTSettingsStore, cache: QTLyricsCache?) {
+        self.settings = settings
+        coordinator = .standard(cache: cache)
+    }
+
+    var allowsAppleIntelligence: Bool { settings?.settings.translateWithAppleIntelligence ?? true }
 
     // MARK: Resolution (pure read — safe from view bodies)
 
@@ -111,13 +146,14 @@ final class QTLyricsTranslationCenter {
                 return .init(status: forced ?? .provider(name), lanes: .init(translations: converted, translationLanguage: target))
             }
         }
-        let key = Key(fingerprint: Self.fingerprint(doc), source: songLanguage, target: target)
+        let key = Key(fingerprint: Self.fingerprint(doc), source: songLanguage, target: target,
+                      allowsAppleIntelligence: allowsAppleIntelligence)
         let entry = entries[key]
         let status: QTLyricsTranslationStatus
         switch entry?.phase {
         case nil, .checking?, .ready?, .translating?: status = .translating
         case .needsDownload?: status = .needsDownload(target)
-        case .done?: status = .onDevice
+        case .done?: status = entry?.engine == .appleIntelligence ? .appleIntelligence : .onDevice
         case .unavailable?: status = .unavailable
         }
         let lanes = QTLyricsLanes(translations: entry?.phase == .done ? entry?.lines : nil, translationLanguage: target)
@@ -128,25 +164,109 @@ final class QTLyricsTranslationCenter {
         key.flatMap { entries[$0]?.configuration }
     }
 
+    /// The engine that produced the translation for `key`, once it is done.
+    func engine(for key: Key?) -> QTLyricsTranslationEngineKind? {
+        guard let key, let e = entries[key], e.phase == .done else { return nil }
+        return e.engine
+    }
+
     // MARK: Driving (from `.task` / `.translationTask` / the popover)
 
-    /// Checks whether the language pair is installed; translates right away if so.
-    func prepare(_ key: Key) async {
+    /// Starts the job for `key` once: cache → Apple Intelligence → Translation framework (direct on macOS 26+,
+    /// otherwise through a hosted session; a missing language model waits for the user's consent). The job belongs to
+    /// the center, so it finishes even if the view that asked goes away.
+    func prepare(_ key: Key, document doc: QTLyricsDocument, title: String = "", artist: String = "") {
         guard entries[key] == nil else { return }
-        entries[key] = Entry(phase: .checking)
-        let status = await LanguageAvailability().status(from: Locale.Language(identifier: key.source),
-                                                          to: Locale.Language(identifier: key.target))
-        switch status {
-        case .installed:
+        var entry = Entry(phase: .checking)
+        entry.sourceLines = doc.lines.map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }
+        entry.title = title
+        entry.artist = artist
+        entries[key] = entry
+        start(key)
+    }
+
+    /// Async form for tests: starts the job and waits for it.
+    func prepareAndWait(_ key: Key, document doc: QTLyricsDocument, title: String = "", artist: String = "") async {
+        prepare(key, document: doc, title: title, artist: artist)
+        await jobs[key]?.value
+    }
+
+    /// Looks again at jobs that ended without a translation (a model was installed or Apple Intelligence became ready
+    /// in the meantime). Called when the lyrics options open.
+    func recheck(_ key: Key?) {
+        guard let key, let e = entries[key], jobs[key] == nil, !e.consented,
+              e.phase == .needsDownload || e.phase == .unavailable else { return }
+        entries[key]?.phase = .checking
+        start(key)
+    }
+
+    private func start(_ key: Key) {
+        jobs[key] = Task { @MainActor [weak self] in
+            await self?.process(key)
+            self?.jobs[key] = nil
+        }
+    }
+
+    private func process(_ key: Key) async {
+        guard let e = entries[key] else { return }
+        let lines = e.sourceLines
+        let c = coordinator
+        let context = QTLyricsTranslationContext(title: e.title, artist: e.artist, sourceLanguage: key.source,
+                                                 targetLanguage: key.target)
+        let order: [QTLyricsTranslationEngineKind] = key.allowsAppleIntelligence ? [.appleIntelligence, .translationFramework] : [.translationFramework]
+        // Cached translations work offline and before Apple Intelligence is ready.
+        for kind in order {
+            if let cached = await c.cachedTranslation(key: key.cacheKey, target: key.target, engine: kind, lineCount: lines.count) {
+                finish(key, cached, engine: kind)
+                return
+            }
+        }
+        if key.allowsAppleIntelligence {
+            let availability = await c.availability(of: .appleIntelligence, from: key.source, to: key.target)
+            if availability == .available {
+                entries[key]?.phase = .translating
+                do {
+                    let out = try await c.run(.appleIntelligence, lines: lines, key: key.cacheKey, context: context)
+                    finish(key, out, engine: .appleIntelligence)
+                    return
+                } catch {
+                    log.info("Apple Intelligence translation \(key.source, privacy: .public)→\(key.target, privacy: .public) fell back: \(String(describing: error), privacy: .public)")
+                }
+            } else {
+                log.debug("Apple Intelligence not used: \(String(describing: availability), privacy: .public)")
+            }
+        }
+        switch await c.availability(of: .translationFramework, from: key.source, to: key.target) {
+        case .available:
+            if await c.translatesDirectly(.translationFramework) {
+                entries[key]?.phase = .translating
+                do {
+                    let out = try await c.run(.translationFramework, lines: lines, key: key.cacheKey, context: context)
+                    finish(key, out, engine: .translationFramework)
+                    return
+                } catch {
+                    log.info("Translation framework (direct) failed: \(String(describing: error), privacy: .public)")
+                }
+            }
+            // Hosted session (macOS 15–25, or the direct path failed).
             entries[key]?.phase = .ready
-            entries[key]?.configuration = .init(source: Locale.Language(identifier: key.source), target: Locale.Language(identifier: key.target))
-        case .supported:
+            entries[key]?.configuration = Self.configuration(key)
+        case .needsDownload:
             entries[key]?.phase = .needsDownload
-        case .unsupported:
-            entries[key]?.phase = .unavailable
-        @unknown default:
+        case .unavailable:
             entries[key]?.phase = .unavailable
         }
+    }
+
+    private func finish(_ key: Key, _ lines: [String], engine: QTLyricsTranslationEngineKind) {
+        entries[key]?.lines = lines.map { $0.isEmpty ? nil : $0 }
+        entries[key]?.engine = engine
+        entries[key]?.phase = .done
+        log.info("lyrics translated \(key.source, privacy: .public)→\(key.target, privacy: .public) by \(engine.rawValue, privacy: .public)")
+    }
+
+    private static func configuration(_ key: Key) -> TranslationSession.Configuration {
+        .init(source: Locale.Language(identifier: key.source), target: Locale.Language(identifier: key.target))
     }
 
     /// The user clicked "Download {language} for offline translation": the system asks for consent and downloads.
@@ -155,7 +275,7 @@ final class QTLyricsTranslationCenter {
         e.consented = true
         e.phase = .ready
         if e.configuration == nil {
-            e.configuration = .init(source: Locale.Language(identifier: key.source), target: Locale.Language(identifier: key.target))
+            e.configuration = Self.configuration(key)
         } else {
             e.configuration?.invalidate()
         }
@@ -163,17 +283,16 @@ final class QTLyricsTranslationCenter {
     }
 
     /// Runs inside `.translationTask`: downloads with consent if needed, then translates every line.
-    func run(_ session: TranslationSession, key: Key, document doc: QTLyricsDocument) async {
+    func run(_ session: TranslationSession, key: Key) async {
         guard let e = entries[key], !e.inFlight, e.phase == .ready else { return }
         entries[key]?.inFlight = true
         entries[key]?.phase = .translating
         do {
-            let texts = doc.lines.map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }
-            let translated = try await Self.translate(QTTranslationSessionBox(session: session), texts: texts, prepare: e.consented)
-            var lines = [String?](repeating: nil, count: doc.lines.count)
-            for (i, t) in translated where lines.indices.contains(i) { lines[i] = t }
-            entries[key]?.lines = lines
-            entries[key]?.phase = .done
+            let items = QTTranslationFrameworkBatch.items(for: e.sourceLines)
+            let pairs = try await Self.translate(QTTranslationSessionBox(session: session), items: items, prepare: e.consented)
+            let out = try QTTranslationFrameworkBatch.lines(from: pairs, count: e.sourceLines.count, expected: items.count)
+            finish(key, out, engine: .translationFramework)
+            await coordinator.storeTranslation(out, key: key.cacheKey, target: key.target, engine: .translationFramework)
         } catch is CancellationError {
             // The hosting view went away; another host may pick it up.
             entries[key]?.phase = .ready
@@ -185,13 +304,11 @@ final class QTLyricsTranslationCenter {
     }
 
     /// Talks to the session off the main actor. The box is used by this one task only, sequentially.
-    private nonisolated static func translate(_ box: QTTranslationSessionBox, texts: [String], prepare: Bool) async throws -> [(Int, String)] {
+    private nonisolated static func translate(_ box: QTTranslationSessionBox, items: [(index: Int, text: String)],
+                                              prepare: Bool) async throws -> [(id: String?, text: String)] {
         if prepare { try await box.session.prepareTranslation() }
-        let requests = texts.enumerated().compactMap { i, t in
-            t.isEmpty ? nil : TranslationSession.Request(sourceText: t, clientIdentifier: String(i))
-        }
-        let responses = try await box.session.translations(from: requests)
-        return responses.compactMap { r in r.clientIdentifier.flatMap(Int.init).map { ($0, r.targetText) } }
+        let responses = try await box.session.translations(from: QTTranslationFrameworkBatch.requests(items))
+        return responses.map { (id: $0.clientIdentifier, text: $0.targetText) }
     }
 
     // MARK: Helpers
@@ -219,10 +336,19 @@ final class QTLyricsTranslationCenter {
         }
     }
 
-    static func fingerprint(_ doc: QTLyricsDocument) -> Int {
-        var h = Hasher()
-        for l in doc.lines { h.combine(l.text) }
-        return h.finalize()
+    /// FNV-1a over the line texts: stable across launches (Swift's `Hasher` is seeded per process), so it can key
+    /// the on-disk cache.
+    static func fingerprint(_ doc: QTLyricsDocument) -> String {
+        var h: UInt64 = 0xcbf2_9ce4_8422_2325
+        for line in doc.lines {
+            for b in line.text.utf8 {
+                h ^= UInt64(b)
+                h &*= 0x0000_0100_0000_01b3
+            }
+            h ^= 0x0a
+            h &*= 0x0000_0100_0000_01b3
+        }
+        return String(h, radix: 16)
     }
 }
 
@@ -232,22 +358,29 @@ struct QTTranslationSessionBox: @unchecked Sendable {
     let session: TranslationSession
 }
 
-/// Hosts on-device translation sessions for the lyrics a view shows (the Translation framework hands out
-/// sessions only through SwiftUI on macOS 15).
+/// Starts machine translation for the lyrics a view shows and hosts the Translation framework's session where the
+/// OS hands sessions out only through SwiftUI (macOS 15–25, and the consented download on every version).
 struct QTLyricsTranslationHost: ViewModifier {
     let document: QTLyricsDocument?
     let key: QTLyricsTranslationCenter.Key?
+    @Environment(QTPlayerModel.self) private var player: QTPlayerModel?
     private var center: QTLyricsTranslationCenter { .shared }
 
     func body(content: Content) -> some View {
         content
             .task(id: key) {
-                guard let key else { return }
-                await center.prepare(key)
+                guard let key, let document else { return }
+                let track = player?.nowPlaying
+                center.prepare(key, document: document, title: track?.title ?? "", artist: track?.artistLine ?? "")
             }
             .translationTask(center.configuration(for: key)) { session in
-                guard let key, let document else { return }
-                await center.run(session, key: key, document: document)
+                guard let key else { return }
+                await center.run(session, key: key)
             }
     }
+}
+
+private extension QTTrack {
+    /// Artist names for the model's context ("Artist A, Artist B").
+    var artistLine: String { artists.map(\.name).joined(separator: ", ") }
 }

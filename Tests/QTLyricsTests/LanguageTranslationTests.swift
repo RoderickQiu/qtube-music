@@ -42,7 +42,7 @@ struct QTFakeTranslationEngine: QTLyricsTranslationEngine {
     var kind: QTLyricsTranslationEngineKind
     var state: QTLyricsTranslationAvailability
     var behaviour: Behaviour = .prefix
-    enum Behaviour: Sendable { case prefix, dropLine, refuse }
+    enum Behaviour: Sendable { case prefix, dropLine, refuse, echo }
 
     func availability(from source: String?, to target: String) async -> QTLyricsTranslationAvailability { state }
 
@@ -51,6 +51,7 @@ struct QTFakeTranslationEngine: QTLyricsTranslationEngine {
         case .prefix: return lines.map { "\(kind.rawValue):\($0)" }
         case .dropLine: return Array(lines.dropLast())
         case .refuse: throw QTLyricsTranslationError.refused
+        case .echo: return lines
         }
     }
 }
@@ -133,11 +134,99 @@ struct QTFakeTranslationEngine: QTLyricsTranslationEngine {
         #expect(!doc.hasTranslation)
     }
 
-    @Test func m6StubsReportUnavailable() async {
-        #expect(await QTAppleIntelligenceTranslationEngine().availability(from: "vi", to: "en") != .available)
-        #expect(await QTTranslationFrameworkEngine().availability(from: "vi", to: "en") != .available)
-        let plan = await QTLyricsTranslationCoordinator.standard(cache: nil).plan(for: vietnamese, target: "en", appleIntelligenceEnabled: true)
-        #expect(plan == .none(.noEngine))
+    @Test func untranslatedEchoFallsBack() async {
+        let threeLines = QTLyricsDocument(lines: ["Gió cứ rít", "Bao đêm qua", "Em không còn"].enumerated().map {
+            QTLyricsLine(start: Double($0.offset), text: $0.element)
+        }, syncKind: .line, source: .youtubeMusic, language: "vi")
+        let c = QTLyricsTranslationCoordinator(engines: [
+            QTFakeTranslationEngine(kind: .appleIntelligence, state: .available, behaviour: .echo),
+            QTFakeTranslationEngine(kind: .translationFramework, state: .available),
+        ], cache: nil)
+        let (doc, plan) = await c.translate(threeLines, videoId: "v", title: "t", artist: "a", target: "en", appleIntelligenceEnabled: true)
+        #expect(plan == .engine(.translationFramework))
+        #expect(doc.lines.allSatisfy { $0.translation?.hasPrefix("translationFramework:") == true })
+    }
+
+    @Test func runUsesTheCachePerEngineAndLanguage() async throws {
+        let cache = try QTLyricsCache(url: nil)
+        let c = QTLyricsTranslationCoordinator(engines: [QTFakeTranslationEngine(kind: .appleIntelligence, state: .available)], cache: cache)
+        let context = QTLyricsTranslationContext(title: "t", artist: "a", sourceLanguage: "vi", targetLanguage: "ko")
+        await c.storeTranslation(["바람", "밤"], key: "k", target: "ko", engine: .appleIntelligence)
+        #expect(try await c.run(.appleIntelligence, lines: ["Gió", "Đêm"], key: "k", context: context) == ["바람", "밤"])
+        // Another language isn't served from that entry; a stale entry with another line count is ignored.
+        let en = QTLyricsTranslationContext(title: "t", artist: "a", sourceLanguage: "vi", targetLanguage: "en")
+        #expect(try await c.run(.appleIntelligence, lines: ["Gió", "Đêm"], key: "k", context: en) == ["appleIntelligence:Gió", "appleIntelligence:Đêm"])
+        #expect(await c.cachedTranslation(key: "k", target: "ko", engine: .appleIntelligence, lineCount: 3) == nil)
+        await #expect(throws: QTLyricsTranslationError.refused) {
+            _ = try await QTLyricsTranslationCoordinator(engines: [
+                QTFakeTranslationEngine(kind: .appleIntelligence, state: .available, behaviour: .refuse),
+            ], cache: cache).run(.appleIntelligence, lines: ["x"], key: "other", context: context)
+        }
+    }
+
+    /// The real engines answer without hanging and never claim a model that would need a download is ready.
+    @Test func realEnginesReportAvailabilityHonestly() async {
+        let ai = await QTAppleIntelligenceTranslationEngine().availability(from: "vi", to: "en")
+        #expect(ai != .needsDownload)
+        if #unavailable(macOS 26) { #expect(ai == .unavailable(reason: QTAppleIntelligenceUnavailableReason.requiresMacOS26)) }
+        #expect(await QTTranslationFrameworkEngine().availability(from: nil, to: "en") == .unavailable(reason: "unknownSourceLanguage"))
+    }
+}
+
+@Suite struct TranslationEngineHelperTests {
+    @Test func validatorRejectsMisalignedOrEchoedOutput() throws {
+        let context = QTLyricsTranslationContext(title: "t", artist: "a", sourceLanguage: "vi", targetLanguage: "en")
+        let source = ["Gió cứ rít réo rắc", "Bao đêm qua", "Em không còn cảm giác", "♪"]
+        #expect(throws: QTLyricsTranslationError.lineCountMismatch(expected: 4, got: 3)) {
+            try QTLyricsTranslationValidator.validate(["a", "b", "c"], source: source, context: context)
+        }
+        #expect(throws: QTLyricsTranslationError.untranslated) {
+            try QTLyricsTranslationValidator.validate(["Gio cu rit reo rac", "Bao đêm qua", "Em không còn cảm giác", ""], source: source, context: context)
+        }
+        try QTLyricsTranslationValidator.validate(["The wind howls", "So many nights", "I feel nothing anymore", ""],
+                                                  source: source, context: context)
+        // A chorus left as is (names, "oh oh") is fine when most lines are translated.
+        try QTLyricsTranslationValidator.validate(["The wind howls", "Bao đêm qua", "I feel nothing anymore", ""],
+                                                  source: source, context: context)
+    }
+
+    @Test func chunksCoverEveryLineInOrder() {
+        let lines = (0..<50).map { "line \($0) " + String(repeating: "x", count: $0 % 7 * 10) }
+        let chunks = QTLyricsTranslationInput.chunks(lines, maxLines: 12, maxCharacters: 300)
+        #expect(chunks.first?.lowerBound == 0)
+        #expect(chunks.last?.upperBound == 50)
+        for (a, b) in zip(chunks, chunks.dropFirst()) { #expect(a.upperBound == b.lowerBound) }
+        #expect(chunks.allSatisfy { $0.count <= 12 && !$0.isEmpty })
+        // One very long line still gets its own chunk.
+        #expect(QTLyricsTranslationInput.chunks([String(repeating: "y", count: 2000), "z"], maxLines: 10, maxCharacters: 100) == [0..<1, 1..<2])
+        #expect(QTLyricsTranslationInput.chunks([], maxLines: 10, maxCharacters: 100).isEmpty)
+        #expect(!QTLyricsTranslationInput.isTranslatable("♪ ♪"))
+        #expect(QTLyricsTranslationInput.isTranslatable("出牌"))
+    }
+
+    @Test func promptCarriesSongContextAndNumberedLines() {
+        let context = QTLyricsTranslationContext(title: "Hạ Phỏm", artist: "Kim Ny Ngọc", sourceLanguage: "vi", targetLanguage: "ko")
+        let prompt = QTLyricsTranslationPrompt.prompt(lines: ["Gió cứ rít", "Bao đêm qua"],
+                                                      previous: [(source: "Em ơi", translation: "그대여")], context: context)
+        #expect(prompt.contains("Song: \"Hạ Phỏm\" by Kim Ny Ngọc"))
+        #expect(prompt.contains("Original language: Vietnamese"))
+        #expect(prompt.contains("Translate into: Korean"))
+        #expect(prompt.contains("Em ơi => 그대여"))
+        #expect(prompt.contains("Translate these 2 lines:\n1. Gió cứ rít\n2. Bao đêm qua"))
+        #expect(QTLyricsTranslationPrompt.instructions(target: "zh-Hans").contains("Simplified Chinese"))
+        #expect(QTLyricsTranslationPrompt.languageName("zh-TW") == "Traditional Chinese")
+    }
+
+    @Test func translationFrameworkBatchKeepsLinesAligned() throws {
+        let lines = ["Gió cứ rít", "", "♪", "Bao đêm qua"]
+        let items = QTTranslationFrameworkBatch.items(for: lines)
+        #expect(items.map(\.index) == [0, 3])
+        let out = try QTTranslationFrameworkBatch.lines(from: [(id: "3", text: "So many nights"), (id: "0", text: "The wind")],
+                                                        count: lines.count, expected: items.count)
+        #expect(out == ["The wind", "", "", "So many nights"])
+        #expect(throws: QTLyricsTranslationError.lineCountMismatch(expected: 2, got: 1)) {
+            try QTTranslationFrameworkBatch.lines(from: [(id: "0", text: "The wind")], count: lines.count, expected: items.count)
+        }
     }
 }
 

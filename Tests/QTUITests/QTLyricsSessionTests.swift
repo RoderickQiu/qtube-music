@@ -247,6 +247,42 @@ final class QTRecordedInnerTubeTransport: QTHTTPTransport, @unchecked Sendable {
         #expect(session.chosenVersionID == "netease:1")
     }
 
+    /// Offline is not "No lyrics": the lookup runs again by itself when the network comes back.
+    @Test func offlineLookupRetriesWhenTheNetworkReturns() async throws {
+        let mode = QTSessionStubMode(.unreachable)
+        let session = try makeSession(makeSettings(unofficial: .init(netease: true)), mode: mode)
+        session.networkDidChange(available: false)
+        session.load(Self.hero)
+        await settle(session)
+        #expect(session.phase == .unreachable)
+        #expect(!session.isNetworkAvailable)
+        // A re-open right after the failed lookup doesn't hammer the sources.
+        session.retryIfUnreachable()
+        #expect(session.phase == .unreachable)
+
+        mode.set(.found)
+        session.networkDidChange(available: true)
+        #expect(session.phase == .loading)
+        await settle(session)
+        #expect(session.phase == .loaded)
+        #expect(session.document?.lines.count == 3)
+        // Nothing to retry once loaded.
+        session.retryIfUnreachable(force: true)
+        #expect(session.phase == .loaded)
+    }
+
+    @Test func reopeningRetriesAnUnreachableLookup() async throws {
+        let mode = QTSessionStubMode(.unreachable)
+        let session = try makeSession(makeSettings(unofficial: .init(netease: true)), mode: mode)
+        session.load(Self.hero)
+        await settle(session)
+        #expect(session.phase == .unreachable)
+        mode.set(.found)
+        session.retryIfUnreachable(force: true)
+        await settle(session)
+        #expect(session.phase == .loaded)
+    }
+
     @Test func launchArgumentForUnofficialSources() {
         #expect(QTLyricsSession.unofficialSources(argument: "all") == .init(netease: true, kugou: true, qq: true))
         #expect(QTLyricsSession.unofficialSources(argument: "none") == .init())

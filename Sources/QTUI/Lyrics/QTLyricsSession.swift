@@ -55,6 +55,11 @@ public final class QTLyricsVersionStore {
         onPin?(videoId, version)
     }
 
+    /// "Automatic": forget the pinned choice (the lyrics session re-resolves and publishes the automatic pick).
+    public func unpin(_ videoId: String) {
+        pinned[videoId] = nil
+    }
+
     /// "Wrong lyrics": remembered locally (never sent anywhere) so the matcher can skip this candidate next time.
     public func reportWrong(_ videoId: String) {
         if let id = selected[videoId] { reported.insert("\(videoId)|\(id)") }

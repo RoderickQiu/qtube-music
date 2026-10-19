@@ -95,7 +95,9 @@ public struct QTLyricsView: View {
             } else if player?.isLoadingLyrics == true || !style.isScrolling {
                 Color.clear
             } else {
-                QTLyricsUnavailableView(isInstrumental: document.map(QTLyricsRowBuilder.isInstrumental) ?? false, style: style)
+                QTLyricsUnavailableView(kind: unavailableKind, style: style)
+                    // Re-opening the lyrics for the same track retries a lookup that couldn't reach the sources.
+                    .onAppear { model?.lyricsSession?.retryIfUnreachable() }
             }
         }
         .modifier(QTLyricsTranslationHost(document: document, key: showsTranslation ? resolution.machineKey : nil))
@@ -129,6 +131,15 @@ public struct QTLyricsView: View {
                 desktopFontSize: desktopFontSize ?? fontOverride?.mainSize,
                 fontDesign: fontOverride?.design ?? .standard))
         }
+    }
+
+    /// Instrumental, no lyrics, or no lyrics *yet* because the sources couldn't be reached (offline).
+    private var unavailableKind: QTLyricsUnavailableView.Kind {
+        if let document, QTLyricsRowBuilder.isInstrumental(document) { return .instrumental }
+        if document == nil, let session = model?.lyricsSession, session.phase == .unreachable {
+            return session.isNetworkAvailable ? .unreachable : .offline
+        }
+        return .none
     }
 
     /// Lyrics stand still while an ad plays.
@@ -185,23 +196,81 @@ struct QTLyricsCurrentPill: View {
     }
 }
 
-/// No lyrics / instrumental: a symbol and a word, nothing explanatory.
+/// No lyrics / instrumental / offline: a symbol and a word, nothing explanatory. Offline lyrics come back by
+/// themselves when the network does (`QTLyricsSession.networkDidChange`).
 struct QTLyricsUnavailableView: View {
-    let isInstrumental: Bool
+    enum Kind: Equatable {
+        case none
+        case instrumental
+        /// The Mac is offline; the lookup retries on reconnect.
+        case offline
+        /// Online, but the lyric sources didn't answer: a quiet Try Again.
+        case unreachable
+    }
+
+    let kind: Kind
     let style: QTLyricsStyle
+    @Environment(QTAppModel.self) private var model: QTAppModel?
+
+    init(kind: Kind, style: QTLyricsStyle) {
+        self.kind = kind
+        self.style = style
+    }
+
+    init(isInstrumental: Bool, style: QTLyricsStyle) {
+        self.init(kind: isInstrumental ? .instrumental : .none, style: style)
+    }
 
     var body: some View {
         VStack(spacing: style == .panel ? 10 : 14) {
-            Image(systemName: isInstrumental ? "music.note" : "quote.bubble")
+            Image(systemName: symbol)
                 .font(.system(size: style == .panel ? 26 : 40, weight: .regular))
                 .symbolRenderingMode(.hierarchical)
-            Text(QTLoc.tr(isInstrumental ? "Instrumental" : "No lyrics"))
+                .contentTransition(.symbolEffect(.replace))
+            Text(title)
                 .font(style == .panel ? .title3.weight(.semibold) : .title.weight(.semibold))
+            if kind == .unreachable {
+                Button(QTLoc.tr("Try Again", table: .lyrics)) {
+                    model?.lyricsSession?.retryIfUnreachable(force: true)
+                }
+                .buttonStyle(.borderless)
+                .controlSize(style == .panel ? .small : .regular)
+                .foregroundStyle(style.isOverArt ? AnyShapeStyle(QTTheme.Colors.onArtSecondary) : AnyShapeStyle(.secondary))
+                .padding(.top, 2)
+                .accessibilityIdentifier("qt.lyrics.retry")
+            }
         }
         .foregroundStyle(style.isOverArt ? AnyShapeStyle(QTTheme.Colors.onArtTertiary) : AnyShapeStyle(.tertiary))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: style.isCentered || style == .panel ? .center : .leading)
         .accessibilityElement(children: .combine)
-        .accessibilityIdentifier(isInstrumental ? "qt.lyrics.instrumental" : "qt.lyrics.none")
+        .accessibilityIdentifier(identifier)
+    }
+
+    private var symbol: String {
+        switch kind {
+        case .none: "quote.bubble"
+        case .instrumental: "music.note"
+        case .offline: "wifi.slash"
+        case .unreachable: "icloud.slash"
+        }
+    }
+
+    private var title: String {
+        switch kind {
+        case .none: QTLoc.tr("No lyrics")
+        case .instrumental: QTLoc.tr("Instrumental")
+        case .offline: QTLoc.tr("Offline", table: .lyrics)
+        case .unreachable: QTLoc.tr("Can’t reach lyrics", table: .lyrics)
+        }
+    }
+
+    private var identifier: String {
+        switch kind {
+        case .none: "qt.lyrics.none"
+        case .instrumental: "qt.lyrics.instrumental"
+        case .offline: "qt.lyrics.offline"
+        case .unreachable: "qt.lyrics.unreachable"
+        }
     }
 }
 

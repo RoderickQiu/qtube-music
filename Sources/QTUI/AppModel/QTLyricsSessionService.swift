@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import Observation
 import OSLog
 import QTCore
@@ -60,6 +61,9 @@ public final class QTLyricsSession {
     public private(set) var translationPlan: QTLyricsTranslationPlan = .none(.off)
     /// The resolved translation target (BCP-47), nil = Off.
     public private(set) var translationTarget: String?
+    /// The Mac has a network path (NWPathMonitor; `-qt.lyrics.offline YES` pretends it hasn't). With `phase ==
+    /// .unreachable` this tells "Offline" apart from "the sources didn't answer".
+    public private(set) var isNetworkAvailable = true
 
     // MARK: Derived
 
@@ -106,6 +110,8 @@ public final class QTLyricsSession {
     @ObservationIgnored private var pendingOffsets: [String: TimeInterval] = [:]
     @ObservationIgnored private var offsetWrites: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private let log = Logger(subsystem: "com.roderickqiu.qtube", category: "lyrics-session")
+    @ObservationIgnored private var networkMonitor: QTLyricsNetworkMonitor?
+    @ObservationIgnored private var lastRetry: Date?
 
     /// - Parameters:
     ///   - resolver: the engine (the app passes `QTLyricsResolver.standard(…)` over the on-disk cache).
@@ -153,8 +159,16 @@ public final class QTLyricsSession {
                                                  innerTube: QTInnerTubeLyricsBridge(client: innerTube))
         let mockIDs = Set(catalog.tracks.map(\.videoId))
         let engine = Engine(rawValue: launch.string("qt.lyrics.engine") ?? "") ?? .live
-        return QTLyricsSession(settings: settings, resolver: resolver, bundled: catalog.lyrics, engine: engine,
-                               isMockTrack: { mockIDs.contains($0.videoId) }, versionStore: .shared)
+        // Machine translations are cached in the same SQLite file, per lyrics + language + engine.
+        QTLyricsTranslationCenter.shared.attach(settings: settings, cache: cache)
+        let session = QTLyricsSession(settings: settings, resolver: resolver, bundled: catalog.lyrics, engine: engine,
+                                      isMockTrack: { mockIDs.contains($0.videoId) }, versionStore: .shared)
+        if offline {
+            session.isNetworkAvailable = false
+        } else if engine == .live {
+            session.startNetworkMonitor()
+        }
+        return session
     }
 
     /// `-qt.lyrics.unofficial all|none|netease,kugou,qq` → a session-only override of Settings › Unofficial sources.
@@ -191,6 +205,33 @@ public final class QTLyricsSession {
         }
         phase = .loading
         run(for: track, holdsReadiness: true) { resolver, query, config in
+            await resolver.resolve(query, configuration: config)
+        }
+    }
+
+    // MARK: Offline
+
+    /// Watches the network path and looks the track up again when the Mac comes back online.
+    func startNetworkMonitor() {
+        guard networkMonitor == nil else { return }
+        networkMonitor = QTLyricsNetworkMonitor { [weak self] available in self?.networkDidChange(available: available) }
+    }
+
+    /// Network path changed. Coming back online retries a lookup that failed because the sources were unreachable.
+    public func networkDidChange(available: Bool) {
+        let cameBack = available && !isNetworkAvailable
+        isNetworkAvailable = available
+        if cameBack { retryIfUnreachable(force: true) }
+    }
+
+    /// Retries the lookup when the last one couldn't reach the sources (offline, rate-limited): on reconnect, and
+    /// when a lyrics surface opens again for the same track. Throttled to one attempt every few seconds unless forced.
+    public func retryIfUnreachable(force: Bool = false) {
+        guard phase == .unreachable, let track, engine == .live else { return }
+        if !force, let lastRetry, Date().timeIntervalSince(lastRetry) < 5 { return }
+        lastRetry = Date()
+        phase = .loading
+        run(for: track, holdsReadiness: false) { resolver, query, config in
             await resolver.resolve(query, configuration: config)
         }
     }
@@ -329,6 +370,8 @@ public final class QTLyricsSession {
         translationTarget = config.translationLanguage
         translationPlan = QTLyricsTranslationPolicy.plan(for: full, target: config.translationLanguage)
         phase = shown != nil ? .loaded : (r.isComplete ? .notFound : .unreachable)
+        // The lookup itself counts as an attempt: re-opening a lyrics surface right away doesn't retry.
+        if phase == .unreachable { lastRetry = Date() }
         lastConfiguration = config
         if engine == .live { publishVersions(for: track) }
         log.debug("lyrics \(track.videoId, privacy: .public): \(shown?.source.id ?? "none", privacy: .public) \(shown?.syncKind.rawValue ?? "-", privacy: .public) tr \(shown?.translationLanguage ?? "-", privacy: .public)")
@@ -377,6 +420,22 @@ public final class QTLyricsSession {
             await resolver.resolve(query, configuration: config)
         }
     }
+}
+
+/// The lyrics session's own network watcher (the web playback engine has one too, but the simulated engine and
+/// the mock catalog don't, and lyrics must retry either way). Reports changes on the main actor.
+final class QTLyricsNetworkMonitor: Sendable {
+    private let monitor = NWPathMonitor()
+
+    init(onChange: @escaping @MainActor (Bool) -> Void) {
+        monitor.pathUpdateHandler = { path in
+            let available = path.status == .satisfied
+            Task { @MainActor in onChange(available) }
+        }
+        monitor.start(queue: DispatchQueue(label: "com.roderickqiu.qtube.lyrics-network", qos: .utility))
+    }
+
+    deinit { monitor.cancel() }
 }
 
 /// Lyrics HTTP client for `-qt.lyrics.offline YES`: every request fails as if the Mac were offline.

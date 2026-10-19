@@ -17,16 +17,14 @@ public struct QTAirPlayButton: NSViewRepresentable {
     public func makeNSView(context: Context) -> AVRoutePickerView {
         let view = AVRoutePickerView()
         view.isRoutePickerButtonBordered = false
-        view.setAccessibilityLabel(QTLoc.tr("AirPlay"))
         view.setAccessibilityIdentifier("qt.player.airplay")
-        view.toolTip = QTLoc.tr("AirPlay")
+        // Label and tooltip follow a live language switch (updateNSView alone isn't called for it).
+        view.qtLocalizedAccessibility("AirPlay", toolTip: true)
         apply(to: view)
         return view
     }
 
     public func updateNSView(_ view: AVRoutePickerView, context: Context) {
-        view.toolTip = QTLoc.tr("AirPlay")
-        view.setAccessibilityLabel(QTLoc.tr("AirPlay"))
         apply(to: view)
     }
 

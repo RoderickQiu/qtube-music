@@ -47,6 +47,8 @@ public enum QTLyricsTranslationError: Error, Sendable, Equatable {
     /// Safety guardrails refused (explicit lyrics) or the engine gave up.
     case refused
     case timedOut
+    /// Most lines came back unchanged although the target is another language.
+    case untranslated
     case unavailable(String)
 }
 
@@ -55,6 +57,12 @@ public protocol QTLyricsTranslationEngine: Sendable {
     var kind: QTLyricsTranslationEngineKind { get }
     func availability(from source: String?, to target: String) async -> QTLyricsTranslationAvailability
     func translate(_ lines: [String], context: QTLyricsTranslationContext) async throws -> [String]
+    /// False when the engine needs a session handed out by SwiftUI (`.translationTask`) to run.
+    var translatesDirectly: Bool { get }
+}
+
+public extension QTLyricsTranslationEngine {
+    var translatesDirectly: Bool { true }
 }
 
 /// What the lyrics popover should say about the translation line, and where it comes from.
@@ -169,8 +177,10 @@ public struct QTLyricsTranslationSelector: Sendable {
 }
 
 /// Runs the plan: translates line-for-line with the chosen engine, falls back from Apple Intelligence to the
+
+/// Runs the plan: translates line-for-line with the chosen engine, falls back from Apple Intelligence to the
 /// Translation framework on refusal / mismatch / timeout, never shows a partial result, caches per song +
-/// language + engine.
+/// language + engine (SQLite `translations` table).
 public actor QTLyricsTranslationCoordinator {
     private let selector: QTLyricsTranslationSelector
     private let cache: QTLyricsCache?
@@ -180,7 +190,7 @@ public actor QTLyricsTranslationCoordinator {
         self.cache = cache
     }
 
-    /// Default engines: the M6 stubs (unavailable until implemented).
+    /// The real engines: Apple Intelligence (Foundation Models, macOS 26+) and the Translation framework.
     public static func standard(cache: QTLyricsCache?) -> QTLyricsTranslationCoordinator {
         QTLyricsTranslationCoordinator(engines: [QTAppleIntelligenceTranslationEngine(), QTTranslationFrameworkEngine()],
                                        cache: cache)
@@ -188,6 +198,49 @@ public actor QTLyricsTranslationCoordinator {
 
     public func plan(for document: QTLyricsDocument?, target: String?, appleIntelligenceEnabled: Bool) async -> QTLyricsTranslationPlan {
         await selector.plan(for: document, target: target, appleIntelligenceEnabled: appleIntelligenceEnabled)
+    }
+
+    /// Whether `kind` can translate `source` → `target` on this Mac right now.
+    public func availability(of kind: QTLyricsTranslationEngineKind, from source: String?, to target: String) async
+        -> QTLyricsTranslationAvailability {
+        guard let engine = engine(kind) else { return .unavailable(reason: "noEngine") }
+        return await engine.availability(from: source, to: target)
+    }
+
+    /// True when `kind` can run here without a SwiftUI-hosted session (Translation framework before macOS 26 hands
+    /// sessions out only through `.translationTask`).
+    public func translatesDirectly(_ kind: QTLyricsTranslationEngineKind) -> Bool {
+        engine(kind)?.translatesDirectly ?? false
+    }
+
+    /// A translation stored earlier for this song + language + engine, if its line count still matches.
+    public func cachedTranslation(key: String, target: String, engine kind: QTLyricsTranslationEngineKind,
+                                  lineCount: Int) async -> [String]? {
+        guard let cached = await cache?.translation(videoId: key, language: target, engine: kind.rawValue),
+              cached.count == lineCount else { return nil }
+        return cached
+    }
+
+    /// Stores a complete translation (one entry per source line) for this song + language + engine.
+    public func storeTranslation(_ lines: [String], key: String, target: String, engine kind: QTLyricsTranslationEngineKind) async {
+        await cache?.storeTranslation(lines, videoId: key, language: target, engine: kind.rawValue)
+    }
+
+    /// Translates every line with one engine: cache first, then the engine. Throws on refusal, timeout, a line-count
+    /// mismatch or an untranslated result — callers never see a partial or misaligned translation.
+    /// - Parameter key: the song's cache key (videoId, or a lyrics fingerprint).
+    public func run(_ kind: QTLyricsTranslationEngineKind, lines: [String], key: String,
+                    context: QTLyricsTranslationContext) async throws -> [String] {
+        if let cached = await cachedTranslation(key: key, target: context.targetLanguage, engine: kind, lineCount: lines.count) {
+            return cached
+        }
+        guard let engine = engine(kind) else { throw QTLyricsTranslationError.unavailable("noEngine") }
+        var out = try await engine.translate(lines, context: context)
+        try QTLyricsTranslationValidator.validate(out, source: lines, context: context)
+        // Blank lines and "♪" markers never get a translation line, whatever the engine echoed.
+        for i in out.indices where !QTLyricsTranslationInput.isTranslatable(lines[i]) { out[i] = "" }
+        await storeTranslation(out, key: key, target: context.targetLanguage, engine: kind)
+        return out
     }
 
     /// Returns the document with a translation lane in `target` (or unchanged) and the plan that produced it.
@@ -198,21 +251,11 @@ public actor QTLyricsTranslationCoordinator {
         var order = [first]
         if first == .appleIntelligence { order.append(.translationFramework) }
         let sourceLines = document.lines.map(\.text)
+        let context = QTLyricsTranslationContext(title: title, artist: artist, sourceLanguage: document.language,
+                                                 targetLanguage: target)
         for kind in order {
-            guard let engine = selector.engines.first(where: { $0.kind == kind }) else { continue }
-            if kind != first, await engine.availability(from: document.language, to: target) != .available { continue }
-            let translated: [String]
-            if let cached = await cache?.translation(videoId: videoId, language: target, engine: kind.rawValue),
-               cached.count == sourceLines.count {
-                translated = cached
-            } else {
-                let context = QTLyricsTranslationContext(title: title, artist: artist, sourceLanguage: document.language,
-                                                         targetLanguage: target)
-                guard let out = try? await engine.translate(sourceLines, context: context), out.count == sourceLines.count
-                else { continue }
-                translated = out
-                await cache?.storeTranslation(out, videoId: videoId, language: target, engine: kind.rawValue)
-            }
+            if kind != first, await availability(of: kind, from: document.language, to: target) != .available { continue }
+            guard let translated = try? await run(kind, lines: sourceLines, key: videoId, context: context) else { continue }
             var d = document
             for i in d.lines.indices {
                 let t = translated[i].trimmingCharacters(in: .whitespaces)
@@ -224,38 +267,69 @@ public actor QTLyricsTranslationCoordinator {
         }
         return (document, .none(.noEngine))
     }
-}
 
-// MARK: - M6 stubs
-
-/// Apple Intelligence (Foundation Models) lyric translation — **stub until M6**. The real engine checks
-/// `SystemLanguageModel.default.availability` behind `#available(macOS 26, *)`, uses guided generation with one
-/// output string per input line, chunks to the context window with title/artist/previous lines as context.
-public struct QTAppleIntelligenceTranslationEngine: QTLyricsTranslationEngine {
-    public let kind = QTLyricsTranslationEngineKind.appleIntelligence
-    public init() {}
-
-    public func availability(from source: String?, to target: String) async -> QTLyricsTranslationAvailability {
-        if #available(macOS 26, *) { return .unavailable(reason: "notImplemented") }
-        return .unavailable(reason: "requiresMacOS26")
-    }
-
-    public func translate(_ lines: [String], context: QTLyricsTranslationContext) async throws -> [String] {
-        throw QTLyricsTranslationError.unavailable("notImplemented")
+    private func engine(_ kind: QTLyricsTranslationEngineKind) -> (any QTLyricsTranslationEngine)? {
+        selector.engines.first { $0.kind == kind }
     }
 }
 
-/// Translation framework lyric translation — **stub until M6**. The real engine uses `TranslationSession`
-/// (macOS 15+), reports `.needsDownload` from `LanguageAvailability` and never downloads without consent.
-public struct QTTranslationFrameworkEngine: QTLyricsTranslationEngine {
-    public let kind = QTLyricsTranslationEngineKind.translationFramework
-    public init() {}
-
-    public func availability(from source: String?, to target: String) async -> QTLyricsTranslationAvailability {
-        .unavailable(reason: "notImplemented")
+/// Checks an engine's output before anything is shown or cached.
+public enum QTLyricsTranslationValidator {
+    /// - Throws: `.lineCountMismatch` when the count differs; `.untranslated` when most lines came back unchanged
+    ///   although the target is a different language (the model echoed the input instead of translating).
+    public static func validate(_ output: [String], source: [String], context: QTLyricsTranslationContext) throws {
+        guard output.count == source.count else {
+            throw QTLyricsTranslationError.lineCountMismatch(expected: source.count, got: output.count)
+        }
+        let pairs = zip(source, output).filter { QTLyricsTranslationInput.isTranslatable($0.0) }
+        guard pairs.count >= 3 else { return }
+        let unchanged = pairs.filter { fold($0.0) == fold($0.1) }.count
+        if Double(unchanged) / Double(pairs.count) > 0.6 { throw QTLyricsTranslationError.untranslated }
     }
 
-    public func translate(_ lines: [String], context: QTLyricsTranslationContext) async throws -> [String] {
-        throw QTLyricsTranslationError.unavailable("notImplemented")
+    private static func fold(_ s: String) -> String {
+        s.folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: nil)
+            .filter { $0.isLetter || $0.isNumber }
+    }
+}
+
+/// Which lyric lines are worth sending to an engine, and how lines are grouped into requests.
+public enum QTLyricsTranslationInput {
+    /// Lines with words in them. Blank lines, "♪" markers and bare punctuation stay untranslated ("").
+    public static func isTranslatable(_ line: String) -> Bool {
+        line.contains { $0.isLetter }
+    }
+
+    /// Splits `lines` into consecutive chunks of at most `maxLines` lines and about `maxCharacters` characters, so a
+    /// chunk plus its instructions and context fits a small context window. Every index appears in exactly one
+    /// chunk, in order.
+    public static func chunks(_ lines: [String], maxLines: Int, maxCharacters: Int) -> [Range<Int>] {
+        var out: [Range<Int>] = []
+        var start = 0, chars = 0
+        for (i, line) in lines.enumerated() {
+            let n = line.count + 4
+            if i > start, i - start >= maxLines || chars + n > maxCharacters {
+                out.append(start..<i)
+                start = i
+                chars = 0
+            }
+            chars += n
+        }
+        if start < lines.count { out.append(start..<lines.count) }
+        return out
+    }
+}
+
+/// Runs `operation`, throwing `.timedOut` if it takes longer than `limit`.
+func qtWithTranslationTimeout<T: Sendable>(_ limit: Duration, _ operation: @escaping @Sendable () async throws -> T) async throws -> T {
+    try await withThrowingTaskGroup(of: T.self) { group in
+        group.addTask { try await operation() }
+        group.addTask {
+            try await Task.sleep(for: limit)
+            throw QTLyricsTranslationError.timedOut
+        }
+        defer { group.cancelAll() }
+        guard let first = try await group.next() else { throw QTLyricsTranslationError.timedOut }
+        return first
     }
 }

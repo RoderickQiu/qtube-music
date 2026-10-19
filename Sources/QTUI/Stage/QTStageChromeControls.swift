@@ -51,9 +51,9 @@ struct QTStageAirPlayButton: NSViewRepresentable {
         view.setRoutePickerButtonColor(NSColor.white.withAlphaComponent(0.72), for: .normal)
         view.setRoutePickerButtonColor(.white, for: .normalHighlighted)
         view.setRoutePickerButtonColor(.white, for: .active)
-        view.setAccessibilityLabel(QTLoc.tr("AirPlay"))
         view.setAccessibilityIdentifier("qt.stage.airplay")
-        view.toolTip = QTLoc.tr("AirPlay")
+        // Label and tooltip follow a live language switch.
+        view.qtLocalizedAccessibility("AirPlay", toolTip: true)
         return view
     }
 

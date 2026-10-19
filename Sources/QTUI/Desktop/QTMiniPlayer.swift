@@ -44,7 +44,7 @@ final class QTMiniPlayerPanel: NSPanel, NSWindowDelegate {
         hasShadow = true
         animationBehavior = .utilityWindow
         delegate = self
-        setAccessibilityLabel(QTLoc.tr("Mini Player"))
+        qtLocalizedAccessibility("Mini Player")
         let host = QTFirstMouseHostingView(rootView: content)
         host.sizingOptions = []
         contentView = host

@@ -21,6 +21,26 @@
         }
       }
     },
+    "Automatic": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动"
+          }
+        }
+      }
+    },
+    "Can’t reach lyrics": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法获取歌词"
+          }
+        }
+      }
+    },
     "Copy": {
       "localizations": {
         "zh-Hans": {
@@ -37,6 +57,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "拷贝全部歌词"
+          }
+        }
+      }
+    },
+    "Offline": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "离线"
           }
         }
       }
@@ -87,6 +117,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "全选"
+          }
+        }
+      }
+    },
+    "Try Again": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重试"
           }
         }
       }

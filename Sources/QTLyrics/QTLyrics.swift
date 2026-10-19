@@ -11,8 +11,8 @@ import QTCore
 // - Parsers: `QTLRCParser`, `QTYRCParser`, `QTQRCParser`, `QTKRCParser`, `QTTTMLParser`; codecs `QTKRCCodec`,
 //   `QTQRCCodec`. Matching: `QTLyricsMatchScorer`, `QTTitleCleaner`, `QTLyricsTextFolding`, `QTLyricsAliasBook`.
 // - `QTLyricsCache` (SQLite), `QTLyricsLanguageDetector`, `QTLyricsRomanizer`, translation selection
-//   (`QTLyricsTranslationSelector` / `QTLyricsTranslationCoordinator`; Foundation Models + Translation framework
-//   engines are M6 stubs).
+//   (`QTLyricsTranslationSelector` / `QTLyricsTranslationCoordinator`; `QTAppleIntelligenceTranslationEngine`
+//   (Foundation Models) and `QTTranslationFrameworkEngine` (M6)).
 
 /// Anything that can produce lyrics for a track. The UI only depends on this.
 public protocol QTLyricsProviding: Sendable {
