@@ -1,3 +1,4 @@
+import AppKit
 import QTCore
 import QTPlayback
 import SwiftUI
@@ -16,17 +17,21 @@ public struct QTNowPlayingPanel: View {
     public var body: some View {
         ZStack {
             QTPanelBackdrop(track: player.nowPlaying)
-            VStack(spacing: 0) {
-                QTPanelHeader()
-                Divider()
-                Group {
-                    switch model.panelTab {
-                    case .nowPlaying: QTNowPlayingTab()
-                    case .queue: QTQueueList(style: .panel)
-                    }
+            Group {
+                switch model.panelTab {
+                case .nowPlaying: QTNowPlayingTab()
+                case .queue: QTQueueList(style: .panel)
                 }
-                .transition(.opacity)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .transition(.opacity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        // The panel's header lives in the window toolbar over the inspector (Now Playing | Queue · hide), so the
+        // art-tinted backdrop runs up under the title bar and there is no extra header row or hard divider.
+        .toolbar {
+            // SwiftUI keeps a collapsed inspector's toolbar items; they leave with the panel.
+            if model.surface != .stage, model.isPanelShown {
+                QTPanelToolbar()
             }
         }
         .animation(QTTheme.Motion.animation(QTTheme.Motion.ui, reduceMotion: reduceMotion), value: model.panelTab)
@@ -37,14 +42,14 @@ public struct QTNowPlayingPanel: View {
 
 // MARK: - Header
 
-/// Now Playing | Queue (segmented) · hide button.
-struct QTPanelHeader: View {
+/// Now Playing | Queue (segmented) · hide button, as toolbar items of the inspector's section of the window toolbar
+/// (like Xcode's inspector tabs), so the panel still closes from its own header.
+struct QTPanelToolbar: ToolbarContent {
     @Environment(QTAppModel.self) private var model
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    var body: some View {
+    var body: some ToolbarContent {
         @Bindable var model = model
-        HStack(spacing: QTTheme.Spacing.s) {
+        ToolbarItem(placement: .automatic) {
             Picker(selection: $model.panelTab) {
                 Text(QTLoc.tr("Now Playing")).tag(QTPanelTab.nowPlaying)
                 Text(QTLoc.tr("Queue")).tag(QTPanelTab.queue)
@@ -53,24 +58,24 @@ struct QTPanelHeader: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .controlSize(.regular)
             .fixedSize()
             .accessibilityIdentifier("qt.player.panel.tabs")
-            Spacer(minLength: 0)
+        }
+        // Tabs at the panel's leading edge, hide at its trailing edge (prototype).
+        if #available(macOS 26, *) {
+            ToolbarSpacer(.flexible)
+        }
+        ToolbarItem(placement: .primaryAction) {
             Button {
-                withAnimation(QTTheme.Motion.animation(QTTheme.Motion.spring, reduceMotion: reduceMotion)) {
+                withAnimation(QTTheme.Motion.animation(QTTheme.Motion.spring, reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)) {
                     model.isPanelShown = false
                 }
             } label: {
                 Label(QTLoc.tr("Hide Panel", table: .desktop), systemImage: QTIcon.sidebar.systemName)
             }
-            .qtGlassButton(.secondary, iconOnly: true)
             .help("\(QTLoc.tr("Hide Panel", table: .desktop))  ⌥⌘N")
             .accessibilityIdentifier("qt.player.panel.hide")
         }
-        .padding(.leading, 24)
-        .padding(.trailing, 14)
-        .frame(height: 52)
     }
 }
 
@@ -114,7 +119,6 @@ struct QTNowPlayingTab: View {
     var body: some View {
         VStack(spacing: 0) {
             QTNowPlayingHero()
-            Divider()
             QTLyricsView(document: player.lyrics, time: player.timeline, style: .panel) { player.seek(to: $0) }
                 // Lyrics step away while an ad plays (as on the Stage) and come back where they were: a dimmed,
                 // frozen column read as disabled.

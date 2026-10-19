@@ -192,7 +192,8 @@ private struct QTAccentKey: EnvironmentKey {
 }
 
 public extension EnvironmentValues {
-    /// The artwork-driven accent for the current track (also applied as `.tint`).
+    /// The artwork-driven accent for the current track — a light tint only (progress, now-playing marks, washes).
+    /// In the main window `.tint` is the system accent (`qtArtworkAccent`); over art it's this too (`qtArtworkTint`).
     var qtAccent: Color {
         get { self[QTAccentKey.self] }
         set { self[QTAccentKey.self] = newValue }
@@ -213,9 +214,29 @@ public struct QTArtworkTint: ViewModifier {
     }
 }
 
+/// The artwork accent as `\.qtAccent` only — `.tint` stays the system accent. The main window's policy: system accent
+/// for selection and system controls (sidebar, table selection, Play, toggles, menus); the artwork accent only as a
+/// light tint read from `\.qtAccent` (scrubber progress, now-playing marks, panel wash).
+public struct QTArtworkAccent: ViewModifier {
+    let palette: QTArtworkPalette?
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    public func body(content: Content) -> some View {
+        content.environment(\.qtAccent, QTTheme.Colors.accent(palette, scheme: scheme, increaseContrast: contrast == .increased))
+    }
+}
+
 public extension View {
+    /// Artwork accent as `.tint` *and* `\.qtAccent`: for surfaces drawn over the artwork (Stage, mini player, menu
+    /// bar popover), where the system accent would clash with the art. Browsing chrome uses `qtArtworkAccent`.
     func qtArtworkTint(_ palette: QTArtworkPalette?) -> some View {
         modifier(QTArtworkTint(palette: palette))
+    }
+
+    /// Artwork accent as `\.qtAccent` only (the main window): `.tint` stays the system accent.
+    func qtArtworkAccent(_ palette: QTArtworkPalette?) -> some View {
+        modifier(QTArtworkAccent(palette: palette))
     }
 
     /// Floating surface (kept for existing callers): the `.chrome` glass primitive (`QTGlass.swift`). `material`

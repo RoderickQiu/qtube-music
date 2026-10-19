@@ -29,7 +29,12 @@ public struct QTMainWindowView: View {
                         .navigationSplitViewColumnWidth(min: QTTheme.Metrics.sidebarMinWidth, ideal: QTTheme.Metrics.sidebarWidth, max: 320)
                 } detail: {
                     QTContentRouter()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        // No content minimum, ever: a page's fixed-width pieces (cards, the search top result, row
+                        // artwork) would otherwise become the content column's minimum width, and with the panel
+                        // open in a narrow window AppKit's split view loops on update-constraints until it throws
+                        // (crash reports 2026-10-18/19; a swallowed throw also left Swift's executor bookkeeping
+                        // dangling, see docs/architecture.md). Pages lay out in whatever width they get.
+                        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
                         .background { QTWindowTint() }
                         .overlay(alignment: .top) { QTToastOverlay() }
                         .inspector(isPresented: $model.isPanelShown) {
@@ -62,6 +67,8 @@ public struct QTMainWindowView: View {
                             .help("\(QTLoc.tr("Forward"))  ⌘]")
                             .accessibilityIdentifier("qt.window.forward")
                         }
+                        // The search field sits right after back/forward in the content column (prototype), not at the
+                        // window's trailing edge over the panel.
                     }
                     // While the panel is shown it closes from its own header (QTPanelHeader); the toolbar only
                     // offers the way back.
@@ -83,7 +90,9 @@ public struct QTMainWindowView: View {
                 // Music.app's.
                 .navigationTitle(Text(verbatim: QTWindowTitle.title(for: navigator.current, model: model)))
                 .toolbar(removing: .title)
-                .searchable(text: $model.searchText, placement: .toolbar, prompt: Text(QTLoc.tr("Search music")))
+                // Search belongs to the content column (prototype: after back/forward; `DefaultToolbarItem` above), so
+                // it never reads as the panel's own field and doesn't jump when the panel hides.
+                .searchable(text: $model.searchText, placement: .toolbarPrincipal, prompt: Text(QTLoc.tr("Search music")))
                 .searchFocused($isSearchFocused)
             }
             // Under the in-window Stage the browsing window is out of reach: VoiceOver, Full Keyboard Access and
@@ -109,7 +118,8 @@ public struct QTMainWindowView: View {
         }
         // The in-window Stage keeps the window's own title bar and toolbar; QTStageTitlebar (Stage/) hides its items.
         .overlay { QTLyricsLabOverlay() }
-        .qtArtworkTint(model.palette)
+        // System accent for selection and system controls; the artwork accent only as `\.qtAccent` (light tints).
+        .qtArtworkAccent(model.palette)
         .frame(minWidth: 960, minHeight: 600)
         .onChange(of: model.sidebarSelection) { _, item in navigator.sidebarSelectionChanged(to: item) }
         .onChange(of: navigator.searchFocusRequest) { isSearchFocused = true }
@@ -167,9 +177,9 @@ struct QTContentRouter: View {
         case .section(.songs):
             QTLibraryView(collection: .songs(catalog), destination: d)
         case .section(.albums):
-            QTAlbumsPage()
+            QTLibraryAlbumsPage()
         case .section(.artists):
-            QTArtistsPage()
+            QTLibraryArtistsPage()
         case .section(.history):
             let history = QTTrackCollection.history(player.queue.history)
             if history.tracks.isEmpty {

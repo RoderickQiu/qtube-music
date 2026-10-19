@@ -54,25 +54,23 @@ private func makeLabel(font: NSFont, color: NSColor) -> NSTextField {
 
 // MARK: - Row
 
-/// Rounded selection like the prototype (`--select`: artwork accent at ~1/3 strength), text stays in label
-/// colours. Falls back to the system's emphasized selection under Increase Contrast or without artwork.
+/// Rounded selection in the *system* colours (accent when the table is focused, the unemphasized grey otherwise),
+/// like Finder and Music — the artwork accent never stands in for selection. Hover draws a quiet fill and reveals
+/// the row's heart.
 final class QTTrackRowView: NSTableRowView {
-    var tint = QTTrackTableTint(palette: nil, increaseContrast: false) { didSet { needsDisplay = true } }
+    /// Kept for callers; selection no longer uses the artwork accent.
+    var tint = QTTrackTableTint(palette: nil, increaseContrast: false)
     var isUnavailable = false
-    private var isHovered = false
+    private var isHovered = false { didSet { if isHovered != oldValue { needsDisplay = true; revealControls() } } }
     private var tracking: NSTrackingArea?
 
-    override var interiorBackgroundStyle: NSView.BackgroundStyle {
-        tint.useSystem ? super.interiorBackgroundStyle : .normal
+    override var isSelected: Bool {
+        didSet { if isSelected != oldValue { revealControls() } }
     }
 
     override func drawSelection(in dirtyRect: NSRect) {
         let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0, dy: 1), xRadius: 6, yRadius: 6)
-        if tint.useSystem {
-            (isEmphasized ? NSColor.selectedContentBackgroundColor : NSColor.unemphasizedSelectedContentBackgroundColor).setFill()
-        } else {
-            tint.accent(for: effectiveAppearance).withAlphaComponent(isEmphasized ? 0.34 : 0.2).setFill()
-        }
+        (isEmphasized ? NSColor.selectedContentBackgroundColor : NSColor.unemphasizedSelectedContentBackgroundColor).setFill()
         path.fill()
     }
 
@@ -80,6 +78,18 @@ final class QTTrackRowView: NSTableRowView {
         guard isHovered, !isSelected, !isUnavailable else { return }
         NSColor.quaternarySystemFill.setFill()
         NSBezierPath(roundedRect: bounds.insetBy(dx: 0, dy: 1), xRadius: 6, yRadius: 6).fill()
+    }
+
+    /// Cells added after the row (reuse, scrolling) ask through `isRevealingControls`.
+    var isRevealingControls: Bool { isHovered || isSelected }
+
+    private func revealControls() {
+        for case let cell as QTTrackHeartCell in subviews { cell.isRowRevealing = isRevealingControls }
+    }
+
+    override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        (subview as? QTTrackHeartCell)?.isRowRevealing = isRevealingControls
     }
 
     override func updateTrackingAreas() {
@@ -97,6 +107,11 @@ final class QTTrackRowView: NSTableRowView {
         super.prepareForReuse()
         isHovered = false
     }
+}
+
+private extension NSView.BackgroundStyle {
+    /// Text over the accent-filled (focused) selection draws white.
+    var isEmphasizedSelection: Bool { self == .emphasized }
 }
 
 // MARK: - Number / now-playing
@@ -124,12 +139,21 @@ final class QTTrackNumberCell: NSTableCellView {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    private var accent: NSColor = .controlAccentColor
+
     func configure(number: Int, playing: Playing, accent: NSColor) {
         label.stringValue = number.formatted(.number.locale(QTLoc.locale))
         label.isHidden = playing != .none
         icon.isHidden = playing == .none
         icon.image = QTNowPlayingIndicator.image(isPlaying: playing == .playing)
-        icon.contentTintColor = accent
+        self.accent = accent
+        applyColors()
+    }
+
+    override var backgroundStyle: NSView.BackgroundStyle { didSet { applyColors() } }
+
+    private func applyColors() {
+        icon.contentTintColor = backgroundStyle.isEmphasizedSelection ? .alternateSelectedControlTextColor : accent
     }
 }
 
@@ -144,6 +168,7 @@ final class QTTrackTitleCell: NSTableCellView {
     private let lyricsBadge = QTBadgeLabel()
     private var artworkWidth: NSLayoutConstraint!
     private var textLeading: NSLayoutConstraint!
+    private var shown: (title: String, subtitle: String?, isPlaying: Bool, accent: NSColor) = ("", nil, false, .labelColor)
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -178,21 +203,30 @@ final class QTTrackTitleCell: NSTableCellView {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    override var backgroundStyle: NSView.BackgroundStyle { didSet { if backgroundStyle != oldValue { applyTitle() } } }
+
+    /// The now-playing title takes the artwork accent; over the focused (accent-filled) selection it's white.
+    private func applyTitle() {
+        let onSelection = backgroundStyle.isEmphasizedSelection
+        let titleColor: NSColor = onSelection ? .alternateSelectedControlTextColor : (shown.isPlaying ? shown.accent : .labelColor)
+        let s = NSMutableAttributedString(string: shown.title, attributes: [.font: QTTrackFonts.title, .foregroundColor: titleColor])
+        if let sub = shown.subtitle, !sub.isEmpty {
+            s.append(NSAttributedString(string: " (\(sub))", attributes: [
+                .font: QTTrackFonts.body,
+                .foregroundColor: onSelection ? NSColor.alternateSelectedControlTextColor.withAlphaComponent(0.7) : NSColor.tertiaryLabelColor,
+            ]))
+        }
+        title.attributedStringValue = s
+    }
+
     /// `showsArtwork: false` on album pages, where every row would repeat the album cover (Music.app style).
     func configure(_ track: QTTrack, isPlaying: Bool, accent: NSColor, showsArtwork: Bool = true) {
         artwork.isHidden = !showsArtwork
         artworkWidth.constant = showsArtwork ? QTTheme.Metrics.rowArtwork : 0
         textLeading.constant = showsArtwork ? 14 : 0
         if showsArtwork { artwork.load(track.artwork, pointSize: QTTheme.Metrics.rowArtwork) }
-        let s = NSMutableAttributedString(string: track.title, attributes: [
-            .font: QTTrackFonts.title, .foregroundColor: isPlaying ? accent : NSColor.labelColor,
-        ])
-        if let sub = track.subtitle, !sub.isEmpty {
-            s.append(NSAttributedString(string: " (\(sub))", attributes: [
-                .font: QTTrackFonts.body, .foregroundColor: NSColor.tertiaryLabelColor,
-            ]))
-        }
-        title.attributedStringValue = s
+        shown = (track.title, track.subtitle, isPlaying, accent)
+        applyTitle()
         artist.stringValue = track.artistLine
         mvBadge.stringValue = QTLoc.tr("MV", table: .main)
         mvBadge.isHidden = !track.hasVideo
@@ -279,13 +313,39 @@ final class QTTrackHeartCell: NSTableCellView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    func configure(liked: Bool, accent: NSColor, enabled: Bool) {
+    private var liked = false
+    /// The now-playing row keeps its heart visible.
+    private var isCurrent = false
+    /// Set by the row: hovered or selected.
+    var isRowRevealing = false { didSet { if isRowRevealing != oldValue { applyVisibility() } } }
+
+    /// One stable, neutral heart (filled when liked) that shows on hover, selection and the now-playing row — the
+    /// artwork accent is never a "liked" colour. `accent` is unused (kept for callers).
+    func configure(liked: Bool, accent: NSColor, enabled: Bool, isCurrent: Bool = false) {
+        self.liked = liked
+        self.isCurrent = isCurrent
         let label = QTLoc.tr(liked ? "Remove from Liked Songs" : "Like")
         button.image = NSImage(systemSymbolName: liked ? "heart.fill" : "heart", accessibilityDescription: label)
-        button.contentTintColor = liked ? accent : .tertiaryLabelColor
         button.toolTip = "\(label)  ⌘L"
         button.isEnabled = enabled
         button.setAccessibilityLabel(label)
+        applyColors()
+        applyVisibility()
+    }
+
+    override var backgroundStyle: NSView.BackgroundStyle { didSet { applyColors() } }
+
+    private func applyColors() {
+        if backgroundStyle.isEmphasizedSelection {
+            button.contentTintColor = .alternateSelectedControlTextColor
+        } else {
+            button.contentTintColor = liked ? .secondaryLabelColor : .tertiaryLabelColor
+        }
+    }
+
+    private func applyVisibility() {
+        // Hidden, not removed: VoiceOver and the ⌘L / context-menu paths keep working; the column keeps its width.
+        button.alphaValue = isRowRevealing || isCurrent ? 1 : 0
     }
 
     @objc private func toggle() { onToggle?() }

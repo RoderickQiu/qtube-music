@@ -28,6 +28,33 @@ import Testing
         #expect(QTTextFolding.indexLetter("2025 Sel 1") == "#")
         #expect(QTTextFolding.indexLetters.count == 27)
     }
+
+    /// The A–Z strip only helps long, title-sorted lists; it's script-aware (pinyin initials for Han, "#" else).
+    @Test @MainActor func alphabetStripOnlyForLongTitleSortedLists() {
+        #expect(!QTTrackTableCoordinator.wantsAlphabet(rowCount: 12, sort: .title))
+        #expect(!QTTrackTableCoordinator.wantsAlphabet(rowCount: 60, sort: .title))
+        #expect(QTTrackTableCoordinator.wantsAlphabet(rowCount: 156, sort: .title))
+        for key in [QTTrackSort.Key.added, .album, .artist, .time] {
+            #expect(!QTTrackTableCoordinator.wantsAlphabet(rowCount: 156, sort: key))
+        }
+        #expect(QTTextFolding.indexLetter("晴天") == "Q")
+        #expect(QTTextFolding.indexLetter("周杰伦") == "Z")
+        #expect(QTTextFolding.indexLetter("「告白气球」") == "G" || QTTextFolding.indexLetter("「告白气球」") == "#")
+    }
+}
+
+/// Library › Albums / Artists from the demo library (the live library brings its own).
+@Suite struct QTLibraryIndexTests {
+    @Test func albumsAndArtistsFromSongs() {
+        let tracks = QTTrackListingTests.tracks + [QTTrackListingTests.track("5", "B side", album: "B", artist: "Y")]
+        let albums = QTLibraryIndex.albums(tracks)
+        #expect(albums.map(\.title) == ["A", "B", "C", "D"])
+        #expect(albums.first { $0.title == "B" }?.tracks?.map(\.videoId) == ["1", "5"])
+        #expect(albums.allSatisfy { $0.id == $0.title }) // demo browse pages open albums by title
+        let artists = QTLibraryIndex.artists(tracks)
+        #expect(artists.map(\.name) == ["X", "Y"])
+        #expect(artists.allSatisfy { $0.id == $0.name })
+    }
 }
 
 @Suite struct QTTrackListingTests {

@@ -89,9 +89,12 @@ Everything is wired (integration of M1 polish + M2–M4):
 
 **Live data (data-live).** `QTLiveCatalogStore.shared` (attached in `QTAppModel.bootstrap`) owns the client and
 `QTAuthController`, a `QTCatalogMode` (`mock` / `restoring` / `signedOut` / `live`) and per-page `QTLivePhase`s.
-`QTContentRouter` hands destinations to `QTLivePage` (AppModel/Live/) when `handles(_:)` says so: live Home (mood
-chips filter the feed), Liked and playlists (first page at once, continuation pages stream in), library Songs /
-Albums / Artists. **Browse pages are one shared set** (window, Shell/QTBrowsePages.swift + QTSearchResultsView.swift)
+`QTContentRouter` hands destinations to `QTLivePage` (AppModel/Live/) when `handles(_:)` says so: Home (mood
+chips load that mood's feed), Liked and playlists (first page at once, continuation pages stream in), library Songs /
+Albums / Artists. **Home and the library grids are one set** for demo + live (window): `QTHomeView` (live adds the
+load phase and per-mood feeds; demo chips only toggle) and `QTLibraryAlbumsPage` / `QTLibraryArtistsPage`
+(Library/QTLibraryGrids.swift: live = the store's library albums/artists with skeleton / failure / empty states, demo =
+derived from the songs; both draw `QTHomeCard`). **Browse pages are one shared set** (window, Shell/QTBrowsePages.swift + QTSearchResultsView.swift)
 for the demo and the live library: Explore (segmented Overview / New releases / Charts / Moods & genres), mood
 pages, album pages (QTLibraryView), artist pages (hero or portrait, Songs, then the page's rows incl. **Videos**),
 grouped search (top result + songs, then Videos / Albums / Artists / Playlists rows; music only). They read
@@ -166,7 +169,7 @@ Tests: `Tests/QTInnerTubeTests/PrivacyTests.swift` (the counterpart fallback, pl
 | `Stage/` | stage | `QTStageView` (layouts × backgrounds, chrome, drawer) |
 | `Desktop/`, `Commands/`, `Settings/`, `Sources/QTubeMusicApp`, `Assets/AppIcon.icns` | desktop | mini player, desktop lyrics, menu bar, `QTDesktopCoordinator`, Dock menu, sidebar playlist context menu (`QTSidebarContextMenu`), `QTIntegrationsCoordinator` (Last.fm / Discord / notifications), `QTScripting` (AppleScript), menus + key routing, Settings (incl. Integrations, `QTInterfaceLanguageSync`), app icon |
 | `Theme/`, `Shared/`, `AppModel/` | shared | builders may **add**; don't rename, repurpose or break existing API |
-| `AppModel/QTLiveCatalogStore.swift`, `AppModel/Live/` | data-live | live catalog wiring, signed-out / skeleton / failure states, live Home, live library pages (browse pages are window's shared set) |
+| `AppModel/QTLiveCatalogStore.swift`, `AppModel/Live/` | data-live | live catalog wiring, signed-out / skeleton / failure states, live track-list pages (Home, library grids and browse pages are window's shared set) |
 
 Edit only your folders and your String Catalog table. Need a change in someone else's area or in a shared
 signature? Add a defaulted parameter or a new type in your own folder, and say so in your report.
@@ -344,8 +347,39 @@ The prototype defines layout, hierarchy, copy and states; the app must look like
   (segmented/menu), `Toggle` (`.button` style for shuffle/repeat = filled when on), `Slider`, `Stepper`, `Menu`,
   `.popover`, grouped `Form` in Settings, `NSMenu`/`.contextMenu`, sheets/alerts.
 - System semantics only: `QTTheme.Colors` wraps label/secondary/tertiary/separator/window/selection colours.
-  Artwork accent is a **tint only** (`.qtArtworkTint(palette)` sets `.tint` + `\.qtAccent`; system accent under
-  Increase Contrast).
+- **Accent policy (R4).** The *system* accent for selection and system controls: sidebar and table selection, Play,
+  toggles, segmented pickers, focus rings, the selected mood chip's wash, drop highlights. The main window applies
+  `.qtArtworkAccent(palette)` — it sets only `\.qtAccent`, `.tint` stays the system accent. The artwork accent is a
+  light tint read from `\.qtAccent`: scrubber progress, now-playing marks (title colour, speaker glyph), panel and
+  window washes, the Liked Songs tile. Never a "liked" colour and never a selection: hearts are one stable neutral
+  (`secondaryLabel` filled when liked, `tertiaryLabel` outline) and show only on hover, selection and the
+  now-playing row (table and quick-pick rows; the player bar's heart is a system control). Surfaces drawn over the
+  art (Stage, mini player, menu bar popover) keep `.qtArtworkTint(palette)` (`.tint` + `\.qtAccent`). Increase
+  Contrast: system accent everywhere.
+- **Window chrome (R4).** Sidebar: the stock `NavigationSplitView` sidebar, full height — what Apple's own apps
+  (Music, Finder, System Settings) show on this macOS 27 host (references `screenshots/r4-shell-ref-*.png`); no
+  custom sidebar background. Search: `.searchable(placement: .toolbarPrincipal)` puts the system field in the
+  content column's toolbar (centred there; it never sits over the panel); while results show, the sidebar has no
+  selection. The panel's header is toolbar items of the inspector's toolbar section (`QTPanelToolbar`, NowPlaying/:
+  Now Playing | Queue, flexible spacer, Hide Panel; only while the panel is shown and not under the Stage), so the
+  art-tinted backdrop runs under the title bar and there are no header rows or hard dividers. Content pages use
+  `qtSoftScrollEdges()` (soft scroll-edge effect under the toolbar).
+- **Track tables.** System selection colours (accent when focused, unemphasized grey otherwise; white text on the
+  accent). Type-to-select and sortable headers are the jump aids; the A–Z strip appears only for lists of more than
+  60 rows sorted by title (`QTTrackTableCoordinator.wantsAlphabet`), with script-aware letters (Latin initial, pinyin
+  initial for Han via ICU, "#" otherwise; cached per row set). The collection header steps down (smaller tile and
+  filter, then the filter on the actions row) instead of truncating Play / Shuffle.
+- **No content minimum width.** `QTContentRouter` is framed `minWidth: 0`: any fixed-width piece of a page (the
+  search top result, card or row artwork, header buttons) otherwise becomes the content column's minimum, and with
+  the panel open in a narrower window SwiftUI's split view re-publishes min sizes inside AppKit's update-constraints
+  pass until AppKit throws ("more Update Constraints in Window passes than there are views"). Reproduced on the R3
+  build (search or artist page at 1291 pt with the panel, any page at 980 pt), fixed in R4. When AppKit swallowed that
+  exception in a display-cycle observer, the unwound frames included a Swift task job, so Swift's thread-local
+  executor-tracking record was left pointing into a dead stack frame; the next executor check on the main thread
+  (`MainActor.assumeIsolated`, or the dynamic isolation check in any closure SwiftUI calls) read garbage —
+  EXC_BAD_ACCESS in `SerialExecutor._isSameExecutor` / `swift_getObjectType` (the 2026-10-19 `QTHomeCard.trackCard`
+  and `QTDesktopCoordinator.observeMainWindowFrame` reports: both main-thread victims, not their own bugs; verified
+  with a minimal ObjC-exception-through-`Task.immediate` repro). So: never let an ObjC exception happen in layout.
 - **Liquid Glass (R3).** macOS 15 stays the minimum; macOS 26+ gets glass, macOS 15 system materials, Reduce
   Transparency solid surfaces — decided in ONE place, `Theme/QTGlass.swift`. Feature code never calls
   `glassEffect` or paints `.material` backgrounds itself:
@@ -354,8 +388,12 @@ The prototype defines layout, hierarchy, copy and states; the app must look like
     over vivid art; in light mode it also gets a hairline + soft outside shadow so it has an edge over white
     content), `.overArt` (Stage chrome, queue drawer, ad badges, mini player art controls; dark context).
     Tint = the artwork accent at ~0.12–0.16 opacity, only over art.
-  - `qtGlassButton(.primary | .secondary, iconOnly:)` — `.glassProminent` / `.glass` (capsule or circle; accent via
-    `.tint`): mood chips, collection Play / Shuffle / More, search top result, panel header hide button.
+  - `qtGlassButton(.primary | .secondary, iconOnly:)` — `.glassProminent` tinted with the system accent (the page's
+    one primary action: collection / search top result Play) / `.glass` (Shuffle, More, open); capsule or circle.
+    `QTPillButtonStyle` (macOS 15 / Reduce Transparency) fills primary with the system accent too.
+  - `qtGlassChip(isOn:)` — mood / genre chips: untinted glass off, `.glass` with a translucent system-accent tint on
+    (`QTChipToggleStyle`); never a solid saturated fill.
+  - `qtSoftScrollEdges()` — `.scrollEdgeEffectStyle(.soft, for: .top)` on macOS 26+.
   - `QTGlassGroup { … }` — `GlassEffectContainer` for neighbouring glass shapes (Stage top bar).
   - `qtFloatingBottomBar { … }` — `safeAreaBar` on macOS 26 (scroll edge effect under the bar), `safeAreaInset`
     before. The player bar floats over the bottom of content + inspector (10 pt inset, radius 22); the sidebar
@@ -370,7 +408,8 @@ The prototype defines layout, hierarchy, copy and states; the app must look like
   - It only appears if the binary is linked on the macOS 26+ SDK: see `build-app.sh` (SDK stamp) below.
   - No `GridItem(.flexible(minimum:))` (or other hard minimum widths) in content pages: with the inspector open, a
     content minimum feeds AppKit's split-view constraints into an update-constraints loop (crash) on the macOS 26+
-    design. Count columns from the measured width instead (`QTQuickPicks`).
+    design. Count columns from the measured width instead (`QTQuickPicks`, `QTLibraryGridPage`); see *No content
+    minimum width* above.
 - Type: system text styles via `QTTheme.Typography` (SF Pro; PingFang SC only via the system cascade — never name
   a CJK font first; no forced uppercase/tracking on CJK). Tabular figures with `.monospacedDigit()`.
 - Motion: `QTTheme.Motion` (curve `cubic-bezier(.2,.8,.2,1)`, 320 ms UI, 520 ms lyric scroll, springs,
@@ -451,7 +490,7 @@ Builders add their own as `qt.<area>.<name>` (e.g. `qt.stage.chrome hidden`, `qt
 
 | Area | Keys |
 |---|---|
-| window | `qt.window.search <text>` · `qt.window.page album:<id\|title>\|artist:<id\|name>\|mood:<id>` (e.g. `mood:genre:Pop`, `mood:mood-relax`) · `qt.window.scroll <pt>` (Explore / artist / mood pages) · `qt.library.filter <text>` · `qt.library.scroll <pt>` (300 pins the compact header) · `qt.library.sort title\|album\|artist\|time\|added[:desc]` · `qt.library.select 1,3` · `qt.home.scroll <pt>` |
+| window | `qt.window.search <text>` · `qt.window.page album:<id\|title>\|artist:<id\|name>\|mood:<id>` (e.g. `mood:genre:Pop`, `mood:mood-relax`) · `qt.window.scroll <pt>` (Explore / artist / mood pages) · `qt.library.filter <text>` · `qt.library.scroll <pt>` (300 pins the compact header) · `qt.library.sort title\|album\|artist\|time\|added[:desc]` · `qt.library.select 1,3` · `qt.home.scroll <pt>` · `qt.home.mood <id>` (e.g. `mood-focus`: launch with that chip selected) |
 | player | `qt.player.upNext demo\|id,id` · `qt.player.autoplay NO` · `qt.player.shuffle YES` · `qt.player.repeat off\|all\|one` · `qt.player.adElapsed <s>` (with `qt.ad`: run the ad `<s>` s then pause; 2 = "Skip in 3", 6 = skippable) · DEBUG `qt.player.keyAppearance YES` (best-effort key-window rendering in background captures; check the shot and retake) |
 | lyrics-ui | `qt.lyrics.scrolled` · `qt.lyrics.options` · `qt.lyrics.demoVersions` · `qt.lyrics.translationState same\|translating\|download\|unavailable\|onDevice\|appleIntelligence` · `qt.lyrics.lab` · `qt.lyrics.debug` |
 | stage | `qt.stage.chrome hidden` · `qt.stage.queue YES` · `qt.stage.popover appearance` · `qt.stage.window YES` (detached window) · `qt.stage.reduceMotion YES` · `qt.stage.visualizerOnBattery YES` · `qt.stage.closeAfter <s>` · `qt.stage.noAd YES` (free account without the simulated pre-roll, e.g. the visualizer fallback) |

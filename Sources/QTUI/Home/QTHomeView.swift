@@ -1,30 +1,62 @@
 import QTCore
 import SwiftUI
 
-// Owner: builder "window". Home (prototype home.jsx + styles.css `.home`): greeting + mood chips, Listen again,
-// Quick picks (3 columns), Music videos, your playlists. Built only from the user's library and real shelves.
-// (Kaset ADR-0038: AppKit beats SwiftUI for *big* shelves — these are lazy and small; revisit with real data.)
+// Owner: builder "window". Home (prototype home.jsx + styles.css `.home`): greeting + mood chips, then the feed's
+// shelves (Listen again, Quick picks in 3 columns, Music videos, playlists). ONE view for the demo catalog and the
+// live library: live adds the load phase (skeleton / failure) and mood chips that load that mood's feed; in the
+// demo the chips only toggle. (Kaset ADR-0038: AppKit beats SwiftUI for *big* shelves — these are lazy and small.)
 
 public struct QTHomeView: View {
     @Environment(QTAppModel.self) private var model
-    @Environment(QTPlayerModel.self) private var player
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var position = ScrollPosition(edge: .top)
-    @State private var selectedMood: String?
+    /// Demo catalog only; live Home keeps the chosen mood in the store (it survives leaving the page).
+    @State private var demoMood: String?
     @State private var didRestore = false
+    @State private var didApplyLaunchMood = false
 
     public init() {}
 
     public var body: some View {
-        ScrollView(.vertical) {
+        let store = QTLiveCatalogStore.shared
+        if store.isLive {
+            QTLivePhaseView(phase: store.homePhase,
+                            skeleton: QTLiveSkeleton(layout: .shelves, title: Self.greeting(at: .now)),
+                            retry: { Task { await store.loadHome(force: true) } }) {
+                feed(live: store)
+            }
+            .task { await store.loadHome() }
+        } else {
+            feed(live: nil)
+        }
+    }
+
+    private func feed(live store: QTLiveCatalogStore?) -> some View {
+        let mood = store?.homeMood ?? (store == nil ? demoMood : nil)
+        // Live: a chosen mood shows that mood's feed (its own phase); the demo has no per-mood feeds.
+        let moodPhase: QTLivePhase = (store != nil ? mood.map { store?.moodPhases[$0] ?? .loading } : nil) ?? .loaded
+        let shelves = store.flatMap { s in mood.flatMap { s.moodFeeds[$0]?.shelves } } ?? model.catalog.home.shelves
+        return ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 0) {
-                header
-                ForEach(model.catalog.home.shelves) { shelf in
-                    QTHomeShelf(shelf: shelf)
-                        .padding(.top, QTTheme.Spacing.shelfSpacing)
+                header(store: store, selected: mood)
+                switch moodPhase {
+                case .failed(let f):
+                    QTLiveFailureView(failure: f) { if let mood, let store { Task { await store.loadMood(mood) } } }
+                        .frame(height: 360)
+                case .loaded:
+                    ForEach(shelves) { shelf in
+                        QTHomeShelf(shelf: shelf)
+                            .padding(.top, QTTheme.Spacing.shelfSpacing)
+                    }
+                    .transition(.opacity)
+                default:
+                    QTLiveSkeleton(layout: .shelves).frame(height: 760).padding(.top, -110)
                 }
             }
             .padding(.bottom, 48)
+            .animation(QTTheme.Motion.animation(QTTheme.Motion.ui, reduceMotion: reduceMotion), value: mood)
         }
+        .qtSoftScrollEdges()
         .scrollPosition($position)
         .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentOffset.y + $0.contentInsets.top }) { _, y in
             guard didRestore else { return }
@@ -34,11 +66,16 @@ public struct QTHomeView: View {
             let saved = model.launch.double("qt.home.scroll").map { CGFloat($0) } ?? QTNavigator.shared.scrollOffset(for: .section(.home))
             if saved > 0 { position.scrollTo(y: saved) }
             didRestore = true
+            // `-qt.home.mood <id>`: launch with a mood chip selected (screenshots).
+            if !didApplyLaunchMood, let id = model.launch.string("qt.home.mood") {
+                didApplyLaunchMood = true
+                if let store { store.selectMood(id) } else { demoMood = id }
+            }
         }
         .accessibilityIdentifier("qt.home")
     }
 
-    private var header: some View {
+    private func header(store: QTLiveCatalogStore?, selected: String?) -> some View {
         VStack(alignment: .leading, spacing: 18) {
             Text(Self.greeting(at: .now))
                 .font(QTTheme.Typography.pageTitle)
@@ -46,8 +83,10 @@ public struct QTHomeView: View {
             QTChipFlow(spacing: 10) {
                 ForEach(model.catalog.home.moods) { mood in
                     Toggle(mood.title.resolved, isOn: Binding(
-                        get: { selectedMood == mood.id },
-                        set: { selectedMood = $0 ? mood.id : nil }
+                        get: { selected == mood.id },
+                        set: { on in
+                            if let store { store.selectMood(on ? mood.id : nil) } else { demoMood = on ? mood.id : nil }
+                        }
                     ))
                     .toggleStyle(QTChipToggleStyle())
                     .accessibilityIdentifier("qt.home.mood.\(mood.id)")
@@ -169,6 +208,7 @@ struct QTHomeCard: View {
     @Environment(QTAppModel.self) private var model
     @Environment(QTPlayerModel.self) private var player
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.qtAccent) private var accent
     @State private var isHovered = false
 
     var body: some View {
@@ -203,7 +243,7 @@ struct QTHomeCard: View {
                     .padding(.bottom, 6)
                 Text(verbatim: t.title)
                     .font(QTTheme.Typography.rowTitle)
-                    .foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+                    .foregroundStyle(isCurrent ? AnyShapeStyle(accent) : AnyShapeStyle(.primary))
                     .lineLimit(1)
                 Text(verbatim: t.artistLine)
                     .font(QTTheme.Typography.secondary)
@@ -349,19 +389,18 @@ struct QTHomeCard: View {
     }
 }
 
-/// Round accent play/pause badge on hovered cards (`.card-play`).
+/// Play/pause badge on hovered cards (`.card-play`): a small glass disc over the artwork with a white glyph, like
+/// Music.app's — neutral, so a column of hovered cards never competes with the page's Play button or the sidebar.
 struct QTCardPlayBadge: View {
     let icon: QTIcon
-    @Environment(QTAppModel.self) private var model
-    @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
         icon.image
             .font(.system(size: 14, weight: .bold))
             .foregroundStyle(.white)
             .frame(width: 36, height: 36)
-            .background(Circle().fill(QTTheme.Colors.accent(model.palette, scheme: .light, increaseContrast: contrast == .increased)))
-            .shadow(color: .black.opacity(0.3), radius: 8, y: 6)
+            .qtGlass(.overArt, in: Circle())
+            .shadow(color: .black.opacity(0.25), radius: 8, y: 4)
             .accessibilityHidden(true)
     }
 }
@@ -411,11 +450,15 @@ struct QTQuickPickRow: View {
     /// Chart position, shown before the artwork.
     var rank: Int? = nil
     @Environment(QTPlayerModel.self) private var player
+    @Environment(\.qtAccent) private var accent
     @State private var isHovered = false
 
     var body: some View {
         let isCurrent = player.nowPlaying?.videoId == track.videoId
         let liked = player.isLiked(track)
+        // The heart is a control, not decoration: it appears on hover and on the now-playing row, in one stable
+        // neutral colour (filled when liked) — never a column of vivid hearts that changes colour with the song.
+        let showsHeart = isHovered || isCurrent
         HStack(spacing: 14) {
             if let rank {
                 Text(rank, format: .number)
@@ -440,7 +483,7 @@ struct QTQuickPickRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(verbatim: track.title)
                     .font(QTTheme.Typography.rowTitle)
-                    .foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+                    .foregroundStyle(isCurrent ? AnyShapeStyle(accent) : AnyShapeStyle(.primary))
                     .lineLimit(1)
                 Text(verbatim: track.artistLine)
                     .font(QTTheme.Typography.secondary)
@@ -453,11 +496,12 @@ struct QTQuickPickRow: View {
             } label: {
                 Label(QTLoc.tr(liked ? "Remove from Liked Songs" : "Like"), systemImage: (liked ? QTIcon.heartFill : QTIcon.heart).systemName)
                     .labelStyle(.iconOnly)
-                    .foregroundStyle(liked ? AnyShapeStyle(.tint) : AnyShapeStyle(.tertiary))
+                    .foregroundStyle(liked ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tertiary))
             }
             .buttonStyle(.borderless)
             .frame(width: 32)
-            .opacity(isHovered || liked ? 1 : 0)
+            .opacity(showsHeart ? 1 : 0)
+            .allowsHitTesting(showsHeart)
             .help("\(QTLoc.tr(liked ? "Remove from Liked Songs" : "Like"))  ⌘L")
         }
         .padding(6)

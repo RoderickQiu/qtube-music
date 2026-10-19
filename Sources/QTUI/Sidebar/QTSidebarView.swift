@@ -14,10 +14,12 @@ public struct QTSidebarView: View {
 
     public var body: some View {
         // Highlight follows the page actually shown (none on album/artist pages, so clicking the section you came
-        // from navigates back to it); selecting goes through the navigator so it lands in back/forward history.
+        // from navigates back to it — and none while search results replace the page); selecting goes through the
+        // navigator so it lands in back/forward history (and leaves the search).
         let navigator = QTNavigator.shared
+        let isSearching = !model.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         List(selection: Binding<QTSidebarItem?>(
-            get: { navigator.current.sidebarItem },
+            get: { isSearching ? nil : navigator.current.sidebarItem },
             set: { if let v = $0 { navigator.go(.section(v)) } }
         )) {
             Section {
@@ -84,7 +86,6 @@ struct QTSidebarRow: View {
     let playlist: QTPlaylist?
     @Environment(QTAppModel.self) private var model
     @Environment(QTPlayerModel.self) private var player
-    @Environment(\.qtAccent) private var accent
     @State private var isTargeted = false
 
     var body: some View {
@@ -100,9 +101,9 @@ struct QTSidebarRow: View {
             label
                 .dropDestination(for: String.self) { items, _ in drop(items) } isTargeted: { isTargeted = $0 }
                 .overlay {
-                    // Finder-style drop highlight around the row.
+                    // Finder-style drop highlight around the row, in the system accent like the selection.
                     RoundedRectangle(cornerRadius: QTTheme.Radius.control, style: .continuous)
-                        .strokeBorder(accent, lineWidth: 2)
+                        .strokeBorder(QTTheme.Colors.systemAccent, lineWidth: 2)
                         .padding(.horizontal, -8)
                         .padding(.vertical, -4)
                         .opacity(isTargeted ? 1 : 0)

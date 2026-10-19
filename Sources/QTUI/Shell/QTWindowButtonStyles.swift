@@ -5,30 +5,31 @@ import SwiftUI
 // these filled capsules are its macOS 15 / Reduce Transparency fallback. Capsule controls for content pages (Home mood chips, Play / Shuffle / More on
 // collection headers, Explore destinations). macOS's bordered styles ignore `.buttonBorderShape(.capsule)` and
 // render grey when the window is inactive, which flattens the one primary action on a page. These styles are
-// built from system fills (`.fill.tertiary` / `.fill.secondary`), the artwork accent as a tint, semantic label
-// colours, and keep the system's press, hover, disabled and keyboard-focus behaviour.
+// built from system fills (`.fill.tertiary` / `.fill.secondary`), the system accent for the primary action, semantic
+// label colours, and keep the system's press, hover, disabled and keyboard-focus behaviour.
 
 /// How prominent a capsule control is.
 enum QTPillProminence {
-    /// Filled with the artwork accent, white label — the page's primary action (Play).
+    /// Filled with the system accent, white label — the page's primary action (Play).
     case primary
     /// Subtle system fill, primary label — secondary actions (Shuffle, More), unselected chips.
     case secondary
 }
 
-/// Capsule button: `.primary` (accent fill) or `.secondary` (system fill). `iconOnly` makes it a circle.
+/// Capsule button: `.primary` (system accent fill) or `.secondary` (system fill, optionally washed with a light
+/// tint — a selected chip). `iconOnly` makes it a circle.
 struct QTPillButtonStyle: ButtonStyle {
     var prominence: QTPillProminence = .secondary
     var iconOnly = false
+    var wash: Color? = nil
 
     func makeBody(configuration: Configuration) -> some View {
         QTPillBody(label: configuration.label, isPressed: configuration.isPressed, prominence: prominence,
-                   isOn: false, iconOnly: iconOnly)
+                   wash: wash, iconOnly: iconOnly)
     }
 }
 
-/// Mood / genre chip: a roomy capsule toggle. On = accent fill with a white label (`.glassProminent` on macOS 26,
-/// `.glass` when off — see `qtGlassButton`).
+/// Mood / genre chip: a roomy capsule toggle — clear glass, a light system-accent wash when on (`qtGlassChip`).
 struct QTChipToggleStyle: ToggleStyle {
     func makeBody(configuration: Configuration) -> some View {
         Button {
@@ -36,7 +37,7 @@ struct QTChipToggleStyle: ToggleStyle {
         } label: {
             configuration.label
         }
-        .qtGlassButton(configuration.isOn ? .primary : .secondary)
+        .qtGlassChip(isOn: configuration.isOn)
         .accessibilityAddTraits(configuration.isOn ? [.isSelected] : [])
     }
 }
@@ -46,9 +47,8 @@ private struct QTPillBody<Label: View>: View {
     let label: Label
     let isPressed: Bool
     let prominence: QTPillProminence
-    let isOn: Bool
+    let wash: Color?
     let iconOnly: Bool
-    @Environment(QTAppModel.self) private var model
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.controlSize) private var controlSize
     @Environment(\.colorSchemeContrast) private var contrast
@@ -64,8 +64,7 @@ private struct QTPillBody<Label: View>: View {
     }
 
     var body: some View {
-        // White label on the accent needs the deeper (light-appearance) variant in both appearances.
-        let accent = QTTheme.Colors.accent(model.palette, scheme: .light, increaseContrast: contrast == .increased)
+        let accent = QTTheme.Colors.systemAccent
         label
             .font(controlSize == .large ? .body.weight(.medium) : .callout.weight(.medium))
             .labelStyle(QTPillLabelStyle(iconOnly: iconOnly))
@@ -98,7 +97,8 @@ private struct QTPillBody<Label: View>: View {
         case .primary:
             AnyShapeStyle(isHovered ? accent.mix(with: .white, by: 0.08) : accent)
         case .secondary:
-            isHovered ? AnyShapeStyle(.fill.secondary) : AnyShapeStyle(.fill.tertiary)
+            if let wash { AnyShapeStyle(isHovered ? wash.mix(with: .white, by: 0.06) : wash) }
+            else { isHovered ? AnyShapeStyle(.fill.secondary) : AnyShapeStyle(.fill.tertiary) }
         }
     }
 }

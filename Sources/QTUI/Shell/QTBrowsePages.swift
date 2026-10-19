@@ -114,6 +114,7 @@ struct QTBrowseScroll<Content: View>: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.bottom, 48)
         }
+        .qtSoftScrollEdges()
         .scrollPosition($position)
         .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentOffset.y + $0.contentInsets.top }) { _, y in
             guard didRestore else { return }

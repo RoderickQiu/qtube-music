@@ -59,6 +59,7 @@ struct QTSearchResultsContent: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.bottom, 48)
         }
+        .qtSoftScrollEdges()
         .accessibilityIdentifier("qt.search.results")
     }
 
@@ -70,7 +71,10 @@ struct QTSearchResultsContent: View {
         return (top.map { [$0] } ?? []) + results.songs.filter { $0.videoId != top?.videoId }
     }
 
-    /// Top result card beside the first songs (Music.app / YouTube Music layout).
+    /// Top result card beside the first songs (Music.app / YouTube Music layout). No hard widths: the card is at
+    /// most 320 pt and gives way when the column is narrow — a fixed width here became the content column's minimum,
+    /// and with the panel open in a smaller window AppKit's split view looped on update-constraints until it threw
+    /// (the 2026-10-19 crash family, see docs/architecture.md › Native UI rules).
     @ViewBuilder
     private var topRow: some View {
         let list = songs
@@ -80,7 +84,8 @@ struct QTSearchResultsContent: View {
                     QTSectionTitle(text: QTLoc.tr("Top result", table: .main))
                     QTSearchTopResult(item: top, songs: list, source: source)
                 }
-                .frame(width: 320, alignment: .leading)
+                .frame(minWidth: 0, idealWidth: 320, maxWidth: 320, alignment: .leading)
+                .layoutPriority(1)
             }
             // A lone song that is already the top result isn't repeated beside it.
             if list.count > (topSong == nil ? 0 : 1) {

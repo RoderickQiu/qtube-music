@@ -70,7 +70,7 @@ struct QTHostedEnvironment {
         view
             .environment(model)
             .environment(player)
-            .qtArtworkTint(model.palette)
+            .qtArtworkAccent(model.palette)
     }
 }
 
@@ -121,11 +121,25 @@ struct QTLibraryHeader: View {
     }
 
     var body: some View {
-        @Bindable var state = state
-        let navigator = QTNavigator.shared
+        // Narrower content columns (a smaller window with the panel open) step down instead of truncating the title
+        // and the Play / Shuffle labels: a smaller tile and filter, then the filter moves onto the actions row.
+        ViewThatFits(in: .horizontal) {
+            row(tile: QTTheme.Metrics.playlistTile, filterWidth: 220)
+            row(tile: 120, filterWidth: 170)
+            row(tile: 96, filterWidth: nil)
+        }
+        .padding(.horizontal, QTTheme.Spacing.gutter)
+        .padding(.top, 36)
+        .padding(.bottom, 28)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("qt.library.header")
+    }
+
+    /// `filterWidth: nil` puts a flexible filter at the end of the actions row.
+    private func row(tile: CGFloat, filterWidth: CGFloat?) -> some View {
         HStack(alignment: .bottom, spacing: 28) {
-            QTCollectionTile(collection: collection, size: QTTheme.Metrics.playlistTile)
-                .padding(.trailing, 0)
+            QTCollectionTile(collection: collection, size: tile)
             VStack(alignment: .leading, spacing: 0) {
                 Text(collection.kindLabel)
                     .font(QTTheme.Typography.caption.weight(.semibold))
@@ -134,6 +148,8 @@ struct QTLibraryHeader: View {
                     .font(QTTheme.Typography.pageTitle)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    // A long title truncates rather than forcing the narrow layout (ViewThatFits measures ideals).
+                    .frame(idealWidth: 160, alignment: .leading)
                     .padding(.top, 4)
                     .padding(.bottom, 6)
                     .help(collection.title)
@@ -146,6 +162,8 @@ struct QTLibraryHeader: View {
                         Text(verbatim: collection.tracks.first?.artistLine ?? artist)
                             .font(.title3.weight(.medium))
                             .foregroundStyle(.tint)
+                            .lineLimit(1)
+                            .frame(idealWidth: 160, alignment: .leading)
                     }
                     .buttonStyle(.plain)
                     .padding(.bottom, 4)
@@ -157,22 +175,32 @@ struct QTLibraryHeader: View {
                     .monospacedDigit()
                     .contentTransition(.numericText())
                     .accessibilityIdentifier("qt.library.count")
-                QTLibraryActions(collection: collection, rows: rows)
-                    .padding(.top, 18)
+                HStack(spacing: 16) {
+                    // The wide variants never truncate Play / Shuffle; the last one has no hard minimum at all (a
+                    // content minimum feeds AppKit's split-view constraints into an update-constraints loop).
+                    if filterWidth != nil {
+                        QTLibraryActions(collection: collection, rows: rows).fixedSize()
+                    } else {
+                        QTLibraryActions(collection: collection, rows: rows).layoutPriority(1)
+                        filter.frame(minWidth: 0, idealWidth: 160, maxWidth: 220)
+                    }
+                }
+                .padding(.top, 18)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            QTFilterField(text: $state.filter, prompt: collection.filterPrompt,
-                          focusRequest: navigator.filterFocusRequest, isFocusTarget: !state.isHeaderPinned,
-                          identifier: "qt.library.filter", onMoveDown: { state.focusTable?() })
-                .frame(width: 220)
-                .frame(height: QTTheme.Metrics.playlistTile, alignment: .center)
+            if let filterWidth {
+                filter
+                    .frame(width: filterWidth)
+                    .frame(height: tile, alignment: .center)
+            }
         }
-        .padding(.horizontal, QTTheme.Spacing.gutter)
-        .padding(.top, 36)
-        .padding(.bottom, 28)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("qt.library.header")
+    }
+
+    private var filter: some View {
+        @Bindable var state = state
+        return QTFilterField(text: $state.filter, prompt: collection.filterPrompt,
+                             focusRequest: QTNavigator.shared.filterFocusRequest, isFocusTarget: !state.isHeaderPinned,
+                             identifier: "qt.library.filter", onMoveDown: { state.focusTable?() })
     }
 }
 

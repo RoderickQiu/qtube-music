@@ -62,6 +62,13 @@ extension View {
     func qtGlassButton(_ prominence: QTPillProminence = .secondary, iconOnly: Bool = false) -> some View {
         modifier(QTGlassButtonModifier(prominence: prominence, iconOnly: iconOnly))
     }
+
+    /// Mood / genre chip: clear glass when off; when on, the same glass with a light wash of the system accent
+    /// (never a solid saturated fill). macOS 15 / Reduce Transparency: the subtle system-fill capsule, accent wash
+    /// when on.
+    func qtGlassChip(isOn: Bool) -> some View {
+        modifier(QTGlassChipModifier(isOn: isOn))
+    }
 }
 
 /// Groups neighbouring glass shapes so they blend and morph together (`GlassEffectContainer` on macOS 26;
@@ -156,7 +163,9 @@ private struct QTGlassButtonModifier: ViewModifier {
         if #available(macOS 26, *), !reduceTransparency, !QTGlassDebug.forcesSolid {
             Group {
                 switch prominence {
-                case .primary: content.buttonStyle(.glassProminent)
+                // The page's one primary action (Play): prominent glass filled with the *system* accent, set
+                // explicitly so it never inherits an artwork tint or reads as a grey capsule like Shuffle.
+                case .primary: content.buttonStyle(.glassProminent).tint(QTTheme.Colors.systemAccent)
                 case .secondary: content.buttonStyle(.glass)
                 }
             }
@@ -164,6 +173,34 @@ private struct QTGlassButtonModifier: ViewModifier {
             .labelStyle(QTGlassButtonLabelStyle(iconOnly: iconOnly))
         } else {
             content.buttonStyle(QTPillButtonStyle(prominence: prominence, iconOnly: iconOnly))
+        }
+    }
+}
+
+private struct QTGlassChipModifier: ViewModifier {
+    let isOn: Bool
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorScheme) private var scheme
+
+    private var wash: Color { QTTheme.Colors.systemAccent.opacity(scheme == .dark ? 0.55 : 0.42) }
+
+    func body(content: Content) -> some View {
+        if #available(macOS 26.1, *), !reduceTransparency, !QTGlassDebug.forcesSolid {
+            // `.glass` takes its colour from `.tint` (a full-strength tint paints a solid fill), so the selected chip
+            // gets a translucent accent; off chips use an explicit untinted glass so the window tint never leaks in.
+            Group {
+                if isOn {
+                    content.buttonStyle(.glass).tint(wash)
+                } else {
+                    content.buttonStyle(.glass(Glass.regular))
+                }
+            }
+            .buttonBorderShape(.capsule)
+            .fontWeight(isOn ? .semibold : nil)
+        } else {
+            content
+                .buttonStyle(QTPillButtonStyle(prominence: .secondary, wash: isOn ? wash : nil))
+                .fontWeight(isOn ? .semibold : nil)
         }
     }
 }
@@ -239,6 +276,17 @@ struct QTVisualEffectBackground: NSViewRepresentable {
 // MARK: - Floating bars
 
 extension View {
+    /// Content scrolling under the toolbar fades into it (the soft scroll-edge effect) instead of meeting a hard
+    /// line, so the content column's toolbar edge matches the panel's. macOS 26+; before, the system default.
+    @ViewBuilder
+    func qtSoftScrollEdges() -> some View {
+        if #available(macOS 26, *) {
+            scrollEdgeEffectStyle(.soft, for: .top)
+        } else {
+            self
+        }
+    }
+
     /// A bar floating over the bottom of a scrolling region (the player bar): on macOS 26 a `safeAreaBar`, so the
     /// scroll view draws its edge effect under the glass and content stays legible through it; a plain safe-area
     /// inset before.

@@ -4,7 +4,7 @@ import SwiftUI
 
 /// A Finder-grade track table (NSTableView): system column headers with sort indicators, click selects,
 /// double-click / ↩ plays, ⇧/⌘ multi-select, ⌥↩ plays next, type-select, NSMenu context menu, drag rows to
-/// sidebar playlists (or as links to other apps), A–Z strip, sticky compact header. See `QTTrackTablePageView`.
+/// sidebar playlists (or as links to other apps), A–Z strip (long title-sorted lists only), sticky compact header. See `QTTrackTablePageView`.
 struct QTTrackTable: NSViewRepresentable {
     var collection: QTTrackCollection
     var rows: [QTTrack]
@@ -155,7 +155,13 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
         } else if old?.playingID != new.playingID || old?.isPlaying != new.isPlaying || old?.likedIDs != new.likedIDs
                     || old?.tint.accentOnDark != new.tint.accentOnDark || old?.tint.useSystem != new.tint.useSystem {
             rows = new.rows
-            reloadVisibleRows()
+            // The rows whose marks changed (old/new now-playing, liked changes) by index — not only the visible
+            // rect, which can be empty while the table is still being laid out (the launch cue lands then).
+            var ids: Set<String> = []
+            if let id = old?.playingID { ids.insert(id) }
+            if let id = new.playingID { ids.insert(id) }
+            ids.formUnion((old?.likedIDs ?? []).symmetricDifference(new.likedIDs))
+            reloadVisibleRows(including: IndexSet(rows.indices.filter { ids.contains(rows[$0].videoId) }))
         }
         if old?.tint.accentOnDark != new.tint.accentOnDark || old?.tint.useSystem != new.tint.useSystem {
             t.enumerateAvailableRowViews { rowView, _ in (rowView as? QTTrackRowView)?.tint = new.tint }
@@ -201,8 +207,8 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
             compactHost = nil
             page.compactHost = nil
         }
-        if new.showsAlphabet && new.rows.count > 1 && alphabetSortable(new.state.sort.key) {
-            let strip = QTAlphabetStrip(available: Set(new.rows.map { indexLetter($0, sort: new.state.sort.key) }),
+        if new.showsAlphabet && Self.wantsAlphabet(rowCount: new.rows.count, sort: new.state.sort.key) {
+            let strip = QTAlphabetStrip(available: availableLetters(new.rows, sort: new.state.sort.key),
                                         onJump: { [weak self] letter in self?.jump(to: letter) })
             if let alphabetHost { alphabetHost.rootView = strip } else {
                 let h = NSHostingView(rootView: strip)
@@ -231,12 +237,13 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
 
     private func c(_ column: Column, in t: NSTableView) -> NSTableColumn? { t.tableColumn(withIdentifier: column.id) }
 
-    private func reloadVisibleRows() {
+    private func reloadVisibleRows(including extra: IndexSet = []) {
         guard let t = page?.tableView else { return }
         let visible = t.rows(in: t.visibleRect)
-        guard visible.length > 0 else { return }
-        t.reloadData(forRowIndexes: IndexSet(integersIn: visible.location..<(visible.location + visible.length)),
-                     columnIndexes: IndexSet(integersIn: 0..<t.numberOfColumns))
+        var indexes = extra.filteredIndexSet { $0 < t.numberOfRows }
+        if visible.length > 0 { indexes.formUnion(IndexSet(integersIn: visible.location..<(visible.location + visible.length))) }
+        guard !indexes.isEmpty else { return }
+        t.reloadData(forRowIndexes: indexes, columnIndexes: IndexSet(integersIn: 0..<t.numberOfColumns))
     }
 
     private func restoreSelection(_ ids: [String]) {
@@ -304,7 +311,7 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
             view = cell
         case .heart:
             let cell = (tableView.makeView(withIdentifier: cellID, owner: nil) as? QTTrackHeartCell) ?? QTTrackHeartCell()
-            cell.configure(liked: config.likedIDs.contains(track.videoId), accent: accent, enabled: true)
+            cell.configure(liked: config.likedIDs.contains(track.videoId), accent: accent, enabled: true, isCurrent: isCurrent)
             cell.onToggle = { [weak self] in self?.model.player.toggleLike(track) }
             view = cell
         case .time:
@@ -378,7 +385,27 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
         page.window?.makeFirstResponder(page.tableView)
     }
 
-    private func alphabetSortable(_ key: QTTrackSort.Key) -> Bool { key != .time }
+    /// The A–Z strip is a jump aid for long lists only: more than `alphabetMinimumRows` rows, sorted by title (the
+    /// letters then follow the visible order). Shorter lists, playlist order, album/time sorts rely on type-to-select
+    /// and the column headers, like Finder and Music. Letters are script-aware (`QTTextFolding.indexLetter`: Latin
+    /// initial, pinyin initial for Han via ICU, "#" for the rest), so a zh-CN library gets useful jump points.
+    static let alphabetMinimumRows = 60
+
+    static func wantsAlphabet(rowCount: Int, sort: QTTrackSort.Key) -> Bool {
+        rowCount > alphabetMinimumRows && sort == .title
+    }
+
+    /// Index letters present in the rows — cached per row set + sort (ICU transliteration per row is not free, and
+    /// `update` runs on every SwiftUI pass).
+    private var letterCache: (ids: [String], sort: QTTrackSort.Key, letters: Set<String>)?
+
+    private func availableLetters(_ rows: [QTTrack], sort: QTTrackSort.Key) -> Set<String> {
+        let ids = rows.map(\.videoId)
+        if let c = letterCache, c.sort == sort, c.ids == ids { return c.letters }
+        let letters = Set(rows.map { indexLetter($0, sort: sort) })
+        letterCache = (ids, sort, letters)
+        return letters
+    }
 
     private func indexLetter(_ t: QTTrack, sort: QTTrackSort.Key) -> String {
         switch sort {
