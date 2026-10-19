@@ -28,7 +28,8 @@ public final class QTAppModel {
     public let settings: QTSettingsStore
     public let player: QTPlayerModel
     @ObservationIgnored public let launch: QTLaunchOptions
-    public private(set) var catalog: QTMockCatalog
+    /// The catalog views read. Mock (demo) data, or the live library folded in by `QTLiveCatalogStore` (data-live).
+    public internal(set) var catalog: QTMockCatalog
 
     // MARK: Navigation and panels
     public var surface: QTSurface = .window
@@ -104,6 +105,8 @@ public final class QTAppModel {
         model.isVideoMode = launch.videoMode ?? (launch.stageBackground == .video)
         if launch.extraWindows.contains(.desktopLyrics) { settings.override { $0.desktopLyrics.isShown = true } }
         QTReadiness.shared.configure(readyFile: launch.readyFile)
+        // Live YouTube Music data unless `-qt.catalog mock` (or the demo was chosen); see QTLiveCatalogStore.
+        QTLiveCatalogStore.shared.attach(model)
         model.applyAppearance()
         return model
     }

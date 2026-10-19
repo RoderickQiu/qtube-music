@@ -110,9 +110,16 @@ struct QTContentRouter: View {
     var body: some View {
         let navigator = QTNavigator.shared
         let query = model.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let live = QTLiveCatalogStore.shared
         Group {
-            if !query.isEmpty {
+            if !query.isEmpty, live.isLive {
+                QTLiveSearchView(query: query)
+            } else if !query.isEmpty {
                 QTSearchResultsView(query: query)
+            } else if live.handles(navigator.current) {
+                // data-live: YouTube Music pages, signed-out and loading states.
+                QTLivePage(destination: navigator.current)
+                    .id(navigator.current.stateKey)
             } else {
                 page(navigator.current)
                     .id(navigator.current.stateKey)

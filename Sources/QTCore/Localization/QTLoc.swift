@@ -26,6 +26,8 @@ public enum QTStringTable: String, Sendable, CaseIterable {
     case stage = "Stage"
     /// Desktop (mini player, menu bar, desktop lyrics), Commands, Settings, app target (builder "desktop").
     case desktop = "Desktop"
+    /// Live YouTube Music data: sign-in, signed-out / loading / error states, search, artist pages (builder "data-live").
+    case live = "Live"
 }
 
 /// Runtime-switchable localization. Thread-safe; observable so SwiftUI bodies that call `QTLoc.tr`

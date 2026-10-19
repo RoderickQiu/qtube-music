@@ -299,3 +299,46 @@ public struct QTAccountInfo: Sendable, Hashable, Codable {
         self.isPremium = isPremium
     }
 }
+
+/// Account facts from the signed-in web client's `ytcfg` (see `QTInnerTubeClient.accountContext()`).
+public struct QTAccountContext: Sendable, Hashable {
+    /// `IS_SUBSCRIBER`: true for YouTube Music Premium / YouTube Premium members (verified on a Premium account
+    /// 2026-10-18; the anonymous page has no such key).
+    public var isSubscriber: Bool?
+    /// `INNERTUBE_CONTEXT_GL`: the region YouTube uses for this account (its location setting, else a guess).
+    public var gl: String?
+    /// `INNERTUBE_CONTEXT_HL`: the account's own language preference (the app's `hl` follows the interface language).
+    public var hl: String?
+    /// `LOGGED_IN`.
+    public var isLoggedIn: Bool?
+
+    public init(isSubscriber: Bool? = nil, gl: String? = nil, hl: String? = nil, isLoggedIn: Bool? = nil) {
+        self.isSubscriber = isSubscriber
+        self.gl = gl
+        self.hl = hl
+        self.isLoggedIn = isLoggedIn
+    }
+
+    /// Reads the first `"KEY": value` of each key from the page HTML.
+    public static func scrape(html: String) -> QTAccountContext {
+        func raw(_ key: String) -> String? {
+            guard let regex = try? NSRegularExpression(pattern: "\"\(key)\"\\s*:\\s*(\"[^\"]*\"|true|false)"),
+                  let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+                  let range = Range(match.range(at: 1), in: html) else { return nil }
+            return String(html[range])
+        }
+        func bool(_ key: String) -> Bool? {
+            switch raw(key) {
+            case "true": true
+            case "false": false
+            default: nil
+            }
+        }
+        func string(_ key: String) -> String? {
+            guard let v = raw(key), v.hasPrefix("\""), v.count > 2 else { return nil }
+            return String(v.dropFirst().dropLast())
+        }
+        return QTAccountContext(isSubscriber: bool("IS_SUBSCRIBER"), gl: string("INNERTUBE_CONTEXT_GL") ?? string("GL"),
+                                hl: string("INNERTUBE_CONTEXT_HL") ?? string("HL"), isLoggedIn: bool("LOGGED_IN"))
+    }
+}

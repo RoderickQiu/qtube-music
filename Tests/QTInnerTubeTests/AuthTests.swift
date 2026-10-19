@@ -178,6 +178,25 @@ import Testing
         #expect(try keychain.read() == nil)
     }
 
+    #if DEBUG
+    /// The prompt-free shared dev item, with a throwaway account and fake data; opt-in.
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["QT_KEYCHAIN_TEST"] == "1"))
+    func devSharedKeychainRoundTrip() throws {
+        let store = QTDevSharedKeychainStore(service: "com.roderickqiu.qtube.tests", account: "fake-\(UUID().uuidString)")
+        defer { try? store.delete() }
+        #expect(try store.read() == nil)
+        // Incompressible payload → several chunks.
+        var big = Data(count: 9000)
+        for i in big.indices { big[i] = UInt8.random(in: 0...255) }
+        try store.write(big)
+        #expect(try store.read() == big)
+        try store.write(Data("small".utf8))
+        #expect(try store.read() == Data("small".utf8))
+        try store.delete()
+        #expect(try store.read() == nil)
+    }
+    #endif
+
     @Test func decodesDevToolsCookies() throws {
         let json = """
         {"cookies":[

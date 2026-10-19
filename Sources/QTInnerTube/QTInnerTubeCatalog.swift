@@ -49,7 +49,11 @@ public struct QTInnerTubeCatalog: QTCatalogService {
         }
         // Liked Music is shown on its own; drop its tile and any duplicates.
         var seen = Set<String>()
-        return playlists.filter { $0.kind != .liked && QTParse.rawPlaylistId($0.id) != "LM" && seen.insert($0.id).inserted }
+        // "SE" is Episodes for Later (podcasts): music only.
+        return playlists.filter {
+            let raw = QTParse.rawPlaylistId($0.id)
+            return $0.kind != .liked && raw != "LM" && raw != "SE" && seen.insert($0.id).inserted
+        }
     }
 
     public func playlist(id: String) async throws -> QTPlaylist? {

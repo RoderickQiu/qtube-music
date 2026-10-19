@@ -69,7 +69,22 @@ public enum QTInnerTubeParser {
             case "musicCardShelfRenderer":
                 let card = section["musicCardShelfRenderer"]
                 if results.topResult == nil, case .item(let item) = topResult(card) { results.topResult = item }
-                results.items += QTItemParser.items(card["contents"].array, context: context).items
+                var cardItems = QTItemParser.items(card["contents"].array, context: context).items
+                // An artist card lists that artist's songs as "Song • 4:45" — no artist run; it's the card's artist.
+                if case .artist(let artist)? = results.topResult {
+                    cardItems = cardItems.map { item in
+                        switch item {
+                        case .track(var t) where t.artists.isEmpty:
+                            t.artists = [QTArtistRef(id: artist.id, name: artist.name)]
+                            return .track(t)
+                        case .video(var t) where t.artists.isEmpty:
+                            t.artists = [QTArtistRef(id: artist.id, name: artist.name)]
+                            return .video(t)
+                        default: return item
+                        }
+                    }
+                }
+                results.items += cardItems
             case "itemSectionRenderer":
                 results.items += QTItemParser.items(section["itemSectionRenderer"]["contents"].array, context: context).items
             case "musicShelfRenderer":

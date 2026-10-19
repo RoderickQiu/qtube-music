@@ -176,8 +176,12 @@ struct QTHomeCard: View {
         case .track(let t): trackCard(t, video: false)
         case .video(let t): trackCard(t, video: true)
         case .playlist(let p): playlistCard(p)
-        case .album(let a): albumCard(a)
-        case .artist(let a): artistCard(a)
+        // Live shelves (data-live) open albums/artists by browse/channel id through the live store; the demo
+        // catalog's cards open the mock browse pages by title.
+        case .album(let a):
+            if QTLiveCatalogStore.shared.isLive { QTLiveAlbumCard(album: a) } else { albumCard(a) }
+        case .artist(let a):
+            if QTLiveCatalogStore.shared.isLive { QTLiveArtistCard(artist: a) } else { artistCard(a) }
         }
     }
 
@@ -240,7 +244,7 @@ struct QTHomeCard: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
+        .onHover { isHovered = $0; if $0 { QTLiveCatalogStore.shared.prefetch(item) } }
         .dropDestination(for: String.self) { items, _ in
             let tracks = QTTrackActions.tracks(fromDropped: items, catalog: model.catalog)
             guard !tracks.isEmpty else { return false }

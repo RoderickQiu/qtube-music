@@ -372,6 +372,7 @@ public actor QTInnerTubeClient {
     }
 
     public func artist(_ browseId: String) async throws -> QTArtistPage {
+        let browseId = Self.channelId(browseId)
         let json = try await browse(browseId, ttl: QTCacheTTL.artist)
         guard let page = QTInnerTubeParser.artist(json, browseId: browseId) else { throw QTInnerTubeError.parse("artist") }
         return page
@@ -425,17 +426,24 @@ public actor QTInnerTubeClient {
         }
     }
 
+    /// Artists of the songs in the library. Ids are channel ids (`UC…`; the library's `MPLA…` wrappers are unwrapped).
     public func libraryArtists() async throws -> QTLibraryPage<QTArtist> {
         library("FEmusic_library_corpus_track_artists",
                 try await browse("FEmusic_library_corpus_track_artists", ttl: QTCacheTTL.library)) {
-            if case .artist(let a) = $0 { a } else { nil }
+            if case .artist(var a) = $0 { a.id = Self.channelId(a.id); return a } else { return nil }
         }
     }
 
+    /// Songs saved to the library (`FEmusic_liked_videos`; `FEmusic_library_songs` answers 400 as of 2026-10).
     public func librarySongs() async throws -> QTLibraryPage<QTTrack> {
-        library("FEmusic_library_songs", try await browse("FEmusic_library_songs", ttl: QTCacheTTL.library)) {
+        library("FEmusic_liked_videos", try await browse("FEmusic_liked_videos", ttl: QTCacheTTL.library)) {
             $0.track
         }
+    }
+
+    /// Library artist pages (`MPLAUC…`) only list the user's songs; the artist page is the channel (`UC…`).
+    public static func channelId(_ browseId: String) -> String {
+        browseId.hasPrefix("MPLA") ? String(browseId.dropFirst(4)) : browseId
     }
 
     /// Next page of any library list.
@@ -506,6 +514,37 @@ public actor QTInnerTubeClient {
         let json = try await send("account/account_menu", body: [:], requiresAuth: true)
         guard let info = QTInnerTubeParser.account(json) else { throw QTInnerTubeError.parse("account") }
         return info
+    }
+
+    /// Facts only the signed-in web client page states (its `ytcfg`): Music Premium (`IS_SUBSCRIBER`), the region
+    /// YouTube uses for the account (`INNERTUBE_CONTEXT_GL`) and its language. A read-only GET of music.youtube.com.
+    public func accountContext() async throws -> QTAccountContext {
+        guard let credentials = await credentialsProvider?.credentials() else { throw QTInnerTubeError.notSignedIn }
+        var request = URLRequest(url: configuration.webClientURL)
+        request.httpShouldHandleCookies = false
+        request.timeoutInterval = 15
+        request.setValue(configuration.userAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue(configuration.hl, forHTTPHeaderField: "Accept-Language")
+        request.setValue(credentials.cookieHeader + "; SOCS=CAI", forHTTPHeaderField: "Cookie")
+        let data: Data
+        let response: HTTPURLResponse
+        do {
+            (data, response) = try await transport.send(request)
+        } catch let error as URLError {
+            throw QTInnerTubeError.network(code: error.errorCode)
+        }
+        guard (200..<300).contains(response.statusCode) else { throw QTInnerTubeError.http(status: response.statusCode) }
+        if let url = response.url, let fields = response.allHeaderFields as? [String: String] {
+            let rotated = HTTPCookie.cookies(withResponseHeaderFields: fields, for: url)
+            if !rotated.isEmpty { await credentialsProvider?.didReceive(cookies: rotated) }
+        }
+        let context = QTAccountContext.scrape(html: String(decoding: data, as: UTF8.self))
+        if context.isLoggedIn == false {
+            await credentialsProvider?.sessionDidExpire()
+            cache.removeAll()
+            throw QTInnerTubeError.sessionExpired
+        }
+        return context
     }
 
     // MARK: Writes (gated: never exercised against a live account without the user's consent)

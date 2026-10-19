@@ -28,6 +28,8 @@ let package = Package(
         .executableTarget(name: "QTubeMusicApp", dependencies: ["QTUI"]),
         // Dev-only harness: drives QTWebPlaybackEngine live (anonymous, silent). `swift run QTPlaybackLab --help`.
         .executableTarget(name: "QTPlaybackLab", dependencies: ["QTPlayback"]),
+        // Dev-only (DEBUG): import/inspect the shared dev session (HANDOFF §8). `swift run QTDevSession status`.
+        .executableTarget(name: "QTDevSession", dependencies: ["QTAuth"]),
 
         .testTarget(name: "QTCoreTests", dependencies: ["QTCore"], resources: [.copy("Fixtures")]),
         .testTarget(name: "QTLyricsTests", dependencies: ["QTLyrics"], resources: [.copy("Fixtures")]),

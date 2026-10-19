@@ -16,9 +16,10 @@ public actor QTSessionStore: QTInnerTubeCredentialsProvider {
     private let now: @Sendable () -> Date
     private var session: QTAuthSession?
     private var isExpired = false
+    private var lastPersist = Date.distantPast
     private var continuations: [UUID: AsyncStream<QTSessionEvent>.Continuation] = [:]
 
-    public init(store: any QTSecureStore = QTKeychainStore(), now: @escaping @Sendable () -> Date = { Date() }) {
+    public init(store: any QTSecureStore = QTKeychainStore.appDefault, now: @escaping @Sendable () -> Date = { Date() }) {
         self.store = store
         self.now = now
     }
@@ -73,7 +74,7 @@ public actor QTSessionStore: QTInnerTubeCredentialsProvider {
     public var expired: Bool { isExpired }
 
     public func setAccount(_ account: QTAccountInfo?) throws {
-        guard var s = session else { return }
+        guard var s = session, s.account != account else { return }
         s.account = account
         try persist(s)
         session = s
@@ -93,6 +94,11 @@ public actor QTSessionStore: QTInnerTubeCredentialsProvider {
         let merged = s.merging(cookies, now: now())
         guard merged.cookies != s.cookies, merged.isComplete else { return }
         session = merged
+        // `SIDCC`-family cookies change on nearly every response; they're kept in memory and written at most every
+        // ten minutes. Anything else (PSIDTS rotation, a new SID) is written at once.
+        let changed = Set(merged.cookies).symmetricDifference(Set(s.cookies)).map(\.name)
+        let onlyCC = changed.allSatisfy { $0.hasSuffix("SIDCC") }
+        guard !onlyCC || now().timeIntervalSince(lastPersist) > 600 else { return }
         try? persist(merged)
     }
 
@@ -120,6 +126,7 @@ public actor QTSessionStore: QTInnerTubeCredentialsProvider {
         encoder.dateEncodingStrategy = .secondsSince1970
         guard let data = try? encoder.encode(s) else { throw QTAuthError.encoding }
         try store.write(data)
+        lastPersist = now()
     }
 
     // MARK: QTInnerTubeCredentialsProvider

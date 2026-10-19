@@ -5,8 +5,8 @@ import QTInnerTube
 import SwiftUI
 
 // Owner: builder "desktop". Settings › Account: who is signed in to YouTube Music, sign in / sign out, and the
-// playback engine. Reads `QTAuthController.state` (`QTAuthState`); the data-live builder owns the controller's
-// wiring (restore at launch, InnerTube client). Signing out asks first, the way System Settings does.
+// playback engine. Reads `QTAuthController.state` (`QTAuthState`) from `model.authController`, which
+// `QTLiveCatalogStore` (data-live) sets at launch and restores from the Keychain. Signing out asks first, the way System Settings does.
 
 /// What the Account tab shows: the controller's state, or (DEBUG screenshots) a preview state.
 struct QTAccountSnapshot: Equatable {
@@ -91,8 +91,8 @@ struct QTAccountSettings: View {
         .formStyle(.grouped)
         .confirmationDialog(QTLoc.tr("Sign out of YouTube Music?", table: .desktop), isPresented: $confirmSignOut) {
             Button(QTLoc.tr("Sign Out", table: .desktop), role: .destructive) {
-                guard let auth = model.authController else { return }
-                Task { await auth.signOut() }
+                // Through the live store (it also clears the library pages and shows the signed-out state).
+                Task { await QTLiveCatalogStore.shared.signOut() }
             }
         } message: {
             Text(QTLoc.tr("Your library and likes stay in your YouTube Music account.", table: .desktop))
@@ -150,15 +150,10 @@ struct QTAccountSettings: View {
         }
     }
 
-    /// User-initiated only (a click). Without a wired backend, a controller is created on demand.
+    /// User-initiated only (a click). The live store owns the app's `QTAuthController` (`model.authController`)
+    /// and its InnerTube client; a successful sign-in switches the window to the user's library.
     private func signIn() {
-        let auth = model.authController ?? {
-            let c = QTAuthController()
-            model.authController = c
-            return c
-        }()
-        let hl = QTLoc.language == .zhHans ? "zh-CN" : "en"
-        auth.beginSignIn(hl: hl, over: NSApp.keyWindow)
+        QTLiveCatalogStore.shared.signIn()
     }
 }
 

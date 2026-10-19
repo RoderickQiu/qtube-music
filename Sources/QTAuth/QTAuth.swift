@@ -75,29 +75,43 @@ public final class QTAuthController {
     // MARK: Sign in / out
 
     /// Opens the Google sign-in window. `hl` = interface language for Google's pages.
-    public func beginSignIn(hl: String, over parent: NSWindow? = nil) {
+    /// - Parameter isEphemeral: DEBUG screenshots only — a private, throwaway WebKit store, so the window shows
+    ///   Google's sign-in page even when this app is already signed in (a finished login there isn't kept).
+    public func beginSignIn(hl: String, over parent: NSWindow? = nil, isEphemeral: Bool = false) {
         if let signInWindow {
             signInWindow.present(over: parent)
             return
         }
         let previous = state
         state = .signingIn
-        let dataStore = (cookieStore as? QTWebKitCookieStore)?.dataStore ?? .default()
-        let controller = QTSignInWindowController(dataStore: dataStore, cookieStore: cookieStore, hl: hl) {
+        var dataStore = (cookieStore as? QTWebKitCookieStore)?.dataStore ?? .default()
+        var windowCookies: any QTWebCookieStore = cookieStore
+        if isEphemeral {
+            dataStore = .nonPersistent()
+            windowCookies = QTWebKitCookieStore(dataStore: dataStore)
+        }
+        let controller = QTSignInWindowController(dataStore: dataStore, cookieStore: windowCookies, hl: hl) {
             [weak self] result in
             guard let self else { return }
             self.signInWindow = nil
             switch result {
             case .success(let cookies):
-                Task { await self.completeSignIn(cookies: cookies) }
+                if isEphemeral {
+                    self.state = previous == .signingIn ? .signedOut : previous
+                } else {
+                    Task { await self.completeSignIn(cookies: cookies) }
+                }
             case .failure(let error):
                 self.lastError = error
                 self.state = previous == .signingIn ? .signedOut : previous
             }
         }
         signInWindow = controller
-        controller.present(over: parent)
+        controller.present(over: parent, quietly: isEphemeral)
     }
+
+    /// Posted when an ephemeral (screenshot) sign-in window has loaded Google's page and appeared.
+    public static let ephemeralSignInDidShow = QTSignInWindowController.didShowQuietly
 
     public func cancelSignIn() {
         signInWindow?.close()
@@ -117,10 +131,23 @@ public final class QTAuthController {
         }
     }
 
-    /// Reads the account name/photo (read-only `account/account_menu`).
+    /// Account facts from the signed-in web client (Premium, region); nil until `refreshAccount()` read them.
+    public private(set) var accountContext: QTAccountContext?
+
+    /// Reads the account name/photo (read-only `account/account_menu`) and Premium + region from the signed-in web
+    /// client's `ytcfg` (`IS_SUBSCRIBER`, `INNERTUBE_CONTEXT_GL`). The client's `gl` follows the account region.
     public func refreshAccount() async {
         guard let client, isSignedIn else { return }
-        guard let info = try? await client.account() else { return }
+        async let infoResult = try? client.account()
+        async let contextResult = try? client.accountContext()
+        let (fetched, context) = await (infoResult, contextResult)
+        guard isSignedIn else { return }
+        if let context {
+            accountContext = context
+            if let gl = context.gl { await client.setRegion(gl: gl) }
+        }
+        guard var info = fetched ?? account else { return }
+        if let premium = context?.isSubscriber { info.isPremium = premium }
         account = info
         try? await sessionStore.setAccount(info)
         state = .signedIn(accountName: info.name, isPremium: info.isPremium ?? false)
