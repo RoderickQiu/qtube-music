@@ -1,0 +1,27 @@
+{
+ "version": 1,
+ "tracks": [
+  {"videoId": "t1", "title": "Đối Với Anh", "artists": [{"name": "Artist A"}], "album": {"title": "Album A"}, "duration": 200,
+   "artwork": [{"url": "covers/t1.jpg", "width": 300, "height": 300}], "musicVideoType": "MUSIC_VIDEO_TYPE_ATV",
+   "counterpart": {"videoId": "v1", "musicVideoType": "MUSIC_VIDEO_TYPE_OMV", "artwork": [{"url": "mv/t1.jpg"}]},
+   "isExplicit": false, "availability": "playable", "palette": {"accent": "#703635", "deep": "#1f070e"}, "lyricsHint": "word"},
+  {"videoId": "t2", "title": "Second", "subtitle": "副标题", "artists": [{"name": "Artist B"}, {"name": "Artist C"}], "duration": 125,
+   "artwork": [], "musicVideoType": "MUSIC_VIDEO_TYPE_PODCAST_EPISODE", "isExplicit": true, "availability": "regionLocked"}
+ ],
+ "lyrics": {
+  "t1": {"lines": [{"start": 1, "duration": 2, "text": "Gió cứ ", "words": [{"start": 1, "duration": 0.5, "text": "Gió "}, {"start": 1.5, "duration": 0.5, "text": "cứ"}], "translation": "风"},
+                   {"start": 4, "text": "Line two"}],
+         "syncKind": "word", "source": {"id": "mock", "name": "Mock", "isUnofficial": false}, "language": "vi",
+         "translationLanguage": "zh-Hans", "confidence": 1, "offset": 0}
+ },
+ "liked": {"id": "LM", "title": {"key": "Liked Songs"}, "kind": "liked", "trackIDs": ["t1", "t2"]},
+ "playlists": [{"id": "pl-1", "title": {"verbatim": "Sugar"}, "kind": "user", "trackIDs": ["t2", "missing"]}],
+ "home": {
+  "moods": [{"id": "relax", "title": {"key": "Relax"}}],
+  "shelves": [
+   {"id": "listen-again", "title": {"key": "Listen again"}, "style": "cards", "items": [{"track": "t1"}, {"track": "nope"}]},
+   {"id": "music-videos", "title": {"key": "Music videos"}, "style": "videos", "items": [{"video": "t1"}]},
+   {"id": "your-playlists", "title": {"key": "Your playlists"}, "style": "cards", "items": [{"playlist": "LM"}, {"playlist": "pl-1"}]}
+  ]
+ }
+}
