@@ -184,11 +184,24 @@ public final class QTLiveCatalogStore {
         // Premium + account region first: `gl` shapes Home.
         await auth.refreshAccount()
         applyAccount()
+        installAutoplay()
         async let home: Void = loadHome()
         async let library: Void = loadLibraryPlaylists()
         async let liked: Void = loadLiked()
         _ = await (home, library, liked)
         applyLaunchDestination()
+    }
+
+    /// Autoplay after the queue runs out: YouTube Music's radio for the last track (`next` with `RDAMVM<id>`,
+    /// read-only), minus what is already queued. Only while the live library is on.
+    private func installAutoplay() {
+        guard let model else { return }
+        let client = client
+        model.player.playback.autoplayContinuation = { [weak self] request in
+            guard let self, self.mode == .live, let seed = request.seed, seed.videoId.count == 11 else { return [] }
+            let page = try await client.next(videoId: seed.videoId, playlistId: "RDAMVM" + seed.videoId)
+            return page.tracks.filter { $0.videoId != seed.videoId && !request.excludingVideoIDs.contains($0.videoId) }
+        }
     }
 
     /// `-qt.live.open album:<id|title>` / `artist:<id|name>` / `playlist:<id>` opens that page at launch;

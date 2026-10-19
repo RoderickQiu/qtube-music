@@ -143,7 +143,11 @@ public final class QTLyricsSession {
         let offline = launch.bool("qt.lyrics.offline") == true
         let http: any QTLyricsHTTPClient = offline ? QTOfflineLyricsHTTPClient() : QTURLSessionLyricsHTTPClient()
         let hl = QTInnerTubeConfiguration.hl(for: QTLoc.language)
-        let innerTube = QTInnerTubeLyricsClient(transport: offline ? QTOfflineInnerTubeTransport() : QTURLSessionTransport(),
+        // With the live library, lyrics requests follow the app client's hl / gl / visitor id (still anonymous: no
+        // cookies, no SAPISIDHASH).
+        let appClient = QTLiveCatalogStore.wantsLive(launch) && !offline ? QTLiveCatalogStore.shared.client : nil
+        let innerTube = QTInnerTubeLyricsClient(client: appClient,
+                                                transport: offline ? QTOfflineInnerTubeTransport() : QTURLSessionTransport(),
                                                 hl: hl, gl: QTInnerTubeConfiguration.gl())
         let resolver = QTLyricsResolver.standard(cache: cache, http: http,
                                                  innerTube: QTInnerTubeLyricsBridge(client: innerTube))

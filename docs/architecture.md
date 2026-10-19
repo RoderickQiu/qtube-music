@@ -44,6 +44,9 @@ Everything is wired (integration of M1 polish + M2–M4):
 - **Playback:** `QTPlaybackSetup` / `QTPlaybackServices` (`QTUI/AppModel/QTPlaybackSetup.swift`, builder "playback"),
   with `source: .live` whenever the live catalog is wanted. Live playback is **anonymous by default**
   (`-qt.playback.anonymous NO` would use the user's session, which writes watch history — user-gated).
+- **Autoplay:** with the live library, `QTQueueController.autoplayContinuation` is YouTube Music's radio for the
+  last track (`next` with `RDAMVM<id>`, read-only), installed by `QTLiveCatalogStore` on entering live mode.
+  Lyrics' `QTInnerTubeLyricsClient` follows the app client's hl / gl / visitor id (still anonymous).
 - **Account:** `model.authController` is the live store's `QTAuthController`; Settings › Account (desktop) shows its
   state and signs in/out through the store.
 
