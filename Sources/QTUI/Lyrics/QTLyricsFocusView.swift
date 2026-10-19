@@ -87,7 +87,7 @@ final class QTLyricsFocusView: NSView {
     private func rebuild() {
         guard let cfg = config, bounds.width > 1 else { return }
         var lanes = cfg.lanes
-        lanes.showsRomanization = isDesktop
+        lanes.showsRomanization = isDesktop && cfg.lanes.showsRomanization
         if !isDesktop || cfg.lineCount < 2 { lanes.translations = isDesktop ? nil : lanes.translations }
         rows = QTLyricsRowBuilder.rows(for: cfg.document, lanes: lanes, metrics: metrics, width: bounds.width, includeGaps: false)
         shown.forEach { $0.container.removeFromSuperlayer() }

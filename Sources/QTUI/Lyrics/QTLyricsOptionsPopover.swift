@@ -68,7 +68,7 @@ public struct QTLyricsOptionsPopover: View {
             header(doc)
             Form {
                 translationSection(status)
-                lyricsSection(doc)
+                lyricsSection(doc, resolved: resolved)
             }
             .formStyle(.grouped)
             .scrollContentBackground(.hidden)
@@ -106,7 +106,7 @@ public struct QTLyricsOptionsPopover: View {
             }
             Spacer(minLength: 8)
             if let doc {
-                Text(QTLoc.tr(doc.syncKind == .word ? "Word timing" : "Line timing"))
+                Text(timingKind(doc))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -115,6 +115,14 @@ public struct QTLyricsOptionsPopover: View {
         .padding(.top, 16)
         .padding(.bottom, 2)
         .accessibilityElement(children: .combine)
+    }
+
+    private func timingKind(_ doc: QTLyricsDocument) -> String {
+        switch doc.syncKind {
+        case .word: QTLoc.tr("Word timing")
+        case .line: QTLoc.tr("Line timing")
+        case .plain: QTLoc.tr("Unsynced", table: .lyrics)
+        }
     }
 
     /// "No lyrics", or "Offline" while the sources can't be reached (the lookup retries on reconnect).
@@ -129,19 +137,31 @@ public struct QTLyricsOptionsPopover: View {
     private func translationSection(_ status: QTLyricsTranslationStatus) -> some View {
         @Bindable var model = model
         Section {
-            Picker(QTLoc.tr("Translate to"), selection: $model.lyricsTranslation) {
-                Text(verbatim: "\(QTLoc.tr("Interface language")) · \(QTLyricsTranslationTarget.nativeName(for: QTLyricsTranslationTarget.interfaceLanguage.resolvedLanguage(interface: QTLoc.language) ?? "en"))")
-                    .tag(QTLyricsTranslationTarget.interfaceLanguage)
-                Text(QTLoc.tr("Off")).tag(QTLyricsTranslationTarget.off)
-                Divider()
-                ForEach(QTLyricsTranslationTarget.languages, id: \.self) { t in
-                    Text(verbatim: QTLyricsTranslationTarget.nativeName(for: t.rawValue)).tag(t)
+            // The status (who translates, the download consent) sits in the picker's own row: as a grouped-form
+            // footer it left a whole section's gap under one short line.
+            VStack(alignment: .leading, spacing: 6) {
+                Picker(QTLoc.tr("Translate to"), selection: $model.lyricsTranslation) {
+                    Text(verbatim: "\(QTLoc.tr("Interface language")) · \(QTLyricsTranslationTarget.nativeName(for: QTLyricsTranslationTarget.interfaceLanguage.resolvedLanguage(interface: QTLoc.language) ?? "en"))")
+                        .tag(QTLyricsTranslationTarget.interfaceLanguage)
+                    Text(QTLoc.tr("Off")).tag(QTLyricsTranslationTarget.off)
+                    Divider()
+                    ForEach(QTLyricsTranslationTarget.languages, id: \.self) { t in
+                        Text(verbatim: QTLyricsTranslationTarget.nativeName(for: t.rawValue)).tag(t)
+                    }
+                }
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("qt.lyrics.translationPicker")
+                if Self.hasStatusLine(status) {
+                    translationStatus(status)
                 }
             }
-            .pickerStyle(.menu)
-            .accessibilityIdentifier("qt.lyrics.translationPicker")
-        } footer: {
-            translationStatus(status)
+        }
+    }
+
+    static func hasStatusLine(_ status: QTLyricsTranslationStatus) -> Bool {
+        switch status {
+        case .noLyrics, .off: false
+        default: true
         }
     }
 
@@ -220,8 +240,14 @@ public struct QTLyricsOptionsPopover: View {
 
     // MARK: Sources, timing, versions
 
-    private func lyricsSection(_ doc: QTLyricsDocument?) -> some View {
+    private func lyricsSection(_ doc: QTLyricsDocument?, resolved: QTResolvedLyrics) -> some View {
         Section {
+            if doc?.lines.contains(where: { $0.romanization?.isEmpty == false }) == true {
+                Toggle(QTLoc.tr("Pronunciation", table: .lyrics), isOn: pronunciation(resolved))
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .accessibilityIdentifier("qt.lyrics.pronunciation")
+            }
             Toggle(QTLoc.tr("Unofficial sources"), isOn: unofficialSources)
                 .toggleStyle(.switch)
                 .controlSize(.small)
@@ -242,7 +268,7 @@ public struct QTLyricsOptionsPopover: View {
                     }
                     .labelsHidden()
                 }
-                .disabled(doc == nil)
+                .disabled(doc == nil || doc?.syncKind == .plain)
             }
             .help("\(QTLoc.tr("Lyrics Earlier"))  ⌥↑   ·   \(QTLoc.tr("Lyrics Later"))  ⌥↓")
             .accessibilityIdentifier("qt.lyrics.timingStepper")
@@ -250,6 +276,16 @@ public struct QTLyricsOptionsPopover: View {
                 versionsMenu(doc)
             }
         }
+    }
+
+    /// Pronunciation (pinyin, romaji…): Automatic shows it only without a translation line; the switch makes it the
+    /// user's choice from then on.
+    private func pronunciation(_ resolved: QTResolvedLyrics) -> Binding<Bool> {
+        let hasTranslation = resolved.translations?.contains { $0?.isEmpty == false } == true
+            || resolved.translationStatus == .translating
+        return Binding(
+            get: { model.settings.settings.lyricsPronunciation.shows(withTranslation: hasTranslation) },
+            set: { on in model.settings.update { $0.lyricsPronunciation = on ? .on : .off } })
     }
 
     /// One switch for NetEase, Kugou and QQ Music: on when any is enabled; turning it on enables all three (fine

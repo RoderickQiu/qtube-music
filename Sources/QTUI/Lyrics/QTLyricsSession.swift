@@ -92,7 +92,7 @@ public enum QTLyricsTiming {
     public static let step: TimeInterval = 0.1
 
     public static func nudge(_ model: QTAppModel, by delta: TimeInterval) {
-        guard model.player.lyrics != nil else { return }
+        guard let doc = model.player.lyrics, doc.syncKind != .plain else { return }
         model.player.nudgeLyricsOffset(by: delta)
         let offset = model.player.lyrics?.offset ?? 0
         model.showToast(QTLoc.tr("Lyrics timing %@ s", QTFormat.signedOffset(offset)))

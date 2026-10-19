@@ -15,9 +15,13 @@ public struct QTLyricsQuery: Sendable, Hashable, Codable {
     public var album: String?
     /// Seconds; 0 when unknown.
     public var duration: TimeInterval
+    /// Strict timing (Song⇄Video renditions of different lengths): only candidates that declare a duration within
+    /// this many seconds of `duration` are considered — a version timed for another cut would drift. nil = the usual
+    /// fuzzy duration score.
+    public var durationTolerance: TimeInterval?
 
     public init(videoId: String, lyricsVideoId: String? = nil, title: String, subtitle: String? = nil,
-                artists: [String], album: String? = nil, duration: TimeInterval) {
+                artists: [String], album: String? = nil, duration: TimeInterval, durationTolerance: TimeInterval? = nil) {
         self.videoId = videoId
         self.lyricsVideoId = lyricsVideoId ?? videoId
         self.title = title
@@ -25,6 +29,7 @@ public struct QTLyricsQuery: Sendable, Hashable, Codable {
         self.artists = artists
         self.album = album
         self.duration = duration
+        self.durationTolerance = durationTolerance
     }
 
     public init(track: QTTrack) {

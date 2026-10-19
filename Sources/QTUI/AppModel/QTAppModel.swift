@@ -125,6 +125,8 @@ public final class QTAppModel {
         QTLiveCatalogStore.shared.attach(model)
         // Song⇄Video intent, counterparts, Picture in Picture (NowPlaying/QTVideoModeService.swift).
         QTVideoModeService.shared.install(model: model)
+        // Lyrics follow the rendition that plays (an MV of another length gets its own timing or unsynced lyrics).
+        QTLyricsRenditionCoordinator.shared.install(player: player)
         model.applyAppearance()
         return model
     }

@@ -316,6 +316,12 @@ public enum QTLyricsTranslationPolish {
     ///   - source: the sung line it translates; nil when unknown (cached results), treated as "no full stop".
     public static func line(_ translation: String, source: String?) -> String {
         let t = translation.trimmingCharacters(in: .whitespacesAndNewlines)
+        // A line the engine left as it was (solfège, names, vocables, an English line in a Chinese song) would only
+        // repeat itself under itself: no translation line for it.
+        if let source, !t.isEmpty {
+            let key = QTLyricsTextFolding.comparisonKey(t)
+            if key.count > 1, key == QTLyricsTextFolding.comparisonKey(source) { return "" }
+        }
         if let source, endsWithFullStop(source.trimmingCharacters(in: .whitespacesAndNewlines)) { return t }
         var chars = Array(t)
         var end = chars.count

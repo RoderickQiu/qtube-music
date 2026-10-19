@@ -101,6 +101,16 @@
         }
       }
     },
+    "Pronunciation": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发音"
+          }
+        }
+      }
+    },
     "Report Wrong Lyrics": {
       "localizations": {
         "zh-Hans": {
@@ -121,6 +131,16 @@
         }
       }
     },
+    "Translate to %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "翻译成%@"
+          }
+        }
+      }
+    },
     "Try Again": {
       "localizations": {
         "zh-Hans": {
@@ -137,6 +157,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "非官方，可能失效"
+          }
+        }
+      }
+    },
+    "Unsynced": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未同步"
           }
         }
       }

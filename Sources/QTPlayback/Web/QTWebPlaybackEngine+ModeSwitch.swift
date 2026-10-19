@@ -123,7 +123,16 @@ extension QTWebPlaybackEngine {
     }
 
     /// Runs one seamless switch (see the file header). Returns how it ended.
-    func seamlessModeSwitch(to item: QTPlaybackItem, videoID: String, from: QTPlaybackMode) async -> QTWebStandbySwitch.Outcome {
+    /// A requested position this far from the clock is a shift between two cuts, not the moment between asking
+    /// and switching.
+    static func modeSwitchShift(requested: TimeInterval, clock: TimeInterval) -> TimeInterval {
+        abs(requested - clock) >= 0.75 ? requested - clock : 0
+    }
+
+    /// - Parameter shift: the new rendition's position minus the old one's for the same moment of the song (0 for
+    ///   the same cut).
+    func seamlessModeSwitch(to item: QTPlaybackItem, videoID: String, from: QTPlaybackMode,
+                            shift: TimeInterval = 0) async -> QTWebStandbySwitch.Outcome {
         guard let mainView = webView else { return .fallBack }
         let requestedAt = ProcessInfo.processInfo.systemUptime
         let startedAt = state.timeline.currentTime
@@ -141,7 +150,7 @@ extension QTWebPlaybackEngine {
         // 2. The standby page, silent, from about where the old page will be when it has loaded (a whole second:
         // the watch URL's `t`; rounded down, so it usually lands a little behind and one short seek inside what it
         // has buffered lines it up — rounding up instead made the video wait up to a second longer).
-        let target = startedAt + max(0.5, modeSwitchReadyEstimate - 0.3)
+        let target = max(0, startedAt + shift) + max(0.5, modeSwitchReadyEstimate - 0.3)
         let presents = video.isPresenting && item.mode == .video
         let bootstrap = QTWebPlaybackBridgeScript.bootstrap(generation: s.generation, videoID: videoID, hold: false,
                                                             volume: 0, muted: true, silent: configuration.isSilent,
@@ -201,13 +210,13 @@ extension QTWebPlaybackEngine {
             else { return alive() ?? fallBack(s, "no clock") }
             if let end = alive() { return end }
             standbyTime = tb
-            let ahead = tb - ta - modeSwitchPlayLatency
+            let ahead = tb - (ta + shift) - modeSwitchPlayLatency
             if ahead >= 0.03, ahead < Self.modeSwitchMaxLead { break }
             // Behind (the usual case, see step 2) or far ahead: seek the held standby a little ahead of the old page —
             // just past what a buffered seek takes first, further if that wasn't enough.
             attempts += 1
             if attempts > 2 { return fallBack(s, "could not line up") }
-            let to = ta + (attempts == 1 ? Self.modeSwitchSeekLead : 1.2)
+            let to = max(0, ta + shift) + (attempts == 1 ? Self.modeSwitchSeekLead : 1.2)
             _ = await s.call("seek", to)
             let seekDeadline = ProcessInfo.processInfo.systemUptime + 4
             while true {
@@ -219,7 +228,7 @@ extension QTWebPlaybackEngine {
         }
         guard let a = await pageIO.call(mainView, "sample", []) as? [String: Any], let ta = a["t"] as? Double
         else { return alive() ?? fallBack(s, "no clock") }
-        if let end = await wait(standbyTime - ta - modeSwitchPlayLatency) { return end }
+        if let end = await wait(standbyTime - (ta + shift) - modeSwitchPlayLatency) { return end }
         let playAsked = ProcessInfo.processInfo.systemUptime
         _ = await s.call("play")
         // Playing again (a buffered resume: tens of ms).
@@ -237,7 +246,7 @@ extension QTWebPlaybackEngine {
             try? await Task.sleep(for: .milliseconds(10))
         }
         let resumeLatency = ProcessInfo.processInfo.systemUptime - playAsked
-        let drift = landed - oldTime
+        let drift = landed - (oldTime + shift)
         // Learn the resume latency: landing behind the old page means the standby must be started earlier.
         modeSwitchPlayLatency = min(0.3, max(0, modeSwitchPlayLatency - drift * 0.5))
         let volume = state.volume
@@ -254,7 +263,7 @@ extension QTWebPlaybackEngine {
         promote(s, oldView: mainView)
         lastSeamlessFallback = nil
         let report = QTModeSwitchReport(videoID: s.lastSample?.videoID ?? videoID, from: from, to: item.mode,
-                                        requested: oldTime, landed: landed, latency: playAsked - requestedAt + resumeLatency,
+                                        requested: oldTime + shift, landed: landed, latency: playAsked - requestedAt + resumeLatency,
                                         gap: 0, isSeamless: true)
         lastModeSwitch = report
         QTWebVideoOutput.log.info("Song⇄Video seamless \(report.from.rawValue, privacy: .public)→\(report.to.rawValue, privacy: .public) \(report.videoID, privacy: .public): old page at \(oldTime, format: .fixed(precision: 3)) s, new at \(landed, format: .fixed(precision: 3)) s, drift \(drift, format: .fixed(precision: 3)) s, ready after \(readyAfter, format: .fixed(precision: 2)) s, handover after \(report.latency, format: .fixed(precision: 2)) s")

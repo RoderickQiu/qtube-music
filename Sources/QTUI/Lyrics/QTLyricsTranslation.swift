@@ -54,6 +54,14 @@ struct QTLyricsTranslationResolution: Equatable {
     var machineKey: QTLyricsTranslationCenter.Key?
 }
 
+extension QTLyricsTranslationResolution {
+    /// A translation line shows, or is on its way: in Automatic the pronunciation lane steps back for it.
+    var expectsTranslation: Bool {
+        if lanes.translations?.contains(where: { $0?.isEmpty == false }) == true { return true }
+        return status == .translating
+    }
+}
+
 /// Machine translation of lyrics (Apple Intelligence, Translation framework). One per process; views host the
 /// Translation framework's sessions where the OS needs SwiftUI for them.
 @MainActor
@@ -237,12 +245,26 @@ final class QTLyricsTranslationCenter {
                 log.debug("Apple Intelligence not used: \(String(describing: availability), privacy: .public)")
             }
         }
-        switch await c.availability(of: .translationFramework, from: key.source, to: key.target) {
+        var availability = await c.availability(of: .translationFramework, from: key.source, to: key.target)
+        var frameworkLines = lines
+        var frameworkContext = context
+        // Traditional Chinese lyrics with only the Simplified model installed: the same words in Simplified script
+        // translate as well, without asking for a second download (direct sessions only — a hosted session is
+        // configured for the song's own language).
+        if availability == .needsDownload, QTLanguageCode.normalize(key.source) == "zh-Hant",
+           await c.translatesDirectly(.translationFramework),
+           await c.availability(of: .translationFramework, from: "zh-Hans", to: key.target) == .available {
+            let toSimplified = StringTransform("Hant-Hans")
+            frameworkLines = lines.map { $0.applyingTransform(toSimplified, reverse: false) ?? $0 }
+            frameworkContext.sourceLanguage = "zh-Hans"
+            availability = .available
+        }
+        switch availability {
         case .available:
             if await c.translatesDirectly(.translationFramework) {
                 entries[key]?.phase = .translating
                 do {
-                    let out = try await c.run(.translationFramework, lines: lines, key: key.cacheKey, context: context)
+                    let out = try await c.run(.translationFramework, lines: frameworkLines, key: key.cacheKey, context: frameworkContext)
                     finish(key, out, engine: .translationFramework)
                     return
                 } catch {

@@ -64,6 +64,11 @@ public final class QTLyricsSession {
     /// The Mac has a network path (NWPathMonitor; `-qt.lyrics.offline YES` pretends it hasn't). With `phase ==
     /// .unreachable` this tells "Offline" apart from "the sources didn't answer".
     public private(set) var isNetworkAvailable = true
+    /// The rendition playing (Song⇄Video), when the lyrics know it. A counterpart of another length gets lyrics
+    /// timed for its own cut, or unsynced lyrics — never the track's, drifting.
+    public private(set) var rendition: QTLyricsRendition?
+    /// How the shown lyrics relate to the playing rendition.
+    public private(set) var renditionTiming: QTLyricsRenditionDisplay = .base
 
     // MARK: Derived
 
@@ -112,6 +117,17 @@ public final class QTLyricsSession {
     @ObservationIgnored private let log = Logger(subsystem: "com.roderickqiu.qtube", category: "lyrics-session")
     @ObservationIgnored private var networkMonitor: QTLyricsNetworkMonitor?
     @ObservationIgnored private var lastRetry: Date?
+    /// The track's own lyrics (timed for the track's duration) and, for a counterpart of another length, the lookup
+    /// for that cut. `document` / `fullDocument` publish whichever the rendition shows.
+    @ObservationIgnored private var baseShown: QTLyricsDocument?
+    @ObservationIgnored private var baseFull: QTLyricsDocument?
+    @ObservationIgnored private var own: QTLyricsRenditionLookup?
+    @ObservationIgnored private var ownTask: Task<Void, Never>?
+    /// Per track: the counterpart's lyric shift (counterpart lyric time − song lyric time), when both timings agree
+    /// on one. Maps the position across Song⇄Video switches.
+    @ObservationIgnored private var shifts: [String: QTLyricsRenditionShift] = [:]
+    /// Bumped when a shift becomes known (the rendition coordinator re-checks a switch that went unmapped).
+    public private(set) var shiftGeneration = 0
 
     /// - Parameters:
     ///   - resolver: the engine (the app passes `QTLyricsResolver.standard(…)` over the on-disk cache).
@@ -192,6 +208,12 @@ public final class QTLyricsSession {
         self.track = track
         document = nil
         fullDocument = nil
+        baseShown = nil
+        baseFull = nil
+        ownTask?.cancel()
+        own = nil
+        rendition = nil
+        renditionTiming = .base
         versions = []
         chosenVersionID = nil
         isPinned = false
@@ -271,8 +293,27 @@ public final class QTLyricsSession {
     }
 
     public func setOffset(_ value: TimeInterval) {
-        guard let videoId = track?.videoId, document != nil else { return }
+        guard let trackID = track?.videoId, document != nil else { return }
         let rounded = (value * 10).rounded() / 10
+        // Lyrics timed for the counterpart keep their own offset (keyed by that cut); unsynced ones have none.
+        let videoId: String
+        switch renditionTiming {
+        case .own:
+            guard let key = own?.key else { return }
+            videoId = key
+            own?.shown?.offset = rounded
+            own?.full?.offset = rounded
+            if var s = shifts[trackID], s.renditionKey == key {
+                s.renditionOffset = rounded
+                shifts[trackID] = s
+            }
+        case .unsynced, .lookingUp:
+            return
+        case .base:
+            videoId = trackID
+            baseShown?.offset = rounded
+            baseFull?.offset = rounded
+        }
         document?.offset = rounded
         fullDocument?.offset = rounded
         pendingOffsets[videoId] = rounded
@@ -286,6 +327,92 @@ public final class QTLyricsSession {
             self.pendingOffsets[videoId] = nil
             self.offsetWrites[videoId] = nil
         }
+    }
+
+    // MARK: Song⇄Video renditions
+
+    /// The rendition playing changed (Song⇄Video, or its length became known). Called by
+    /// `QTLyricsRenditionCoordinator`; nil = unknown (treated as the track's own).
+    public func setRendition(_ r: QTLyricsRendition?) {
+        if let a = rendition, let b = r, a.videoId == b.videoId, a.isCounterpart == b.isCounterpart,
+           abs(a.duration - b.duration) < 0.75 { return }
+        if rendition == nil, r == nil { return }
+        rendition = r
+        presentRendition()
+    }
+
+    /// Publishes the lyrics for the playing rendition (see `QTLyricsRenditionTiming.decide`), starting the lookup
+    /// for a counterpart's own cut when needed.
+    private func presentRendition() {
+        let ownMatches = own != nil && own?.key == rendition.map(QTLyricsRenditionTiming.cacheKey(for:))
+        let decision = QTLyricsRenditionTiming.decide(base: baseFull, baseDuration: track?.duration ?? 0, rendition: rendition,
+                                                      own: ownMatches ? own?.full : nil, ownDuration: ownMatches ? own?.duration : nil,
+                                                      ownLookupDone: ownMatches && own?.done == true)
+        switch decision {
+        case .base:
+            renditionTiming = .base
+            document = baseShown
+            fullDocument = baseFull
+        case .own(let full):
+            renditionTiming = .own
+            document = own?.shown
+            fullDocument = full
+        case .plain(let full):
+            renditionTiming = .unsynced
+            document = baseShown.map(QTLyricsRenditionTiming.plain)
+            fullDocument = full
+        case .lookUp:
+            // Unsynced while the counterpart's own timing is looked up.
+            renditionTiming = .lookingUp
+            document = baseShown.map(QTLyricsRenditionTiming.plain)
+            fullDocument = baseFull.map(QTLyricsRenditionTiming.plain)
+            if !ownMatches, let rendition, let track { lookUpOwn(rendition, for: track) }
+        }
+    }
+
+    private func lookUpOwn(_ r: QTLyricsRendition, for track: QTTrack) {
+        ownTask?.cancel()
+        let key = QTLyricsRenditionTiming.cacheKey(for: r)
+        own = QTLyricsRenditionLookup(key: key)
+        let query = QTLyricsRenditionTiming.query(for: query(for: track), rendition: r)
+        let config = configuration
+        let resolver = resolver
+        let live = engine == .live
+        ownTask = Task { @MainActor [weak self] in
+            let resolution: QTLyricsResolution? = live ? await resolver.resolve(query, configuration: config) : nil
+            guard let self, !Task.isCancelled, self.own?.key == key, self.track?.videoId == track.videoId else { return }
+            var lookup = QTLyricsRenditionLookup(key: key, done: true)
+            if let resolution, let full = resolution.fullDocument {
+                lookup.full = full
+                lookup.shown = resolution.document
+                lookup.duration = resolution.versions.first { $0.id == resolution.chosenID }?.candidate.duration
+                if let pending = self.pendingOffsets[key] {
+                    lookup.full?.offset = pending
+                    lookup.shown?.offset = pending
+                }
+            }
+            self.own = lookup
+            self.log.debug("rendition \(key, privacy: .public): \(lookup.full?.source.id ?? "none", privacy: .public) \(lookup.duration ?? 0)")
+            if let base = self.baseFull, let ownFull = lookup.full,
+               let d = lookup.duration, abs(d - r.duration) <= QTLyricsRenditionTiming.lookupTolerance,
+               let shift = QTLyricsRenditionTiming.shift(from: base, to: ownFull) {
+                self.shifts[track.videoId] = QTLyricsRenditionShift(renditionKey: key, shift: shift, renditionOffset: ownFull.offset)
+                self.shiftGeneration += 1
+            }
+            self.presentRendition()
+        }
+    }
+
+    /// The position to play the other rendition from on a Song⇄Video switch, when the lyrics know how the two cuts
+    /// line up; nil = unknown (same position).
+    /// - Parameters:
+    ///   - toCounterpart: true from the track's own rendition to its counterpart, false for the way back.
+    ///   - counterpartDuration: the counterpart's length, when known (clamps the result).
+    public func switchTime(_ t: TimeInterval, track: QTTrack, toCounterpart: Bool, counterpartDuration: TimeInterval? = nil) -> TimeInterval? {
+        guard let s = shifts[track.videoId], track.videoId == self.track?.videoId else { return nil }
+        if let id = track.counterpart?.videoId, !s.renditionKey.hasPrefix(id + "~") { return nil }
+        return QTLyricsRenditionTiming.map(t, shift: s.shift, baseOffset: baseFull?.offset ?? 0, renditionOffset: s.renditionOffset,
+                                           toRendition: toCounterpart, renditionDuration: counterpartDuration)
     }
 
     // MARK: Internals
@@ -360,8 +487,9 @@ public final class QTLyricsSession {
             shown?.offset = pending
             full?.offset = pending
         }
-        document = shown
-        fullDocument = full
+        baseShown = shown
+        baseFull = full
+        presentRendition()
         versions = r.versions
         chosenVersionID = r.chosenID
         isPinned = r.isPinned
@@ -413,6 +541,13 @@ public final class QTLyricsSession {
         if let full = fullDocument {
             document = QTLyricsTranslationPolicy.applyProviderLane(to: full, target: config.translationLanguage)
         }
+        if let full = baseFull { baseShown = QTLyricsTranslationPolicy.applyProviderLane(to: full, target: config.translationLanguage) }
+        // The counterpart's own lyrics are looked up again with the new sources / target.
+        if own != nil {
+            ownTask?.cancel()
+            own = nil
+            presentRendition()
+        }
         translationPlan = QTLyricsTranslationPolicy.plan(for: fullDocument, target: config.translationLanguage)
         guard let track, engine == .live || sourcesChanged else { return }
         if document == nil { phase = .loading }
@@ -420,6 +555,36 @@ public final class QTLyricsSession {
             await resolver.resolve(query, configuration: config)
         }
     }
+}
+
+/// How the published lyrics relate to the playing rendition.
+public enum QTLyricsRenditionDisplay: Equatable, Sendable {
+    /// The track's own lyrics (same cut).
+    case base
+    /// Lyrics timed for the counterpart's own cut.
+    case own
+    /// Another cut with nothing timed for it: unsynced.
+    case unsynced
+    /// Another cut; its timing is being looked up (unsynced meanwhile).
+    case lookingUp
+}
+
+/// A counterpart's own lyrics lookup.
+struct QTLyricsRenditionLookup {
+    var key: String
+    var done = false
+    var shown: QTLyricsDocument?
+    var full: QTLyricsDocument?
+    /// Length the chosen version declares.
+    var duration: TimeInterval?
+}
+
+/// How a counterpart's own lyrics line up with the track's.
+struct QTLyricsRenditionShift {
+    var renditionKey: String
+    /// Counterpart lyric time − track lyric time.
+    var shift: TimeInterval
+    var renditionOffset: TimeInterval
 }
 
 /// The lyrics session's own network watcher (the web playback engine has one too, but the simulated engine and

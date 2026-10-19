@@ -221,14 +221,17 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         // While playing, the other rendition is prepared in a second silent page and crossfaded in at the same
         // moment: the music never stops (see QTWebPlaybackEngine+ModeSwitch).
         if isModeSwitch, let from = previousMode, canSwitchSeamlessly(autoplay: autoplay) {
-            switch await seamlessModeSwitch(to: item, videoID: videoID, from: from) {
+            // The renditions can be different cuts (an MV with an intro): the queue then asks for another position
+            // than the clock's, and the standby lines up with the old page shifted by that much.
+            let shift = Self.modeSwitchShift(requested: item.startTime, clock: state.timeline.currentTime)
+            switch await seamlessModeSwitch(to: item, videoID: videoID, from: from, shift: shift) {
             case .done:
                 return
             case .superseded:
                 throw CancellationError()
             case .fallBack:
                 // Load it in the page instead, from where playback is now and as the listener wants it now.
-                item.startTime = state.timeline.currentTime
+                item.startTime = max(0, state.timeline.currentTime + shift)
                 autoplay = state.status == .playing
             }
         }

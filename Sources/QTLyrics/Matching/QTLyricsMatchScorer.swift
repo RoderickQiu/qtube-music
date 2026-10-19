@@ -77,6 +77,12 @@ public struct QTLyricsMatchScorer: Sendable {
     }
 
     public func score(_ candidate: QTLyricsCandidate, for query: QTLyricsQuery) -> QTLyricsMatchScore {
+        // Strict timing: a candidate that doesn't say how long it is, or is another cut, is never used.
+        if let tolerance = query.durationTolerance {
+            guard query.duration > 0, let d = candidate.duration, d > 0, abs(d - query.duration) <= tolerance else {
+                return QTLyricsMatchScore(title: 0, artist: 0, duration: 0, penalty: 0, rejection: .durationMismatch)
+            }
+        }
         if candidate.isExactMatch { return .exact }
         let q = query.cleanTitle
         let c = QTTitleCleaner.clean(candidate.title)

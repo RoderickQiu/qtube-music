@@ -263,6 +263,26 @@ enum QTLyricsRowBuilder {
         return rows
     }
 
+    /// Smallest size a pronunciation lane may shrink to so it keeps its lyric's line count.
+    static let romanizationMinimumScale: CGFloat = 0.8
+
+    /// The pronunciation lane (pinyin, romaji…) is longer than its Han / kana line: when the lyric fits on one line
+    /// the lane does too, set a little smaller and tighter (down to 80 %) rather than wrapping under it.
+    static func romanizationLayout(_ text: String, fittingLinesOf main: QTLyricTextLayout, style: QTLyricTextStyle,
+                                   width: CGFloat, shadowRoom: CGFloat) -> QTLyricTextLayout {
+        let natural = QTLyricTextLayout(string: text, style: style, maxWidth: width, documentLanguage: "en", shadowRoom: shadowRoom)
+        let target = max(1, main.fragments.count)
+        guard natural.fragments.count > target else { return natural }
+        var tight = style
+        tight.tracking = min(style.tracking, -0.01)
+        for scale in [0.94, 0.88, romanizationMinimumScale] as [CGFloat] {
+            tight.size = style.size * scale
+            let l = QTLyricTextLayout(string: text, style: tight, maxWidth: width, documentLanguage: "en", shadowRoom: shadowRoom)
+            if l.fragments.count <= target { return l }
+        }
+        return natural
+    }
+
     static func gapRow(start: Double, end: Double, metrics m: QTLyricsMetrics, width: CGFloat) -> QTLyricsRowModel {
         var r = QTLyricsRowModel(kind: .gap(start: start, end: end), start: start, end: end)
         r.width = width
@@ -282,7 +302,7 @@ enum QTLyricsRowBuilder {
         r.mainOrigin = CGPoint(x: x(main), y: y)
         y += main.size.height
         if lanes.showsRomanization, let roma = line.romanization, !roma.isEmpty {
-            let l = QTLyricTextLayout(string: roma, style: m.romanization, maxWidth: width, documentLanguage: "en", shadowRoom: shadowRoom)
+            let l = romanizationLayout(roma, fittingLinesOf: main, style: m.romanization, width: width, shadowRoom: shadowRoom)
             y += m.laneGap
             r.romanization = l
             r.romanizationOrigin = CGPoint(x: x(l), y: y)

@@ -78,6 +78,10 @@ public final class QTQueueController {
     @ObservationIgnored public var counterpartResolver: (@MainActor (QTTrack) async -> QTCounterpart?)?
     @ObservationIgnored private var counterparts: [String: QTCounterpart?] = [:]
     @ObservationIgnored private var counterpartTasks: [String: Task<Void, Never>] = [:]
+    /// Where a Song⇄Video switch picks up when the two renditions are different cuts (an MV with an intro): the
+    /// lyrics know the shift once both timings line up (`QTLyricsRenditionCoordinator`). Gets the track, the mode
+    /// switched to and the current position; nil = the same position.
+    @ObservationIgnored public var modeSwitchTime: (@MainActor (QTTrack, QTPlaybackMode, TimeInterval) -> TimeInterval?)?
     /// Called when the current track changes (not on Song⇄Video switches of the same track).
     @ObservationIgnored public var onTrackChange: (@MainActor (QTTrack?) -> Void)?
     /// Like state for Now Playing and the remote like command.
@@ -228,7 +232,8 @@ public final class QTQueueController {
     public func setMode(_ newMode: QTPlaybackMode) async {
         if queue.nowPlaying?.track.hasVideo == true { preferredMode = newMode }
         guard newMode != mode, let track = queue.nowPlaying?.track, track.hasVideo || newMode == .song else { return }
-        await loadCurrent(startTime: currentTime, autoplay: engine.state.isPlaying, mode: newMode)
+        let now = currentTime
+        await loadCurrent(startTime: modeSwitchTime?(track, newMode, now) ?? now, autoplay: engine.state.isPlaying, mode: newMode)
     }
 
     /// Plays a queue item now (double-click in the queue). Items before it in its section are skipped;

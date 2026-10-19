@@ -233,7 +233,8 @@ Views:
   Intelligence" / "On-device translation" / provider) and says "Song is already in …" when it skips; when the
   Apple Intelligence toggle is on but the model can't run (`modelNotReady`, language unsupported, unavailable) it adds
   the system's reason on a second line (`QTAppleIntelligence.Status.reason`, shared with Settings). Every machine
-  translation (engine output, hosted session, cache reads) goes through `QTLyricsTranslationPolish`: trimmed, the
+  translation (engine output, hosted session, cache reads) goes through `QTLyricsTranslationPolish` (a line the engine
+  left unchanged — solfège, names — gets no translation line): trimmed, the
   sentence-final full stop dropped unless the sung line has one (`?`/`!`/ellipses kept). The Foundation Models prompt
   asks for a lyric register (plain Korean/Japanese endings, no line-final full stops); the Translation framework has
   no register option, so its Korean stays in the formal 습니다 style.
@@ -249,6 +250,30 @@ Views:
 - `QTTransportControls(style: .playerBar | .stage | .compact)` (`.stage` draws play/pause as a filled disc via
   `QTStagePlayButtonStyle`, Stage/); `QTScrubber(overArt:identifier:)` (an `AXSlider` to VoiceOver / Voice Control via
   `accessibilityRepresentation`; identifier default `qt.player.scrubber`, the Stage passes `qt.stage.scrubber`).
+- Missing language model (`.needsDownload`): the options popover has the consent row ("Download {language} for offline
+  translation") and the panel shows one quiet glass cue under the lyrics, "Translate to {language}"
+  (`QTLyricsTranslationCue`); either asks for the system's download sheet (`requestDownload`). Floating buttons in the
+  panel (this cue, "Current") sit above the window's floating player bar — the inspector column gets no safe-area
+  inset from it. Traditional Chinese lyrics translate through the Simplified model when only that one is installed
+  (direct sessions, macOS 26+).
+- Pronunciation lane (pinyin, romaji): `QTSettings.lyricsPronunciation` (`QTLyricsPronunciation`: `automatic` = only
+  when no translation line shows or is on its way, `on`, `off`), switched in the options popover ("Pronunciation",
+  only for lyrics with that lane). A pronunciation lane that would wrap under a lyric that fits on one line is set
+  up to 20 % smaller and slightly tighter instead (`QTLyricsRowBuilder.romanizationLayout`).
+- The options popover keeps the translation status (source, engine, Apple Intelligence reason, download consent) in
+  the "Translate to" row itself, not as a grouped-form footer (that left a section-sized gap). Unsynced lyrics say
+  "Unsynced" in its header and disable the timing stepper.
+- **Song⇄Video timing (R6, lyrics):** the song and its MV are often different cuts. `QTLyricsRenditionCoordinator`
+  (Lyrics/) tells the session what plays (`setRendition`, from the engine's item + duration); a counterpart more than
+  2.5 s longer or shorter gets `QTLyricsRenditionTiming` (QTLyrics): a strict lookup for its own length
+  (`QTLyricsQuery.durationTolerance` 3 s — candidates without a declared length or of another cut are rejected;
+  YouTube Music skipped; cached under `<counterpart id>~<seconds>s`, which also keys its own timing offset), shown
+  unsynced while it runs and when nothing matches (`renditionTiming`: `.base` / `.own` / `.unsynced` /
+  `.lookingUp`). When ≥ 3 shared lines agree on one shift (`shift(from:to:)`, first line included), the session's
+  `switchTime(_:track:toCounterpart:)` maps positions and `QTQueueController.modeSwitchTime` uses it on Song⇄Video;
+  the web engine's seamless switch lines its standby up with the old page shifted by that much
+  (`modeSwitchShift`, ≥ 0.75 s counts). A first switch made before the shift was known is corrected once (within
+  12 s, while playing). The scrubber shows the length of what plays.
 - `QTSongVideoToggle(isVideo:hasVideo:)` — segmented Picker.
 - `QTToastOverlay()`, `QTIcon` (prototype icon name → SF Symbol; test checks every symbol exists).
 - `QTNowPlayingBarsView` (AppKit, tables) + `QTNowPlayingGlyph(isPlaying:pointSize:weight:tint:)` (SwiftUI wrapper;

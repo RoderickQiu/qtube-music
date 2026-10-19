@@ -306,9 +306,21 @@ final class QTLyricsRailView: NSView, NSMenuItemValidation {
         guard !rows.isEmpty else { return 0 }
         let h = bounds.height
         if config?.document.syncKind == .plain { return h * max(0.16, metrics.fadeTop + 0.02) }
+        // The intro: its dots sit just under the top fade (the top third), the first lines right under them —
+        // nothing above them yet to fill the space the current line normally has over it.
+        if let c = current, rows.indices.contains(c), rows[c].isIntro { return introOffset(c) }
         let i = focusRow(current ?? 0)
         return h * metrics.anchor - (rowY[i] + height(of: rows[i], isCurrent: i == current) / 2)
     }
+
+    /// Rail offset that puts the intro row's dots just under the top fade (never lower than the anchor).
+    private func introOffset(_ i: Int) -> CGFloat {
+        let y = bounds.height * min(metrics.anchor, metrics.fadeTop + Self.introBelowFade)
+        return y - (nodeY(i) + rows[i].height / 2)
+    }
+
+    /// Where the intro dots sit below the top fade, as a fraction of the rail's height.
+    static let introBelowFade: CGFloat = 0.04
 
     /// Allowed rail offsets: first row centred at the anchor … last row centred at the anchor.
     private var scrollRange: (CGFloat, CGFloat) {
@@ -318,7 +330,8 @@ final class QTLyricsRailView: NSView, NSMenuItemValidation {
         let firstCentre = rowY[first] + height(of: rows[first], isCurrent: current == first) / 2
         let lastIndex = rows.count - 1
         let lastCentre = rowY[lastIndex] + height(of: rows[lastIndex], isCurrent: current == lastIndex) / 2
-        let hi = config?.document.syncKind == .plain ? bounds.height * 0.16 : a - firstCentre
+        var hi = config?.document.syncKind == .plain ? bounds.height * 0.16 : a - firstCentre
+        if config?.document.syncKind != .plain, rows[0].isIntro { hi = max(hi, introOffset(0)) }
         return (min(hi, a - lastCentre), hi)
     }
 

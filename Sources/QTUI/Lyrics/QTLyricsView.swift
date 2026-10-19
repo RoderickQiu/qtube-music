@@ -105,7 +105,7 @@ public struct QTLyricsView: View {
 
     @ViewBuilder
     private func content(_ doc: QTLyricsDocument, resolution: QTLyricsTranslationResolution) -> some View {
-        let lanes = showsTranslation ? resolution.lanes : QTLyricsLanes(translations: nil, translationLanguage: nil)
+        let lanes = lanes(resolution)
         let clock = QTLyricsClock(timeline: time, offset: doc.offset, stalled: isStalled)
         if style.isScrolling {
             ZStack(alignment: .bottom) {
@@ -117,11 +117,19 @@ public struct QTLyricsView: View {
                     controller: controller, onSeek: onSeek)
                 if controller.isDetached {
                     QTLyricsCurrentPill(controller: controller, overArt: style.isOverArt)
-                        .padding(.bottom, 18)
+                        .padding(.bottom, bottomClearance)
+                        .transition(.opacity.combined(with: .scale(scale: 0.92)))
+                } else if style == .panel, showsTranslation, case .needsDownload(let code) = resolution.status,
+                          let key = resolution.machineKey {
+                    // The translation waits for a language download only the user can agree to: one quiet cue
+                    // (the options popover has the same consent row).
+                    QTLyricsTranslationCue(language: code) { QTLyricsTranslationCenter.shared.requestDownload(key) }
+                        .padding(.bottom, bottomClearance)
                         .transition(.opacity.combined(with: .scale(scale: 0.92)))
                 }
             }
             .animation(QTTheme.Motion.animation(QTTheme.Motion.spring, reduceMotion: reduceMotion), value: controller.isDetached)
+            .animation(QTTheme.Motion.animation(QTTheme.Motion.ui, reduceMotion: reduceMotion), value: resolution.status)
         } else {
             QTLyricsFocusRepresentable(configuration: QTLyricsFocusConfiguration(
                 document: doc, lanes: lanes, clock: clock, style: style, textScale: textScale,
@@ -131,6 +139,22 @@ public struct QTLyricsView: View {
                 desktopFontSize: desktopFontSize ?? fontOverride?.mainSize,
                 fontDesign: fontOverride?.design ?? .standard))
         }
+    }
+
+    /// Room under the floating buttons. The docked panel runs under the window's floating player bar (an inspector
+    /// column gets no safe-area inset from it), so they sit above the bar there.
+    private var bottomClearance: CGFloat {
+        guard style == .panel else { return 18 }
+        return QTTheme.Metrics.playerBarHeight + QTTheme.Metrics.playerBarInset + 4 + 14
+    }
+
+    /// Translation lane (unless this surface hides it) and the pronunciation lane (pinyin…): the user's choice;
+    /// Automatic shows it only without a translation line.
+    private func lanes(_ resolution: QTLyricsTranslationResolution) -> QTLyricsLanes {
+        var lanes = showsTranslation ? resolution.lanes : QTLyricsLanes(translations: nil, translationLanguage: nil)
+        let pronunciation = model?.settings.settings.lyricsPronunciation ?? .automatic
+        lanes.showsRomanization = pronunciation.shows(withTranslation: showsTranslation && resolution.expectsTranslation)
+        return lanes
     }
 
     /// Instrumental, no lyrics, or no lyrics *yet* because the sources couldn't be reached (offline).
@@ -193,6 +217,33 @@ struct QTLyricsCurrentPill: View {
         .help(QTLoc.tr("Back to the current line"))
         .accessibilityLabel(QTLoc.tr("Back to the current line"))
         .accessibilityIdentifier("qt.lyrics.currentPill")
+    }
+}
+
+/// "Translate to English": the panel's quiet cue when the translation line waits for a language download. Clicking
+/// asks the system (its own consent sheet) to download the model; nothing downloads without it.
+struct QTLyricsTranslationCue: View {
+    let language: String
+    let action: () -> Void
+
+    var body: some View {
+        let name = QTLyricsTranslationTarget.nativeName(for: language)
+        Button(action: action) {
+            Label(QTLoc.tr("Translate to %@", table: .lyrics, name), systemImage: "translate")
+                .font(.callout)
+                .labelStyle(.titleAndIcon)
+                .padding(.leading, 11)
+                .padding(.trailing, 14)
+                .frame(height: 28)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .qtGlass(.chrome, in: Capsule(), interactive: true)
+        .shadow(color: .black.opacity(0.1), radius: 10, y: 4)
+        .help(QTLoc.tr("Download %@ for offline translation", name))
+        .accessibilityHint(QTLoc.tr("Download %@ for offline translation", name))
+        .accessibilityIdentifier("qt.lyrics.translationCue")
     }
 }
 

@@ -67,6 +67,24 @@ public enum QTLyricsTranslationTarget: String, Codable, Sendable, Hashable, Case
     }
 }
 
+/// The pronunciation lane under lyrics in another script (pinyin, romaji, romanized Korean).
+public enum QTLyricsPronunciation: String, Codable, Sendable, Hashable, CaseIterable {
+    /// Only when no translation line is shown: a translation is preferred, pronunciation fills in without one.
+    case automatic = "auto"
+    /// Always, together with the translation.
+    case on
+    case off
+
+    /// Whether the lane shows, given whether a translation line is (or is about to be) shown.
+    public func shows(withTranslation hasTranslation: Bool) -> Bool {
+        switch self {
+        case .automatic: !hasTranslation
+        case .on: true
+        case .off: false
+        }
+    }
+}
+
 public enum QTStageLayout: String, Codable, Sendable, Hashable, CaseIterable {
     /// Art left, lyrics right (NetEase "Standard").
     case standard
@@ -149,6 +167,8 @@ public struct QTSettings: Codable, Sendable, Hashable {
     /// "Translate lyrics with Apple Intelligence" — on by default where available (macOS 26+).
     public var translateWithAppleIntelligence = true
     public var unofficialLyricsSources = QTUnofficialLyricsSources()
+    /// Pronunciation lane (lyrics options popover); automatic = only without a translation line.
+    public var lyricsPronunciation: QTLyricsPronunciation = .automatic
     /// "Prefer videos when available" — off by default.
     public var preferVideos = false
     public var stageLayout: QTStageLayout = .standard
@@ -173,6 +193,7 @@ public struct QTSettings: Codable, Sendable, Hashable {
         lyricsTranslation = (try? c.decodeIfPresent(QTLyricsTranslationTarget.self, forKey: .lyricsTranslation)) ?? d.lyricsTranslation
         translateWithAppleIntelligence = (try? c.decodeIfPresent(Bool.self, forKey: .translateWithAppleIntelligence)) ?? d.translateWithAppleIntelligence
         unofficialLyricsSources = (try? c.decodeIfPresent(QTUnofficialLyricsSources.self, forKey: .unofficialLyricsSources)) ?? d.unofficialLyricsSources
+        lyricsPronunciation = (try? c.decodeIfPresent(QTLyricsPronunciation.self, forKey: .lyricsPronunciation)) ?? d.lyricsPronunciation
         preferVideos = (try? c.decodeIfPresent(Bool.self, forKey: .preferVideos)) ?? d.preferVideos
         stageLayout = (try? c.decodeIfPresent(QTStageLayout.self, forKey: .stageLayout)) ?? d.stageLayout
         stageBackground = (try? c.decodeIfPresent(QTStageBackground.self, forKey: .stageBackground)) ?? d.stageBackground
