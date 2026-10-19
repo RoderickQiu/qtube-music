@@ -41,6 +41,8 @@ public struct QTStageView: View {
     @State private var titlebar = QTStageTitlebar()
     /// Centre of the window's traffic lights from the top (nil in full screen / without a title bar).
     @State private var trafficLightsMidY: CGFloat?
+    /// The synced line over the music video (Appearance popover; on by default).
+    @AppStorage(QTStageVideoLyrics.defaultsKey) private var showsVideoLyrics = true
     private let power = QTStagePowerMonitor.shared
     private let coordinator = QTStageCoordinator.shared
 
@@ -163,9 +165,6 @@ public struct QTStageView: View {
         .onChange(of: player.isPlaying) { _, _ in poke() }
         .onChange(of: isQueueOpen) { _, _ in poke() }
         .onChange(of: isAppearanceOpen) { _, open in if !open { poke() } }
-        .onChange(of: model.isVideoMode) { _, video in
-            Task { await player.setMode(video ? .video : .song) }
-        }
         .onAppear(perform: didAppear)
         .onDisappear(perform: didDisappear)
         .accessibilityElement(children: .contain)
@@ -271,12 +270,15 @@ public struct QTStageView: View {
         if a.artSlot == .ad {
             QTStageAdCard(track: player.nowPlaying, size: min(440, area.height - 40))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
+        } else if showsVideoLyrics {
             // `VideoLyricsOverlay`: left 64, right 64, bottom 150 (the content area already ends 128 above the bottom).
             QTStageCurrentLyric(document: player.lyrics, time: player.timeline, style: .videoOverlay,
                                 showsTranslation: showsTranslation)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                 .padding(.bottom, 22)
+                .transition(.opacity)
+        } else {
+            Color.clear
         }
     }
 
@@ -426,8 +428,7 @@ public struct QTStageView: View {
     /// accent (a dark material on macOS 15, solid with Reduce Transparency).
     private var bottomBar: some View {
         VStack(spacing: 6) {
-            QTScrubber(overArt: true)
-                .accessibilityIdentifier("qt.stage.scrubber")
+            QTScrubber(overArt: true, identifier: "qt.stage.scrubber")
             ZStack {
                 QTTransportControls(style: .stage)
                 HStack(spacing: 10) {
@@ -450,12 +451,14 @@ public struct QTStageView: View {
         HStack(spacing: 8) {
             if let track = player.nowPlaying {
                 let liked = player.isLiked(track)
+                // Same words as the player bar, menus and Dock: the action it will take.
+                let title = QTLoc.tr(liked ? "Remove from Liked Songs" : "Like")
                 Button { player.toggleLike(track) } label: {
-                    Label(QTLoc.tr("Like"), systemImage: liked ? QTIcon.heartFill.systemName : QTIcon.heart.systemName)
+                    Label(title, systemImage: liked ? QTIcon.heartFill.systemName : QTIcon.heart.systemName)
                         .contentTransition(.symbolEffect(.replace))
                 }
                 .buttonStyle(QTStageChromeButtonStyle(isOn: false, glyph: 17))
-                .help("\(QTLoc.tr("Like"))  ⌘L")
+                .help("\(title)  ⌘L")
                 .accessibilityAddTraits(liked ? .isSelected : [])
                 .accessibilityIdentifier("qt.stage.like")
             }

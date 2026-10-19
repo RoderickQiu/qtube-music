@@ -258,6 +258,48 @@ import Testing
         #expect(rig.controller.mode == .song)
     }
 
+    /// "Prefer videos" / the Song | Video choice carries over: the next track with a video starts as the video,
+    /// one without plays as the song without forgetting the choice, and the queue never changes on a switch.
+    @Test func preferredModeCarriesAcrossTracks() async {
+        let rig = Rig()
+        var a = PB.track("a")
+        a.counterpart = QTCounterpart(videoId: "a-mv", musicVideoType: .omv)
+        var c = PB.track("c")
+        c.counterpart = QTCounterpart(videoId: "c-mv", musicVideoType: .omv)
+        await rig.controller.play([a, PB.track("b"), c])
+        let autoplayBefore = rig.autoplayIDs
+        await rig.controller.setMode(.video)
+        #expect(rig.controller.preferredMode == .video)
+        #expect(rig.autoplayIDs == autoplayBefore, "a switch leaves the queue alone")
+        await rig.controller.next()
+        #expect(rig.controller.mode == .song, "no video: the song")
+        #expect(rig.controller.preferredMode == .video, "…without forgetting the choice")
+        await rig.controller.next()
+        #expect(rig.nowID == "c")
+        #expect(rig.controller.mode == .video)
+        #expect(QTWebPlaybackEngine.videoID(for: rig.engine.state.item!) == "c-mv")
+    }
+
+    /// Counterparts the track doesn't carry are looked up for the current and the next track, written into the
+    /// queue items (same order, same ids), and a prefetched one makes the next track start as its video.
+    @Test func resolvedCounterpartsPatchTheQueue() async {
+        let rig = Rig()
+        var asked: [String] = []
+        rig.controller.counterpartResolver = { track in
+            asked.append(track.videoId)
+            return QTCounterpart(videoId: track.videoId + "-mv", musicVideoType: .omv)
+        }
+        rig.controller.preferredMode = .video
+        await rig.controller.play(PB.tracks(3))
+        for _ in 0..<20 { await Task.yield() }
+        #expect(Set(asked) == ["t1", "t2"])
+        #expect(rig.controller.queue.nowPlaying?.track.counterpart?.videoId == "t1-mv")
+        #expect(rig.controller.queue.autoplay.first?.track.counterpart?.videoId == "t2-mv")
+        #expect(rig.autoplayIDs == ["t2", "t3"])
+        await rig.controller.next()
+        #expect(rig.controller.mode == .video, "prefetched: starts as the video")
+    }
+
     @Test func replacingTheEngineKeepsTheItemAndPosition() async {
         let rig = Rig()
         await rig.controller.play(PB.tracks(2), startTime: 30)

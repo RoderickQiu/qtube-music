@@ -99,10 +99,12 @@ public struct QTCommands: Commands {
             Button(QTLoc.tr("Song ⇄ Music Video")) { model.isVideoMode.toggle() }
                 .keyboardShortcut("v", modifiers: [.command, .shift])
                 .disabled(player.nowPlaying?.hasVideo != true)
-            // PiP arrives with the video engine (M5); the shortcut is reserved now so muscle memory never changes.
-            Button(QTLoc.tr("Picture in Picture", table: .desktop)) {}
+            // Native Picture in Picture of the music video (switches to Video first); checked while it floats.
+            Toggle(QTLoc.tr("Picture in Picture", table: .desktop), isOn: Binding(
+                get: { QTVideoModeService.shared.isPictureInPictureActive },
+                set: { _ in QTVideoModeService.shared.togglePictureInPicture() }))
                 .keyboardShortcut("p", modifiers: [.command, .shift])
-                .disabled(true)
+                .disabled(!QTVideoModeService.shared.canTogglePictureInPicture)
             // A detached Stage (another display) counts as open; ⇧⌘F closes it instead of pulling it back.
             Toggle(QTLoc.tr("Stage"), isOn: Binding(get: { model.surface == .stage || stage.isDetached }, set: { _ in
                 if model.surface == .mini { desktop.showMainWindow() }

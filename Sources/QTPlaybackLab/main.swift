@@ -2,13 +2,14 @@
 // YouTube Music web player. Anonymous (non-persistent data store) and silent (media volume pinned to 0).
 // Never activates: no Dock icon, no windows on screen, no focus change.
 //
-//   swift run --scratch-path .build/playback QTPlaybackLab [--ids a,b,c] [--scenario basic|advance|cue|power|errors] [--count N]
+//   swift run --scratch-path .build/playback QTPlaybackLab [--ids a,b,c] [--scenario basic|advance|cue|power|errors|switch] [--queries "a|b|c"] [--count N]
 //
 // Prints one line per engine state change and a PASS/FAIL summary per check.
 
 import AppKit
 import Foundation
 import QTCore
+import QTInnerTube
 import QTPlayback
 import WebKit
 
@@ -19,6 +20,7 @@ struct LabOptions {
     var ids = defaultIDs
     var scenario = "basic"
     var count = 10
+    var queries = ["Ed Sheeran Perfect", "Adele Hello", "Coldplay Yellow"]
 
     init(_ args: [String]) {
         var it = args.dropFirst().makeIterator()
@@ -27,8 +29,9 @@ struct LabOptions {
             case "--ids": ids = (it.next() ?? "").split(separator: ",").map(String.init)
             case "--scenario": scenario = it.next() ?? scenario
             case "--count": count = Int(it.next() ?? "") ?? count
+            case "--queries": queries = (it.next() ?? "").split(separator: "|").map(String.init)
             case "--help", "-h":
-                print("QTPlaybackLab [--ids a,b,c] [--scenario basic|advance|cue|power|errors] [--count N]")
+                print("QTPlaybackLab [--ids a,b,c] [--scenario basic|advance|cue|power|errors|switch] [--queries a|b|c] [--count N]")
                 exit(0)
             default: break
             }
@@ -344,6 +347,41 @@ final class Lab {
         check("the next playable track plays", content)
     }
 
+    /// M5 acceptance (stage-video): Song⇄Video at the same timestamp. For each query (`--queries "a|b|c"`) the song
+    /// (ATV) is found by an anonymous search, its music video through `counterpart(for:)` (next, then search);
+    /// it plays muted from 0:30, switches to the video and back, and logs both positions of every switch.
+    func switching() async {
+        let client = QTInnerTubeClient()
+        var reports: [QTModeSwitchReport] = []
+        engine.onModeSwitch = { reports.append($0) }
+        for query in options.queries {
+            guard let song = try? await client.search(query, filter: .songs).songs.first(where: { $0.musicVideoType == .atv }) else {
+                check("\(query): song found", false); continue
+            }
+            var track = song
+            if track.counterpart == nil { track.counterpart = try? await client.counterpart(for: song) }
+            guard let mv = track.counterpart, mv.musicVideoType.isVideo else {
+                check("\(query): music video found", false, song.videoId); continue
+            }
+            log("\(query): song \(song.videoId) ⇄ video \(mv.videoId)")
+            await controller.play([track], startTime: 30, autoplay: true, mode: .song)
+            guard await waitForContent() else { check("\(query): song plays", false); continue }
+            try? await Task.sleep(for: .seconds(4))
+            for target in [QTPlaybackMode.video, .song] {
+                let before = reports.count
+                let asked = controller.currentTime
+                await controller.setMode(target)
+                let landed = await wait(30, "switch to \(target)") { reports.count > before }
+                let r = reports.last
+                check("\(query): \(target == .video ? "song → video" : "video → song") keeps the position",
+                      landed && abs(r?.offset ?? 99) <= 0.5,
+                      r.map { String(format: "asked %.2f s, requested %.2f s, landed %.2f s, offset %+.2f s, latency %.2f s, queue %d",
+                                     asked, $0.requested, $0.landed, $0.offset, $0.latency, controller.queue.autoplay.count) } ?? "no report")
+                try? await Task.sleep(for: .seconds(4))
+            }
+        }
+    }
+
     /// Diagnostics: what the page looks like a few seconds into loading `--ids` first id.
     func probe() async {
         let id = options.ids[0]
@@ -368,6 +406,7 @@ final class Lab {
         case "errors": await errors()
         case "cue": await cued()
         case "advance": await advanceMany()
+        case "switch": await switching()
         default: await basic()
         }
         engine.shutdown()

@@ -81,7 +81,7 @@ public final class QTPlayerModel {
     /// Plays `tracks[index]`; the rest of the list continues as Autoplay from `source`.
     public func play(_ tracks: [QTTrack], startingAt index: Int = 0, source: QTQueueSource? = nil,
                      startTime: TimeInterval = 0, autoplay: Bool = true, mode: QTPlaybackMode? = nil) async {
-        await playback.play(tracks, startingAt: index, source: source, startTime: startTime, autoplay: autoplay, mode: mode ?? .song)
+        await playback.play(tracks, startingAt: index, source: source, startTime: startTime, autoplay: autoplay, mode: mode)
     }
 
     /// Shuffle a playlist/album/artist or the entire library: shuffle on, random first track.

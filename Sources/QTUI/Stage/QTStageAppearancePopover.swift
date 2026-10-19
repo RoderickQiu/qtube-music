@@ -31,6 +31,7 @@ struct QTStageAppearancePopover: View {
     @Environment(QTAppModel.self) private var model
     @Environment(QTPlayerModel.self) private var player
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage(QTStageVideoLyrics.defaultsKey) private var showsVideoLyrics = true
 
     private var isPremium: Bool { model.account == .premium }
     private var hasVideo: Bool { player.nowPlaying?.hasVideo ?? false }
@@ -42,6 +43,13 @@ struct QTStageAppearancePopover: View {
                     .frame(maxWidth: .infinity)
                     .accessibilityLabel(QTLoc.tr("Stage layout"))
                     .accessibilityIdentifier("qt.stage.appearance.layout")
+                Divider()
+            } else {
+                // The music video replaces the layout; its one option is the synced line over it.
+                Toggle(QTLoc.tr("Lyrics over video", table: .stage), isOn: $showsVideoLyrics)
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .accessibilityIdentifier("qt.stage.appearance.videoLyrics")
                 Divider()
             }
             HStack(alignment: .top, spacing: 6) {

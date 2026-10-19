@@ -57,6 +57,9 @@ public final class QTQueueController {
     public private(set) var queue = QTQueue()
     /// Song or Video rendition of the current item.
     public private(set) var mode: QTPlaybackMode = .song
+    /// The rendition the listener wants (the Song | Video switch, "Prefer videos when available"): every new track
+    /// starts as its music video when it has one, otherwise as the song. `setMode` updates it.
+    public var preferredMode: QTPlaybackMode = .song
     public private(set) var isShuffleOn = false
     public var repeatMode: QTRepeatMode = .off {
         didSet { if repeatMode != oldValue { scheduleSave(); publishNowPlaying() } }
@@ -66,6 +69,11 @@ public final class QTQueueController {
     public private(set) var lastFailure: QTPlaybackError?
 
     @ObservationIgnored public var autoplayContinuation: QTAutoplayContinuation?
+    /// Song⇄Video counterpart lookup (InnerTube `next`, then a conservative search) for tracks that don't carry
+    /// one. Asked for the current track and the next one; results patch the queue items in place. nil = none.
+    @ObservationIgnored public var counterpartResolver: (@MainActor (QTTrack) async -> QTCounterpart?)?
+    @ObservationIgnored private var counterparts: [String: QTCounterpart?] = [:]
+    @ObservationIgnored private var counterpartTasks: [String: Task<Void, Never>] = [:]
     /// Called when the current track changes (not on Song⇄Video switches of the same track).
     @ObservationIgnored public var onTrackChange: (@MainActor (QTTrack?) -> Void)?
     /// Like state for Now Playing and the remote like command.
@@ -129,8 +137,9 @@ public final class QTQueueController {
 
     /// Plays `tracks[index]`; the playable rest of `tracks` continues as Autoplay from `source` (shuffled when
     /// shuffle is on). Up Next is kept.
+    /// `mode` nil = `preferredMode`.
     public func play(_ tracks: [QTTrack], startingAt index: Int = 0, source: QTQueueSource? = nil,
-                     startTime: TimeInterval = 0, autoplay: Bool = true, mode: QTPlaybackMode = .song) async {
+                     startTime: TimeInterval = 0, autoplay: Bool = true, mode: QTPlaybackMode? = nil) async {
         guard tracks.indices.contains(index), tracks[index].availability.isPlayable else { return }
         var items: [QTQueueItem] = []
         var current: QTQueueItem?
@@ -145,7 +154,8 @@ public final class QTQueueController {
         let rest = items.filter { $0.id != current.id }
         let after = Array(items.drop { $0.id != current.id }.dropFirst())
         queue.autoplay = isShuffleOn ? shuffled(rest, avoidingFirst: current.track.videoId) : after
-        await loadCurrent(startTime: startTime, autoplay: autoplay, mode: mode)
+        if let mode { preferredMode = mode }
+        await loadCurrent(startTime: startTime, autoplay: autoplay, mode: preferredMode)
     }
 
     /// "Shuffle" on a playlist/album/artist, and "Shuffle entire library": turns shuffle on and starts from a
@@ -158,7 +168,7 @@ public final class QTQueueController {
         replaceContext(items, source: source)
         becomeCurrent(order[0], from: .autoplay)
         queue.autoplay = Array(order.dropFirst())
-        await loadCurrent(startTime: 0, autoplay: true, mode: .song)
+        await loadCurrent(startTime: 0, autoplay: true, mode: preferredMode)
     }
 
     // MARK: Transport
@@ -203,11 +213,13 @@ public final class QTQueueController {
             }
         }
         queue.nowPlaying = previous
-        await loadCurrent(startTime: 0, autoplay: true, mode: mode)
+        await loadCurrent(startTime: 0, autoplay: true, mode: preferredMode)
     }
 
-    /// Song⇄Video at the same position.
+    /// Song⇄Video at the same position (the counterpart loads at the current time; the queue doesn't change). On a
+    /// track with both renditions this is also the listener's choice for the tracks that follow (`preferredMode`).
     public func setMode(_ newMode: QTPlaybackMode) async {
+        if queue.nowPlaying?.track.hasVideo == true { preferredMode = newMode }
         guard newMode != mode, let track = queue.nowPlaying?.track, track.hasVideo || newMode == .song else { return }
         await loadCurrent(startTime: currentTime, autoplay: engine.state.isPlaying, mode: newMode)
     }
@@ -224,7 +236,7 @@ public final class QTQueueController {
         } else {
             return
         }
-        await loadCurrent(startTime: 0, autoplay: true, mode: mode)
+        await loadCurrent(startTime: 0, autoplay: true, mode: preferredMode)
     }
 
     // MARK: Shuffle and repeat
@@ -339,6 +351,7 @@ public final class QTQueueController {
     public func restore(autoplay: Bool = false) async -> Bool {
         guard let store, let snapshot = await store.load() else { return false }
         apply(snapshot)
+        preferredMode = snapshot.mode
         guard queue.nowPlaying != nil else { return true }
         await loadCurrent(startTime: snapshot.position, autoplay: autoplay, mode: snapshot.mode)
         return true
@@ -415,7 +428,7 @@ public final class QTQueueController {
             // End of the queue: the last item stays loaded (ended), like Music.app.
             return
         }
-        await loadCurrent(startTime: 0, autoplay: true, mode: mode)
+        await loadCurrent(startTime: 0, autoplay: true, mode: preferredMode)
     }
 
     private func handleEnded() async {
@@ -453,12 +466,14 @@ public final class QTQueueController {
     }
 
     private func loadCurrent(startTime: TimeInterval, autoplay: Bool, mode newMode: QTPlaybackMode) async {
+        applyKnownCounterpart()
         guard let item = queue.nowPlaying else { return }
         loadToken += 1
         let token = loadToken
         loadsInFlight += 1
         defer { loadsInFlight -= 1 }
         let track = item.track
+        resolveCounterparts()
         mode = (newMode == .video && track.hasVideo) ? .video : .song
         wantsPlayback = autoplay
         announceTrackChange()
@@ -495,6 +510,45 @@ public final class QTQueueController {
         guard id != lastAnnouncedTrackID else { return }
         lastAnnouncedTrackID = id
         onTrackChange?(queue.nowPlaying?.track)
+    }
+
+    // MARK: Song⇄Video counterparts
+
+    /// A counterpart found earlier (prefetched while the previous track played) goes onto the item before it loads,
+    /// so "Prefer videos" starts it as the video straight away.
+    private func applyKnownCounterpart() {
+        guard let track = queue.nowPlaying?.track, track.counterpart == nil,
+              let known = counterparts[track.videoId], let counterpart = known else { return }
+        queue.nowPlaying?.track.counterpart = counterpart
+    }
+
+    /// Looks up counterparts for the current track and the next one (once per video id).
+    private func resolveCounterparts() {
+        guard let resolver = counterpartResolver else { return }
+        let next = queue.upNext.first ?? queue.autoplay.first
+        for track in [queue.nowPlaying?.track, next?.track].compactMap({ $0 }) where track.counterpart == nil {
+            let id = track.videoId
+            guard counterparts[id] == nil, counterpartTasks[id] == nil else { continue }
+            counterpartTasks[id] = Task { @MainActor [weak self] in
+                let found = await resolver(track)
+                guard let self else { return }
+                self.counterpartTasks[id] = nil
+                self.counterparts[id] = .some(found)
+                if self.counterparts.count > 256 { self.counterparts.removeAll() }
+                guard let found else { return }
+                self.patchCounterpart(found, forVideoID: id)
+            }
+        }
+    }
+
+    /// Writes a resolved counterpart into every queue item of that track (the queue's order never changes).
+    private func patchCounterpart(_ counterpart: QTCounterpart, forVideoID id: String) {
+        if queue.nowPlaying?.track.videoId == id, queue.nowPlaying?.track.counterpart == nil {
+            queue.nowPlaying?.track.counterpart = counterpart
+        }
+        for i in queue.upNext.indices where queue.upNext[i].track.videoId == id { queue.upNext[i].track.counterpart = counterpart }
+        for i in queue.autoplay.indices where queue.autoplay[i].track.videoId == id { queue.autoplay[i].track.counterpart = counterpart }
+        for i in context.indices where context[i].track.videoId == id { context[i].track.counterpart = counterpart }
     }
 
     // MARK: Autoplay continuation

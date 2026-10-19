@@ -109,15 +109,19 @@ struct QTPanelBackdrop: View {
 struct QTNowPlayingTab: View {
     @Environment(QTAppModel.self) private var model
     @Environment(QTPlayerModel.self) private var player
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(spacing: 0) {
             QTNowPlayingHero()
             Divider()
             QTLyricsView(document: player.lyrics, time: player.timeline, style: .panel) { player.seek(to: $0) }
-                // Lyrics pause while an ad plays; they stay where they are, quietly.
-                .opacity(player.ad == nil ? 1 : 0.35)
+                // Lyrics step away while an ad plays (as on the Stage) and come back where they were: a dimmed,
+                // frozen column read as disabled.
+                .opacity(player.ad == nil ? 1 : 0)
                 .allowsHitTesting(player.ad == nil)
+                .accessibilityHidden(player.ad != nil)
+                .animation(QTTheme.Motion.animation(QTTheme.Motion.ui, reduceMotion: reduceMotion), value: player.ad == nil)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("qt.player.panel.lyrics")
         }
@@ -185,21 +189,13 @@ struct QTNowPlayingHero: View {
             Button {
                 model.surface = .stage
             } label: {
-                QTArtworkView(track: track, video: showsVideo, cornerRadius: QTTheme.Radius.artwork)
-                    .overlay(alignment: .bottomLeading) {
-                        if showsVideo {
-                            Image(systemName: QTIcon.play.systemName)
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(.white)
-                                .padding(5)
-                                .qtGlass(.overArt, in: Circle())
-                                .environment(\.colorScheme, .dark)
-                                .padding(6)
-                                .accessibilityHidden(true)
-                        }
-                    }
-                    .id(showsVideo)
-                    .transition(.opacity)
+                // M5: in Video mode the real music video replaces the artwork. The slot stays put across Song⇄Video
+                // so the video can crossfade in over the MV still (first frame) and out to the artwork (switch).
+                QTLiveVideoView(kind: .panel, cornerRadius: QTTheme.Radius.artwork) {
+                    QTArtworkView(track: track, video: showsVideo, cornerRadius: QTTheme.Radius.artwork)
+                        .id(showsVideo)
+                        .transition(.opacity)
+                }
             }
             .buttonStyle(.plain)
             .help("\(QTLoc.tr("Open Stage"))  ⇧⌘F")

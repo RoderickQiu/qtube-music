@@ -66,3 +66,8 @@ public struct QTStageResolvedAppearance: Equatable, Sendable {
         !isVideo && (layout == .artOnly || (artSlot == .vinyl && layout == .standard))
     }
 }
+
+/// The optional synced-lyric overlay on the Stage's music video (spec §5), a per-user preference.
+enum QTStageVideoLyrics {
+    static let defaultsKey = "qt.stage.videoLyrics"
+}

@@ -11,6 +11,9 @@ public struct QTMainWindowView: View {
     @Environment(QTPlayerModel.self) private var player
     @Environment(\.openSettings) private var openSettings
     @FocusState private var isSearchFocused: Bool
+    /// The in-window Stage covers the browsing UI (see the body); set a moment after the Stage appears.
+    @State private var isBrowsingCovered = false
+    @State private var coverTask: Task<Void, Never>?
 
     public init() {
         QTNavigator.shared.attach(QTAppModel.shared)
@@ -39,27 +42,30 @@ public struct QTMainWindowView: View {
                         .qtFloatingBottomBar { QTPlayerBar() }
                 }
                 .toolbar {
-                    ToolbarItemGroup(placement: .navigation) {
-                        Button {
-                            navigator.goBack()
-                        } label: {
-                            Label(QTLoc.tr("Back"), systemImage: QTIcon.chevL.systemName)
+                    // Not under the in-window Stage (QTStageTitlebar hides the rest of the toolbar there).
+                    if model.surface != .stage {
+                        ToolbarItemGroup(placement: .navigation) {
+                            Button {
+                                navigator.goBack()
+                            } label: {
+                                Label(QTLoc.tr("Back"), systemImage: QTIcon.chevL.systemName)
+                            }
+                            .disabled(!navigator.canGoBack)
+                            .help("\(QTLoc.tr("Back"))  ⌘[")
+                            .accessibilityIdentifier("qt.window.back")
+                            Button {
+                                navigator.goForward()
+                            } label: {
+                                Label(QTLoc.tr("Forward"), systemImage: QTIcon.chevR.systemName)
+                            }
+                            .disabled(!navigator.canGoForward)
+                            .help("\(QTLoc.tr("Forward"))  ⌘]")
+                            .accessibilityIdentifier("qt.window.forward")
                         }
-                        .disabled(!navigator.canGoBack)
-                        .help("\(QTLoc.tr("Back"))  ⌘[")
-                        .accessibilityIdentifier("qt.window.back")
-                        Button {
-                            navigator.goForward()
-                        } label: {
-                            Label(QTLoc.tr("Forward"), systemImage: QTIcon.chevR.systemName)
-                        }
-                        .disabled(!navigator.canGoForward)
-                        .help("\(QTLoc.tr("Forward"))  ⌘]")
-                        .accessibilityIdentifier("qt.window.forward")
                     }
                     // While the panel is shown it closes from its own header (QTPanelHeader); the toolbar only
                     // offers the way back.
-                    if !model.isPanelShown {
+                    if !model.isPanelShown, model.surface != .stage {
                         ToolbarItem(placement: .primaryAction) {
                             Button {
                                 withAnimation(QTTheme.Motion.animation(QTTheme.Motion.spring, reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)) {
@@ -80,13 +86,28 @@ public struct QTMainWindowView: View {
                 .searchable(text: $model.searchText, placement: .toolbar, prompt: Text(QTLoc.tr("Search music")))
                 .searchFocused($isSearchFocused)
             }
+            // Under the in-window Stage the browsing window is out of reach: VoiceOver, Full Keyboard Access and
+            // the mouse only find the Stage (whose own transport is the one that counts). Disabling waits until
+            // the Stage has faded in, so nothing greys out visibly on the way.
+            .accessibilityHidden(model.surface == .stage)
+            .allowsHitTesting(model.surface != .stage)
+            .disabled(isBrowsingCovered)
+            .onChange(of: model.surface == .stage, initial: true) { _, covered in
+                coverTask?.cancel()
+                guard covered else { isBrowsingCovered = false; return }
+                coverTask = Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(450))
+                    guard !Task.isCancelled, model.surface == .stage else { return }
+                    isBrowsingCovered = true
+                }
+            }
             if model.surface == .stage {
                 QTStageView()
                     .transition(.opacity)
                     .zIndex(1)
             }
         }
-        .toolbar(model.surface == .stage ? .hidden : .visible, for: .windowToolbar)
+        // The in-window Stage keeps the window's own title bar and toolbar; QTStageTitlebar (Stage/) hides its items.
         .overlay { QTLyricsLabOverlay() }
         .qtArtworkTint(model.palette)
         .frame(minWidth: 960, minHeight: 600)

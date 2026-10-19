@@ -52,6 +52,35 @@ import WebKit
         #expect(!QTWebPlaybackBridgeScript.bridge.contains("setActionHandler"), "the page's media session is never used")
     }
 
+    /// The video surface is its own small script; the bridge only tells it when to show (and boots with it).
+    @Test func videoSurfaceStaysSmallAndSeparate() {
+        let lines = QTWebPlaybackBridgeScript.videoSurface.split(separator: "\n").count
+        #expect(lines < 130, "\(lines) lines")
+        #expect(QTWebPlaybackBridgeScript.videoSurface.contains("requestVideoFrameCallback"))
+        #expect(QTWebPlaybackBridgeScript.bridge.contains("__qtVideo"))
+        let boot = QTWebPlaybackBridgeScript.bootstrap(generation: 2, videoID: "x", hold: true, volume: 1, muted: false,
+                                                       silent: true, present: true, quality: "hd720")
+        #expect(boot.contains("\"present\":true") && boot.contains("\"quality\":\"hd720\""))
+    }
+
+    /// The rendition follows the slot: the panel's thumbnail never pulls 1080p, a full Stage does.
+    @Test func videoQualityFitsTheSlot() {
+        #expect(QTWebVideoOutput.quality(forPixelHeight: 176) == "small")
+        #expect(QTWebVideoOutput.quality(forPixelHeight: 400) == "medium")
+        #expect(QTWebVideoOutput.quality(forPixelHeight: 900) == "hd720")
+        #expect(QTWebVideoOutput.quality(forPixelHeight: 1800) == "hd1080")
+        let report = QTModeSwitchReport(videoID: "v", from: .song, to: .video, requested: 40, landed: 40.3, latency: 0.9)
+        #expect(abs(report.offset - 0.3) < 0.0001)
+    }
+
+    /// Video fields of a bridge sample (frame readiness, PiP).
+    @Test func sampleCarriesVideoFields() throws {
+        let s = try #require(QTWebPlaybackSample(["gen": 3, "vw": 1920.0, "vh": 1080.0, "rs": 4, "pip": true]))
+        #expect(s.videoWidth == 1920 && s.videoHeight == 1080 && s.readyState == 4 && s.isPictureInPicture)
+        let empty = try #require(QTWebPlaybackSample(["gen": 3]))
+        #expect(empty.videoWidth == 0 && !empty.isPictureInPicture)
+    }
+
     /// The Now Playing guarantee depends on this WebKit feature; fail loudly if a WebKit update removes it.
     @Test func webKitStillOffersRunningMediaOutsideTheGPUProcess() {
         #expect(QTWebKitTuning.runMediaInWebContentProcess(WKPreferences()))

@@ -13,7 +13,7 @@ SwiftPM package `QTubeMusic` (`Package.swift`, tools 6.2, Swift 6 language mode,
 | `QTCore` | — | Models (`QTTrack`, `QTAlbum`, `QTArtist`, `QTPlaylist`, `QTShelf`/`QTHomeFeed`, `QTArtworkPalette`), `QTQueue`, `QTLyricsDocument`, `QTSettings` + `QTSettingsStore`, `QTMockCatalog` + `QTCatalogService`, `QTFormat`, `QTLoc` localization, **all String Catalogs** | shared (scaffold) |
 | `QTInnerTube` | QTCore | `QTInnerTubeClient` (actor: ytcfg scrape, WEB_REMIX context, hl/gl, SAPISIDHASH, TTL+LRU cache, retries, session-loss detection; account writes gated by `setAllowsAccountWrites`), parsers → QTCore models (music-only filter), `QTCounterpartResolver` (Song⇄Video), `QTInnerTubeCatalog` (`QTCatalogService`), `QTInnerTubeConfiguration`; `Lyrics/QTInnerTubeLyricsClient` (anonymous ANDROID_MUSIC `post(_:payload:)` for timed lyrics, follows a client's hl/gl/visitor id — lyrics-live) | data-layer |
 | `QTAuth` | QTInnerTube | `QTAuthController` (`restore()`, `beginSignIn(hl:over:)`, `signOut()`, DEBUG-only session import), `QTSessionStore` (actor, Keychain `com.roderickqiu.qtube`), `QTAuthSession`/`QTCookie` (auth-cookie allowlist), `QTWebCookieStore`, `QTAuthState` | data-layer |
-| `QTPlayback` | QTCore, QTInnerTube | `QTPlaybackEngine` protocol, `QTSimulatedPlaybackEngine`, `QTQueueController` (queue + context, shuffle/repeat, autoplay continuation, persistence via `QTQueueStore`, holds a process activity while playing), `QTNowPlayingController` (sole owner of Now Playing + remote commands), `Web/QTWebPlaybackEngine` (hidden WKWebView, JS bridge, ads, playability errors, offline recovery, 144p decode, page freeze while paused; `QTWebKitTuning` keeps the hidden page scheduled), `QTPlaybackEngineSelector`, `QTNativePlaybackEngine` stub (M5) | playback |
+| `QTPlayback` | QTCore, QTInnerTube | `QTPlaybackEngine` protocol, `QTSimulatedPlaybackEngine`, `QTQueueController` (queue + context, shuffle/repeat, autoplay continuation, persistence via `QTQueueStore`, holds a process activity while playing), `QTNowPlayingController` (sole owner of Now Playing + remote commands), `Web/QTWebPlaybackEngine` (hidden WKWebView, JS bridge, ads, playability errors, offline recovery, 144p decode, page freeze while paused; `QTWebKitTuning` keeps the hidden page scheduled), `Web/QTWebVideoOutput` (M5: the page's music video in app views, native PiP, `QTModeSwitchReport`), `QTPlaybackEngineSelector`, `QTNativePlaybackEngine` stub (M5) | playback (Web video parts: stage-video) |
 | `QTDevSession` | QTAuth | DEBUG-only executable: import the dev session from CDP cookie JSON on stdin; read-only `status` / `summary` / `probe` / `ytcfg` (never prints cookie values) | data-live |
 | `QTPlaybackLab` | QTPlayback | dev-only executable: drives the web engine live, muted and anonymous (`swift run --scratch-path .build/<you> QTPlaybackLab --scenario basic`) | playback |
 | `QTLyrics` | QTCore | `QTLyricsResolver` (actor, `QTLyricsProviding`): parsers (LRC, YRC, QRC, KRC, TTML), QRC/KRC decryption, providers (YouTube Music, LRCLIB, AMLL; NetEase/Kugou/QQ opt-in), matcher, `QTLyricsCache` (SQLite), romanization, translation plan; `QTMockLyricsProvider` | lyrics |
@@ -141,7 +141,8 @@ Views:
   on-device translation runs for them too.
 - `QTQueueList(style: .panel | .stageDrawer)`.
 - `QTTransportControls(style: .playerBar | .stage | .compact)` (`.stage` draws play/pause as a filled disc via
-  `QTStagePlayButtonStyle`, Stage/); `QTScrubber(overArt:)`.
+  `QTStagePlayButtonStyle`, Stage/); `QTScrubber(overArt:identifier:)` (an `AXSlider` to VoiceOver / Voice Control via
+  `accessibilityRepresentation`; identifier default `qt.player.scrubber`, the Stage passes `qt.stage.scrubber`).
 - `QTSongVideoToggle(isVideo:hasVideo:)` — segmented Picker.
 - `QTToastOverlay()`, `QTIcon` (prototype icon name → SF Symbol; test checks every symbol exists).
 - `QTNowPlayingIndicator.symbolName/image(isPlaying:)` + `QTNowPlayingGlyph(isPlaying:)` (Shared/) — the one marker for
@@ -160,11 +161,32 @@ Coordinators (one per process, `@MainActor`):
 - `QTStageCoordinator.shared` (Stage/) — `toggleStage(model:)` (⇧⌘F; closes a detached Stage), `showDetached(on:model:activate:)`,
   `returnToMainWindow(model:)`, `isDetached`, `otherScreens(than:)`. The Stage offers the display moves in its
   right-click menu (no ⋯ button).
-- `QTStageVideoSurfaceProvider.shared.source` (Stage/) — M5 hook for live music video on the Stage: return
-  `.layer(AVPlayerLayer)` or `.view(NSView)` for a track (nil → the MV still with Ken Burns). Scrims stay on top.
-- In-window Stage keeps the traffic lights: Shell's `.toolbar(.hidden, for: .windowToolbar)` hides the whole title
-  bar, so `QTStageTitlebar` (Stage/) swaps in an empty unified toolbar and re-shows the title bar while the Stage
-  is up, and hands the window's own toolbar back when it closes.
+- **Song⇄Video (M5, stage-video).** `QTVideoModeService.shared` (NowPlaying/) keeps the loaded rendition in step with
+  `model.isVideoMode` (the intent: the Song | Video switch, ⇧⌘V, the Stage's Video swatch; starts from and follows
+  Settings › "Prefer videos when available"), installs `QTQueueController.counterpartResolver` (InnerTube `next`, then
+  `QTCounterpartMatcher` search; anonymous, read-only; current + next track) and owns ⇧⌘P
+  (`togglePictureInPicture()`, `canTogglePictureInPicture`, `isPictureInPictureActive`). `QTQueueController.preferredMode`
+  carries the choice across tracks; `setMode` reloads the counterpart at the current position (queue untouched).
+- **Live video:** `QTLiveVideoView(kind: .panel | .stage, cornerRadius:) { placeholder }` (NowPlaying/) shows the web
+  engine's real video with the placeholder (artwork / MV still) on top until the first frame, then crossfades
+  (0.32 s); ads, PiP and the simulated engine show the placeholder (PiP adds a quiet `pip` glyph).
+  `QTVideoSlotCoordinator` gives the one video to the highest visible slot (Stage > panel); none → the page goes back
+  to the hidden host at 144p. `QTWebVideoOutput` (`engine.video`): `present(in:)` / `withdraw(from:)`, `hasFrame`,
+  `isPictureInPictureActive`, `setPictureInPicture(_:)`, quality per slot (`small` panel … `hd1080` Stage). How it
+  works: the WKWebView moves into the slot (one reparent, window to window; the engine resumes playback if WebKit
+  pauses the page on the way back into the hidden host); the `videoSurface` script hides all page UI and draws each
+  decoded frame on one canvas (WebKit's inline video layer stays blank after the view changes windows), cropping
+  burned-in letterbox bars; the page never takes clicks, focus or VoiceOver (`QTWebPlaybackView`); content insets
+  are zeroed so the video runs under the title bar. Native PiP is WebKit's (`_allowsPictureInPictureMediaPlayback`).
+- `QTStageVideoSurfaceProvider.shared.source` (Stage/) — a native engine can still hand the Stage its own
+  `.layer(AVPlayerLayer)` / `.view(NSView)`; otherwise the Stage's Video background is `QTLiveVideoView(kind: .stage)`.
+  Lyrics over the video are optional (Appearance popover › "Lyrics over video", `@AppStorage("qt.stage.videoLyrics")`).
+- In-window Stage keeps the window's own title bar and SwiftUI toolbar (so the traffic lights stay put and the
+  inspector's toolbar plumbing stays consistent): Shell drops its toolbar items while `surface == .stage`, and
+  `QTStageTitlebar` (Stage/) hides every remaining toolbar item (`NSToolbarItem.isHidden`, also items SwiftUI adds
+  later) and shows exactly those again on close. (Swapping in an empty `NSToolbar` made showing the panel under the
+  Stage loop AppKit's constraint pass until it crashed.) Under the Stage the browsing UI is `accessibilityHidden`,
+  takes no hits and is disabled (after the fade-in), so VoiceOver and Full Keyboard Access only reach the Stage.
 - `QTDesktopCoordinator.shared` (Desktop/) — mini player, desktop lyrics (hidden while the Stage is up, inline or
   detached; until the user moves it, its default spot steps out of the main window's way), menu bar title, Dock
   menu, `showMainWindow()` (user-initiated only).
@@ -327,6 +349,7 @@ Builders add their own as `qt.<area>.<name>` (e.g. `qt.stage.chrome hidden`, `qt
 | desktop | `qt.desktop.miniMode compact\|art` · `qt.desktop.miniLyric` · `qt.desktop.miniHover` · `qt.desktop.lyricsUnlocked` · `qt.desktop.menuBarScroll` · `qt.desktop.lyricsSize <pt>` · `qt.settingsTab general\|playback\|lyrics\|account\|advanced`; DEBUG: `qt.desktop.switchLanguage`, `qt.desktop.popUpMenu <index>`, `qt.desktop.showShortcuts`, `qt.desktop.accountPreview signedIn\|premium\|signingIn\|expired\|signedOut` (Settings › Account without Keychain access) |
 | lyrics-live | `qt.lyrics.unofficial all\|none\|netease,kugou,qq` (session-only Settings override) · `qt.lyrics.engine live\|mock` (default live) · `qt.lyrics.cache memory\|<path>` (fresh lookup; default Application Support/<bundle id>/Lyrics.sqlite) · `qt.lyrics.offline YES` (every source unreachable → fallback path) |
 | data-live | `qt.live.open album:<id\|title>` · `artist:<id\|name>` · `playlist:<id>` (once the library has loaded) · `qt.live.state skeleton\|offline\|unavailable\|expired` (pins every live page's state) · `qt.live.signedOut YES` (signed-out screen, no Keychain read) · with it `qt.live.signIn YES` (Google sign-in window in a throwaway WebKit store; a login there is never kept) |
+| stage-video | DEBUG `qt.video.debugVisibleHost YES` (orders the web engine's host window onto U270CA, alpha 1 — page diagnostics only) |
 | playback | `qt.engine auto\|simulated\|web` · `qt.playback.silent` · `qt.playback.persist` · `qt.playback.nowPlaying` · `qt.playback.anonymous` · `qt.playback.readyWhen playing\|ad\|buffering\|failed\|toast` (+ `qt.playback.readyTimeout <s>`, default 120) · `qt.playback.loadDelay <s>` (slow-network look) · DEBUG: `qt.playback.statusFile <path>` (JSON status twice a second) and distributed-notification commands (`QTPlaybackDebugHooks`) |
 
 Env-gated test suites: `QT_LIVE=1` (live anonymous InnerTube / lyrics / playback), `QT_RECORD=1` (re-record
@@ -370,8 +393,12 @@ InnerTube fixtures), `QT_DUMP=1` (print parser output), `QT_KEYCHAIN_TEST=1` (Ke
   the bundled app, silent and anonymous: N tracks in a row without a stall, one Now Playing entry, elapsed/artwork,
   remote commands in-process (MPRemoteCommandCenter dispatch) and through the system, CPU playing/paused; report in
   `.build/playback-acceptance.json`. While it runs the test app is the system's Now Playing app.
-- `swift run --scratch-path .build/<you> QTPlaybackLab --scenario basic|advance|cue|power|errors|probe` — the engine
-  alone, headless.
+- `swift run --scratch-path .build/<you> QTPlaybackLab --scenario basic|advance|cue|power|errors|probe|switch` — the engine
+  alone, headless. `switch` (M5 acceptance): for each of `--queries "a|b|c"` (default Ed Sheeran Perfect, Adele Hello,
+  Coldplay Yellow) finds the song + music video anonymously, plays muted from 0:30 and switches Song → Video → Song,
+  logging asked / requested / landed position, offset and latency of every switch (pass: |offset| ≤ 0.5 s).
+- DEBUG playback hooks (`QTPlaybackDebugHooks`) also take `pip` and `eval:<js>`; the status file adds `video`
+  (presenting, hasFrame, pip, size, container) and `modeSwitches` (every measured Song⇄Video switch).
 - `Scripts/contact-sheet.sh <outname> [--title T] [--columns N] <img> <caption>…` — one captioned PNG in
   `screenshots/` (AppKit, offline).
 

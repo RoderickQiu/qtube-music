@@ -40,16 +40,7 @@ public struct QTPlayerBar: View {
         .padding(.bottom, QTTheme.Metrics.playerBarInset)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("qt.player.bar")
-        // Song⇄Video is app state (`isVideoMode`, also toggled by ⇧⌘V and the Stage); keep the loaded rendition
-        // in step with it, including when the next track starts.
-        .onChange(of: model.isVideoMode) { syncMode() }
-        .onChange(of: player.nowPlaying?.videoId) { syncMode() }
-    }
-
-    private func syncMode() {
-        let wanted: QTPlaybackMode = model.isVideoMode && player.nowPlaying?.hasVideo == true ? .video : .song
-        guard wanted != player.mode else { return }
-        Task { await player.setMode(wanted) }
+        // Song⇄Video (`isVideoMode`) is kept in step with the loaded rendition by `QTVideoModeService`.
     }
 }
 
@@ -125,7 +116,7 @@ struct QTLikeButton: View {
                 .contentTransition(.symbolEffect(.replace))
         }
         .buttonStyle(.borderless)
-        .help("\(QTLoc.tr("Like"))  ⌘L")
+        .help("\(QTLoc.tr(liked ? "Remove from Liked Songs" : "Like"))  ⌘L")
         .accessibilityIdentifier("qt.player.bar.like")
     }
 }
@@ -279,8 +270,9 @@ struct QTVolumeControl: View {
             }
             .buttonStyle(.borderless)
             .foregroundStyle(.secondary)
-            .help(QTLoc.tr("Volume"))
-            .accessibilityLabel(QTLoc.tr("Volume"))
+            // With the slider beside it the speaker mutes; on narrow bars it opens the volume popover.
+            .help(muteTitle(isMuted: state.isMuted))
+            .accessibilityLabel(muteTitle(isMuted: state.isMuted))
             .accessibilityIdentifier("qt.player.bar.mute")
             .popover(isPresented: $isPopoverShown, arrowEdge: .top) {
                 slider(level: level, isMuted: state.isMuted)
@@ -292,6 +284,11 @@ struct QTVolumeControl: View {
                     .frame(width: 80)
             }
         }
+    }
+
+    private func muteTitle(isMuted: Bool) -> String {
+        guard showsSlider else { return QTLoc.tr("Volume") }
+        return QTLoc.tr(isMuted ? "Unmute" : "Mute", table: .player)
     }
 
     private func slider(level: Double, isMuted: Bool) -> some View {

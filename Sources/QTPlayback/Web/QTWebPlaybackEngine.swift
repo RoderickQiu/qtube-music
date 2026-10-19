@@ -22,6 +22,10 @@ import WebKit
 ///   back a stalled item reloads at its position. A load that times out online is retried once on a fresh page.
 /// - **Power:** lowest video quality while no video is shown, and the page's timers are frozen a few seconds into
 ///   a pause (`Configuration.freezeAfterPause`), so a paused engine costs next to nothing.
+/// - **Video (M5):** `video` (`QTWebVideoOutput`) moves the web view into an app view while the app shows the
+///   music video (the page becomes a bare `<video>` surface, quality sized to the slot) and back into the hidden
+///   host when it doesn't; native Picture in Picture goes through WebKit. Song⇄Video switches of the same track
+///   are measured (`lastModeSwitch`: requested vs landed position, latency).
 @MainActor
 public final class QTWebPlaybackEngine: QTPlaybackEngine {
     public struct Configuration: Sendable {
@@ -70,8 +74,21 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
     /// Shared with QTAuth: the persistent store holding the signed-in session (anonymous when empty).
     public let dataStore: WKWebsiteDataStore
 
-    private var webView: WKWebView?
-    private var hostWindow: NSWindow?
+    /// The player page (internal: `QTWebVideoOutput` moves it between the hidden host and the app's video slots).
+    var webView: WKWebView?
+    var hostWindow: NSWindow?
+    /// The page's video in the app's own views, and Picture in Picture.
+    public let video: QTWebVideoOutput
+    /// The last Song⇄Video switch of one track: where it was asked to start and where the new rendition started.
+    public private(set) var lastModeSwitch: QTModeSwitchReport?
+    /// Called once per Song⇄Video switch when the new rendition starts playing (logs, acceptance scripts).
+    public var onModeSwitch: (@MainActor (QTModeSwitchReport) -> Void)?
+    private var pendingSwitch: (requested: TimeInterval, from: QTPlaybackMode, to: QTPlaybackMode, uptime: TimeInterval, generation: Int)?
+    /// The id requested from the page for the current item.
+    private var requestedVideoID: String?
+    /// WebKit pauses a page's video when its view moves from a visible window into the hidden host; the move
+    /// arms this (only while playing), and a pause reported before the deadline is undone. A real pause clears it.
+    private var resumeAfterMoveDeadline: TimeInterval?
     private var messageProxy: QTWebPlaybackMessageProxy?
     private var continuations: [UUID: AsyncStream<QTPlaybackState>.Continuation] = [:]
 
@@ -106,6 +123,8 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
     public init(configuration: Configuration = Configuration(), dataStore: WKWebsiteDataStore = QTWebPlaybackEngine.sharedDataStore) {
         self.configuration = configuration
         self.dataStore = dataStore
+        video = QTWebVideoOutput()
+        video.engine = self
         startNetworkMonitor()
     }
 
@@ -149,11 +168,27 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
             publish()
             throw QTPlaybackError.unavailable(.removed)
         }
+        // Song⇄Video where both renditions are the same upload (a video without a separate song, demo tracks):
+        // nothing to load — only the presentation changes, instantly and without a gap.
+        if let previous = state.item, previous.track.videoId == item.track.videoId, previous.mode != item.mode,
+           videoID == requestedVideoID, pendingLoads.isEmpty, state.status == .playing || state.status == .paused {
+            state.item = item
+            video.itemDidChange(isVideo: item.mode == .video)
+            publish()
+            return
+        }
+        if let previous = state.item, previous.track.videoId == item.track.videoId, previous.mode != item.mode {
+            pendingSwitch = (item.startTime, previous.mode, item.mode, ProcessInfo.processInfo.systemUptime, generation + 1)
+        } else {
+            pendingSwitch = nil
+        }
         generation += 1
         let gen = generation
         lastSample = nil
         didRetryStall = false
         playingVideoID = nil
+        requestedVideoID = videoID
+        video.itemDidChange(isVideo: item.mode == .video)
         loadRetriesLeft = 1
         cancelFreeze()
         failPendingLoads(except: gen)
@@ -219,6 +254,7 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
     }
 
     public func pause() {
+        resumeAfterMoveDeadline = nil
         guard state.item != nil else { return }
         // Optimistic: freeze the timeline now so the UI doesn't drift while the page catches up.
         if state.status == .playing {
@@ -294,6 +330,7 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
     /// Tears the web view down (sign-out, engine switch). The next `load` recreates it.
     public func shutdown() {
         stop()
+        video.engineWillTearDown()
         webView?.configuration.userContentController.removeAllScriptMessageHandlers()
         webView?.removeFromSuperview()
         hostWindow?.close()
@@ -333,6 +370,7 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         config.allowsAirPlayForMediaPlayback = true
         QTWebKitTuning.runMediaInWebContentProcess(config.preferences)
         QTWebKitTuning.keepHiddenPageRunning(config.preferences)
+        QTWebKitTuning.allowPictureInPicture(config.preferences)
 
         let proxy = QTWebPlaybackMessageProxy(engine: self)
         messageProxy = proxy
@@ -340,8 +378,11 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         ucc.add(proxy, contentWorld: .page, name: QTWebPlaybackBridgeScript.handlerName)
         installScripts(on: ucc, bootstrap: bootstrap)
 
-        let view = WKWebView(frame: NSRect(x: 0, y: 0, width: 1280, height: 800), configuration: config)
+        let view = QTWebPlaybackView(frame: NSRect(x: 0, y: 0, width: 1280, height: 800), configuration: config)
         view.customUserAgent = configuration.userAgent
+        // Transparent page: in a video slot the slot's own backdrop shows around (and before) the first frame.
+        if view.responds(to: NSSelectorFromString("setDrawsBackground:")) { view.setValue(false, forKey: "drawsBackground") }
+        view.underPageBackgroundColor = .clear
         #if DEBUG
         view.isInspectable = true
         #endif
@@ -354,9 +395,25 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         window.sharingType = .none
         window.collectionBehavior = [.transient, .ignoresCycle, .stationary]
         window.alphaValue = 0
-        window.contentView = view
+        #if DEBUG
+        if UserDefaults.standard.bool(forKey: "qt.video.debugVisibleHost"),
+           let screen = NSScreen.screens.first(where: { $0.localizedName.contains("U270CA") }) {
+            window.alphaValue = 1
+            window.sharingType = .readOnly
+            window.setFrame(NSRect(x: screen.frame.minX + 40, y: screen.frame.minY + 40, width: 1280, height: 800), display: true)
+            window.title = "QTDebugHost"
+            window.orderFront(nil)
+        }
+        #endif
+        // The page sits in a plain root view, so moving it to a video slot and back is one reparent (it is never
+        // without a window on the way, which would interrupt its media).
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 1280, height: 800))
+        view.autoresizingMask = [.width, .height]
+        root.addSubview(view)
+        window.contentView = root
         hostWindow = window
         webView = view
+        video.webViewDidLoad()
         return view
     }
 
@@ -364,6 +421,7 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         ucc.removeAllUserScripts()
         var sources = [bootstrap, QTWebPlaybackBridgeScript.mediaSessionShield]
         if configuration.isSilent { sources.append(QTWebPlaybackBridgeScript.silence) }
+        sources.append(QTWebPlaybackBridgeScript.videoSurface)
         sources.append(QTWebPlaybackBridgeScript.bridge)
         for source in sources {
             ucc.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
@@ -376,7 +434,8 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         let bootstrap = QTWebPlaybackBridgeScript.bootstrap(generation: gen, videoID: videoID, hold: !autoplay,
                                                             volume: state.volume, muted: state.isMuted,
                                                             silent: configuration.isSilent,
-                                                            lowQuality: configuration.prefersLowVideoQuality)
+                                                            lowQuality: configuration.prefersLowVideoQuality,
+                                                            present: video.isPresenting, quality: video.quality)
         let view: WKWebView
         if let existing = webView {
             installScripts(on: existing.configuration.userContentController, bootstrap: bootstrap)
@@ -393,7 +452,7 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
 
     /// Calls `window.__qtBridge.<name>(…args)` in the page world. Returns the command's boolean result.
     @discardableResult
-    private func command(_ name: String, _ args: Any...) async -> Bool {
+    func command(_ name: String, _ args: Any...) async -> Bool {
         guard let webView, isPageReady else { return false }
         if name != "freeze" { stopThrottlingHiddenPage() }
         var arguments: [String: Any] = [:]
@@ -414,6 +473,7 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         switch type {
         case "ready":
             isPageReady = true
+            video.pageDidBecomeReady()
             if let intent = playIntentBeforeReady {
                 playIntentBeforeReady = nil
                 Task { await command(intent ? "play" : "pause") }
@@ -445,6 +505,14 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
     }
 
     private func apply(_ s: QTWebPlaybackSample) {
+        video.update(isPictureInPicture: s.isPictureInPicture)
+        if let deadline = resumeAfterMoveDeadline, s.paused, s.ad == nil, s.matchesLoad {
+            resumeAfterMoveDeadline = nil
+            if ProcessInfo.processInfo.systemUptime < deadline {
+                QTWebVideoOutput.log.info("resuming after the page moved between windows")
+                Task { await command("play") }
+            }
+        }
         // Until the requested item shows up the page may still report the previous one (or, after an end,
         // YouTube's own autoplay pick); the bridge flags samples that belong to this load.
         guard s.matchesLoad else { return }
@@ -474,6 +542,17 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
             state.timeline = QTPlaybackTimeline(time: time, rate: rate, anchorUptime: now, duration: duration > 0 ? duration : .infinity)
         }
         state.duration = duration
+        // A content frame of the requested rendition (not an ad, not YouTube swapping a video for its song).
+        video.update(hasFrame: s.ad == nil && s.videoWidth > 0 && s.readyState >= 2 && s.videoID == requestedVideoID,
+                     size: CGSize(width: s.videoWidth, height: s.videoHeight))
+        if let pending = pendingSwitch, pending.generation == generation, s.ad == nil, !s.paused, s.playerState == 1 {
+            pendingSwitch = nil
+            let report = QTModeSwitchReport(videoID: s.videoID, from: pending.from, to: pending.to, requested: pending.requested,
+                                            landed: s.time, latency: now - pending.uptime)
+            lastModeSwitch = report
+            QTWebVideoOutput.log.info("Song⇄Video \(report.from.rawValue, privacy: .public)→\(report.to.rawValue, privacy: .public) \(report.videoID, privacy: .public): requested \(report.requested, format: .fixed(precision: 2)) s, landed \(report.landed, format: .fixed(precision: 2)) s, offset \(report.offset, format: .fixed(precision: 2)) s, latency \(report.latency, format: .fixed(precision: 2)) s")
+            onModeSwitch?(report)
+        }
         if Self.isMeaningfulChange(from: before, to: state, at: now) {
             publish()
         } else {
@@ -616,6 +695,27 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         watchdog = nil
     }
 
+    /// Called by `QTWebVideoOutput` right before it moves the page between windows.
+    func pageWillMoveBetweenWindows() {
+        let playing = state.status == .playing || state.status == .loading || playIntentBeforeReady == true
+        guard playing else { resumeAfterMoveDeadline = nil; return }
+        let deadline = ProcessInfo.processInfo.systemUptime + 2
+        resumeAfterMoveDeadline = deadline
+        // The pause can come without a prompt event from a hidden page: look right away instead of waiting for one.
+        Task { @MainActor [weak self] in
+            for _ in 0..<8 {
+                try? await Task.sleep(for: .milliseconds(150))
+                guard let self, self.resumeAfterMoveDeadline == deadline else { return }
+                guard let sample = await self.debugSample(), (sample["paused"] as? Bool) == true, sample["ad"] is NSNull || sample["ad"] == nil
+                else { continue }
+                self.resumeAfterMoveDeadline = nil
+                QTWebVideoOutput.log.info("resuming after the page moved between windows")
+                await self.command("play")
+                return
+            }
+        }
+    }
+
     // MARK: Diagnostics (lab, tests)
 
     /// WebKit's own view of whether *it* registered a Now Playing session for this page (SPI, debug aid).
@@ -674,6 +774,11 @@ struct QTWebPlaybackSample: Equatable {
     var playerState: Int
     var isBuffering: Bool
     var ad: Ad?
+    /// Decoded size and readiness of the page's video element (0 until a frame exists).
+    var videoWidth: Double
+    var videoHeight: Double
+    var readyState: Int
+    var isPictureInPicture: Bool
 
     init?(_ dict: [String: Any]) {
         guard let gen = dict["gen"] as? Int else { return nil }
@@ -685,6 +790,10 @@ struct QTWebPlaybackSample: Equatable {
         paused = dict["paused"] as? Bool ?? true
         playerState = dict["ps"] as? Int ?? -1
         isBuffering = dict["buffering"] as? Bool ?? false
+        videoWidth = (dict["vw"] as? Double) ?? 0
+        videoHeight = (dict["vh"] as? Double) ?? 0
+        readyState = (dict["rs"] as? Int) ?? 0
+        isPictureInPicture = dict["pip"] as? Bool ?? false
         if let ad = dict["ad"] as? [String: Any] {
             self.ad = Ad(duration: (ad["duration"] as? Double) ?? 0, remaining: (ad["remaining"] as? Double) ?? 0,
                          skippableIn: ad["skippableIn"] as? Double)

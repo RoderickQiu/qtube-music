@@ -17,6 +17,7 @@ import QTPlayback
 //           · surface:window|stage · panel:now-playing|queue · offline · online
 //           · remote:play|pause|toggle|next|previous — through MPRemoteCommandCenter's own dispatch
 //             (QTNowPlayingController.debugSimulateSystemCommand), the path media keys and Control Center take.
+//           · stage-video: pip (⇧⌘P) · eval:<function body> (page diagnostics; result lands in the command log)
 // Status (`-qt.playback.statusFile <path>`, rewritten twice a second): engine state, queue position, ad, last
 // failure + toast, the Now Playing info this process published, page media volume (proof of silence).
 
@@ -74,6 +75,14 @@ final class QTPlaybackDebugHooks {
             (player.engine as? QTWebPlaybackEngine)?.networkChanged(available: name == "online")
         case "remote":
             ok = player.playback.nowPlaying?.debugSimulateSystemCommand(arg) ?? false
+        case "pip": QTVideoModeService.shared.togglePictureInPicture()   // stage-video: ⇧⌘P
+        case "eval":   // stage-video: page diagnostics (function body; result lands in the command log)
+            if let web = player.engine as? QTWebPlaybackEngine {
+                Task { @MainActor in
+                    let result = await web.debugEvaluate(arg)
+                    self.log.append(["at": ProcessInfo.processInfo.systemUptime, "command": "eval-result", "result": "\(result ?? "nil")"])
+                }
+            } else { ok = false }
         default: ok = false
         }
         log.append(["at": ProcessInfo.processInfo.systemUptime, "command": raw, "ok": ok])
@@ -136,6 +145,16 @@ final class QTPlaybackDebugHooks {
             status["networkAvailable"] = web.isNetworkAvailable
             if let pid = web.webContentProcessIdentifier { status["webContentPID"] = Int(pid) }
             if let mediaInfo { status["media"] = mediaInfo }
+            // stage-video (M5): the video surface and every measured Song⇄Video switch.
+            status["video"] = [
+                "presenting": web.video.isPresenting, "hasFrame": web.video.hasFrame, "pip": web.video.isPictureInPictureActive,
+                "width": web.video.videoSize.width, "height": web.video.videoSize.height,
+                "container": web.video.container.map { String(describing: type(of: $0)) } ?? "",
+            ] as [String: Any]
+            status["modeSwitches"] = QTVideoModeService.lastReports.map {
+                ["videoID": $0.videoID, "from": $0.from.rawValue, "to": $0.to.rawValue, "requested": $0.requested,
+                 "landed": $0.landed, "offset": $0.offset, "latency": $0.latency] as [String: Any]
+            }
         }
         if let np = player.playback.nowPlaying {
             var published: [String: Any] = ["active": np.isActive]

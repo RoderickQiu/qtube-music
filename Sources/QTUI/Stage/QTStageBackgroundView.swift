@@ -117,9 +117,10 @@ struct QTStageBackgroundView: View {
     }
 }
 
-/// The music video surface. M1 shows the MV still with a slow Ken Burns; from M5 the playback layer hands in a
-/// live video (an `AVPlayerLayer` for the native engine, or the web engine's video view) through
-/// `QTStageVideoSurfaceProvider`, without touching the Stage layout. The scrims stay on top either way.
+/// The music video surface: the web engine's real video, full bleed (`QTLiveVideoView`, M5), with the MV still and
+/// a slow Ken Burns holding the frame until the first video frame (and during ads, Picture in Picture, or with the
+/// simulated engine). A native engine can still hand in its own layer through `QTStageVideoSurfaceProvider`. The
+/// scrims stay on top either way.
 struct QTStageVideoSurface: View {
     let track: QTTrack?
     let isPlaying: Bool
@@ -135,9 +136,11 @@ struct QTStageVideoSurface: View {
             if let live = QTStageVideoSurfaceProvider.shared.surface(for: track) {
                 QTStageHostedVideo(surface: live)
             } else {
-                QTStageProcessedImage(images: stillImages, look: .videoStill) { image in
-                    QTStageLayerImage(image: image, motion: policy.allowsAmbientDrift ? .kenBurns : .none,
-                                      isRunning: isPlaying, overscan: 16)
+                QTLiveVideoView(kind: .stage) {
+                    QTStageProcessedImage(images: stillImages, look: .videoStill) { image in
+                        QTStageLayerImage(image: image, motion: policy.allowsAmbientDrift ? .kenBurns : .none,
+                                          isRunning: isPlaying, overscan: 16)
+                    }
                 }
             }
             QTStageVideoScrims()

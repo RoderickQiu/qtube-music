@@ -109,11 +109,13 @@ public final class QTAppModel {
         model.sidebarSelection = launch.section ?? .home
         model.panelTab = launch.panelTab ?? .nowPlaying
         model.isPanelShown = !(launch.panelHidden ?? false)
-        model.isVideoMode = launch.videoMode ?? (launch.stageBackground == .video)
+        model.isVideoMode = launch.videoMode ?? (launch.stageBackground == .video || settings.settings.preferVideos)
         if launch.extraWindows.contains(.desktopLyrics) { settings.override { $0.desktopLyrics.isShown = true } }
         QTReadiness.shared.configure(readyFile: launch.readyFile)
         // Live YouTube Music data unless `-qt.catalog mock` (or the demo was chosen); see QTLiveCatalogStore.
         QTLiveCatalogStore.shared.attach(model)
+        // Song⇄Video intent, counterparts, Picture in Picture (NowPlaying/QTVideoModeService.swift).
+        QTVideoModeService.shared.install(model: model)
         model.applyAppearance()
         return model
     }

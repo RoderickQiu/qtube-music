@@ -14,17 +14,20 @@ import SwiftUI
 /// "Ad" · the ad countdown in the amber ad tint (`QTAdTint`) and is disabled.
 public struct QTScrubber: View {
     private let overArt: Bool
+    private let identifier: String
     @Environment(QTPlayerModel.self) private var player
 
-    public init(overArt: Bool = false) {
+    /// - Parameter identifier: accessibility identifier of the slider (`qt.stage.scrubber` on the Stage).
+    public init(overArt: Bool = false, identifier: String = "qt.player.scrubber") {
         self.overArt = overArt
+        self.identifier = identifier
     }
 
     public var body: some View {
         let ad = player.ad
         // Re-render 4×/s while time moves (playing or ad countdown); otherwise only on state changes.
         TimelineView(.periodic(from: .now, by: player.timeline.rate > 0 || (ad != nil && player.isPlaying) ? 0.25 : 3600)) { _ in
-            QTScrubberContent(overArt: overArt, ad: ad, time: player.timeline.currentTime,
+            QTScrubberContent(overArt: overArt, identifier: identifier, ad: ad, time: player.timeline.currentTime,
                               duration: player.duration) { player.seek(to: $0) }
         }
     }
@@ -32,6 +35,7 @@ public struct QTScrubber: View {
 
 private struct QTScrubberContent: View {
     let overArt: Bool
+    let identifier: String
     let ad: QTAdState?
     let time: TimeInterval
     let duration: TimeInterval
@@ -125,8 +129,13 @@ private struct QTScrubberContent: View {
         .focused($isFocused)
         .onKeyPress(.leftArrow) { onSeek(max(0, time - 5)); return .handled }
         .onKeyPress(.rightArrow) { onSeek(min(safeDuration, time + 5)); return .handled }
-        .accessibilityElement()
-        .accessibilityLabel(QTLoc.tr("Time"))
+        // To VoiceOver and Voice Control it *is* a slider (AXSlider, "slider"), valued in playback time.
+        .accessibilityRepresentation {
+            Slider(value: Binding(get: { shownTime }, set: { onSeek($0) }), in: 0...safeDuration) {
+                Text(QTLoc.tr("Time"))
+            }
+            .disabled(ad != nil)
+        }
         .accessibilityValue(ad != nil ? "\(QTLoc.tr("Ad")) \(trailing)" : "\(QTFormat.duration(shownTime)) / \(QTFormat.duration(safeDuration))")
         .accessibilityAdjustableAction { direction in
             guard ad == nil else { return }
@@ -136,7 +145,7 @@ private struct QTScrubberContent: View {
             @unknown default: break
             }
         }
-        .accessibilityIdentifier("qt.player.scrubber")
+        .accessibilityIdentifier(identifier)
     }
 }
 

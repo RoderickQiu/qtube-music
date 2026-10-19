@@ -60,6 +60,11 @@
           }
         }
       }
+    },
+    "Lyrics over video" : {
+      "localizations" : {
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "视频上显示歌词" } }
+      }
     }
   },
   "version" : "1.0"

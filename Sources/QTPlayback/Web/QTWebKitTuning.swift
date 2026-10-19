@@ -50,6 +50,21 @@ enum QTWebKitTuning {
         return keys.filter { !setFeature($0, enabled: enabled, on: preferences) }
     }
 
+    /// WKWebView ships with Picture in Picture off (`_allowsPictureInPictureMediaPlayback`); the music video's
+    /// ⇧⌘P uses WebKit's native PiP, so turn it on. Returns false if WebKit changed.
+    @discardableResult
+    static func allowPictureInPicture(_ preferences: WKPreferences) -> Bool {
+        let selector = NSSelectorFromString("_setAllowsPictureInPictureMediaPlayback:")
+        var ok = false
+        if preferences.responds(to: selector) {
+            // Call the setter itself (KVC on an underscored key would fall through to raw ivar access).
+            typealias Setter = @convention(c) (AnyObject, Selector, Bool) -> Void
+            unsafeBitCast(preferences.method(for: selector), to: Setter.self)(preferences, selector, true)
+            ok = true
+        }
+        return setFeature("AllowsPictureInPictureMediaPlayback", enabled: true, on: preferences) || ok
+    }
+
     @discardableResult
     static func setFeature(_ key: String, enabled: Bool, on preferences: WKPreferences) -> Bool {
         let featuresSelector = NSSelectorFromString("_features")
