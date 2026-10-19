@@ -399,11 +399,20 @@ enum QTWebPlaybackBridgeScript {
         if (v && v.webkitPresentationMode === 'picture-in-picture') return 'hd720';   // floating on its own
         return S.present ? S.quality : (S.low ? 'tiny' : '');
       }
+      // The first time per load the quality is pinned (min = max), as the content starts. Later changes (the video
+      // moving between the hidden host, the panel, the Stage, PiP) only move the ceiling: pinning makes YouTube drop
+      // its buffer and reload the media — ~0.35 s of silence and a frozen picture on every Now Playing ⇄ Queue
+      // switch — while a ceiling lets its ABR change rendition at the next segment, with no gap. ('tiny' alone is a
+      // pin, so the hidden ceiling is 'small'.)
       function applyQuality(p) {
         const q = wantedQuality();
+        const first = S.qualityGen !== S.gen;
         S.qualityGen = S.gen; S.qualityKey = q;
         if (!q) return;
-        try { p.setPlaybackQualityRange(q, q); p.setPlaybackQuality(q); } catch (_) {}
+        try {
+          if (first) { p.setPlaybackQualityRange(q, q); p.setPlaybackQuality(q); }
+          else p.setPlaybackQualityRange('tiny', q === 'tiny' ? 'small' : q);
+        } catch (_) {}
       }
       function pauseNow() { try { player().pauseVideo(); } catch (_) {} const v = video(); if (v) try { v.pause(); } catch (_) {} }
       function applyVolume() {

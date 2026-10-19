@@ -357,8 +357,13 @@ Coordinators (one per process, `@MainActor`):
   wanted but the frames haven't come (a Song⇄Video switch), `QTVideoWaitIndicator` puts a system spinner over the
   still after 0.6 s (Stage: on a glass disc), gone with the first frame or after 14 s.
   `QTVideoSlotCoordinator` gives the one video to the highest visible slot (Stage > panel); none → the page goes back
-  to the hidden host at 144p. `QTWebVideoOutput` (`engine.video`): `present(in:)` / `withdraw(from:)`, `hasFrame`,
-  `isPictureInPictureActive`, `setPictureInPicture(_:)`, quality per slot (`small` panel … `hd1080` Stage). How it
+  to the hidden host. `QTWebVideoOutput` (`engine.video`): `present(in:)` / `withdraw(from:)`, `hasFrame`,
+  `isPictureInPictureActive`, `setPictureInPicture(_:)`, quality per slot (`small` panel … `hd1080` Stage). The
+  quality is **pinned once per load** (min = max, as the content starts: 144p hidden, the slot's otherwise); every
+  later change (slot moves, Now Playing ⇄ Queue, Stage, PiP) only sets a ceiling, because pinning mid-play makes
+  YouTube drop its buffer and reload the media (`emptied` → seek: ~0.35 s of silence and a frozen picture per move,
+  R7). YouTube's ABR then adapts on its own (it can climb past the ceiling; hidden 1080p measured the same CPU as
+  144p, 2.7 vs 3.0% — hardware decode). Lab check: `QTPlaybackLab --scenario move`. How it
   works: the WKWebView moves into the slot (one reparent, window to window; the engine resumes playback if WebKit
   pauses the page on the way back into the hidden host); the `videoSurface` script hides all page UI and draws each
   decoded frame on one canvas (WebKit's inline video layer stays blank after the view changes windows), cropping

@@ -2,7 +2,7 @@
 // YouTube Music web player. Anonymous (non-persistent data store) and silent (media volume pinned to 0).
 // Never activates: no Dock icon, no windows on screen, no focus change.
 //
-//   swift run --scratch-path .build/playback QTPlaybackLab [--ids a,b,c] [--scenario basic|advance|cue|power|errors|switch|spectrum|memory] [--queries "a|b|c"] [--count N]
+//   swift run --scratch-path .build/playback QTPlaybackLab [--ids a,b,c] [--scenario basic|advance|cue|power|errors|switch|move|spectrum|memory] [--queries "a|b|c"] [--count N]
 //
 // Prints one line per engine state change and a PASS/FAIL summary per check.
 
@@ -31,7 +31,7 @@ struct LabOptions {
             case "--count": count = Int(it.next() ?? "") ?? count
             case "--queries": queries = (it.next() ?? "").split(separator: "|").map(String.init)
             case "--help", "-h":
-                print("QTPlaybackLab [--ids a,b,c] [--scenario basic|advance|cue|power|errors|switch|spectrum|memory] [--queries a|b|c] [--count N]")
+                print("QTPlaybackLab [--ids a,b,c] [--scenario basic|advance|cue|power|errors|switch|move|spectrum|memory] [--queries a|b|c] [--count N]")
                 exit(0)
             default: break
             }
@@ -439,6 +439,111 @@ final class Lab {
         }
     }
 
+    /// Video slot moves: the page's video goes into an app view and back (Now Playing ⇄ Queue, Stage). Measures how
+    /// long the media clock stops on each move, and who paused it (WebKit, or the page's script with a stack).
+    func moving() async {
+        let id = options.ids[0]
+        await controller.play([track(id)], startTime: 20, autoplay: true, mode: .video)
+        guard await waitForContent() else { return check("video plays", false) }
+        try? await Task.sleep(for: .seconds(3))
+        _ = await engine.debugEvaluate("""
+        if (window.__qtLabEv) return true;
+        window.__qtLabEv = [];
+        const t0 = performance.now();
+        const rec = (k, extra) => window.__qtLabEv.push({k, t: Math.round(performance.now() - t0), ...extra});
+        const origPause = HTMLMediaElement.prototype.pause;
+        HTMLMediaElement.prototype.pause = function () { rec('pause()', {stack: (new Error().stack || '').split('\\n').slice(1, 6).join(' | ')}); return origPause.apply(this, arguments); };
+        for (const e of ['pause', 'play', 'playing', 'waiting', 'stalled', 'emptied', 'suspend', 'seeking', 'seeked'])
+          document.addEventListener(e, ev => { if (ev.target instanceof HTMLMediaElement) rec(e, {ct: ev.target.currentTime.toFixed(2)}); }, true);
+        document.addEventListener('visibilitychange', () => rec('visibility', {v: document.visibilityState}));
+        window.addEventListener('resize', () => rec('resize', {w: innerWidth, h: innerHeight}));
+        return true;
+        """)
+        let screen = NSScreen.screens.last ?? NSScreen.main!
+        func makeWindow(onScreen: Bool, show: Bool) -> (NSWindow, NSView) {
+            let f = onScreen ? NSRect(x: screen.frame.midX - 160, y: screen.frame.midY - 90, width: 320, height: 180)
+                             : NSRect(x: -30_000, y: -30_000, width: 320, height: 180)
+            let w = NSWindow(contentRect: f, styleMask: [.borderless], backing: .buffered, defer: false)
+            w.isReleasedWhenClosed = false
+            w.ignoresMouseEvents = true
+            if show { w.alphaValue = 0.01; w.orderFrontRegardless() }
+            let slot = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 180))
+            w.contentView!.addSubview(slot)
+            return (w, slot)
+        }
+        func clockStops(_ seconds: Double, _ action: () -> Void) async -> (Double, Int) {
+            var times: [(Double, Double)] = []
+            action()
+            let end = now + seconds
+            while now < end {
+                if let s = await engine.debugSample(), let t = s["t"] as? Double { times.append((now, t)) }
+                try? await Task.sleep(for: .milliseconds(40))
+            }
+            // Longest stretch where the media clock didn't advance.
+            var longest = 0.0, since = times.first?.0 ?? now, last = times.first?.1 ?? 0
+            for (w, t) in times.dropFirst() {
+                if t > last + 0.001 { longest = max(longest, w - since); since = w; last = t }
+            }
+            longest = max(longest, (times.last?.0 ?? now) - since)
+            return (longest, times.count)
+        }
+        func events() async -> String {
+            let r = await engine.debugEvaluate("const e = window.__qtLabEv.splice(0); return JSON.stringify(e);")
+            return (r as? String) ?? "nil"
+        }
+        _ = await events()
+        let (base, n) = await clockStops(3) {}
+        log("baseline (no move): longest clock stop \(String(format: "%.2f", base)) s over \(n) samples; events \(await events())")
+        for (name, onScreen, show) in [("offscreen window", false, false), ("on-screen frame, ordered out", true, false),
+                                       ("on-screen, ordered in (alpha 0.01)", true, true)] {
+            let (w, slot) = makeWindow(onScreen: onScreen, show: show)
+            let (inStop, _) = await clockStops(3) { engine.video.present(in: slot) }
+            log("\(name): present → longest clock stop \(String(format: "%.2f", inStop)) s; events \(await events())")
+            let (outStop, _) = await clockStops(3) { engine.video.withdraw(from: slot) }
+            log("\(name): withdraw → longest clock stop \(String(format: "%.2f", outStop)) s; events \(await events())")
+            check("\(name): moves don't stop the clock", inStop < 0.3 && outStop < 0.3,
+                  String(format: "present %.2f s, withdraw %.2f s", inStop, outStop))
+            w.orderOut(nil)
+            w.close()
+        }
+        // The rendition still follows the slot, gradually (ABR under a ceiling): a big slot gets sharper, hidden drops.
+        let big = NSWindow(contentRect: NSRect(x: screen.frame.midX - 640, y: screen.frame.midY - 360, width: 1280, height: 720),
+                           styleMask: [.borderless], backing: .buffered, defer: false)
+        big.isReleasedWhenClosed = false
+        big.ignoresMouseEvents = true
+        big.alphaValue = 0.01
+        big.orderFrontRegardless()
+        let bigSlot = NSView(frame: NSRect(x: 0, y: 0, width: 1280, height: 720))
+        big.contentView!.addSubview(bigSlot)
+        func height() async -> Int { (await engine.debugEvaluate("return document.querySelector('video').videoHeight;") as? Int) ?? 0 }
+        let (upStop, _) = await clockStops(1) { engine.video.present(in: bigSlot) }
+        var upAfter: Double?
+        let upStart = now
+        while now - upStart < 40 { if await height() >= 720 { upAfter = now - upStart; break }; try? await Task.sleep(for: .milliseconds(500)) }
+        log("big slot: clock stop \(String(format: "%.2f", upStop)) s; ≥720p after \(upAfter.map { String(format: "%.1f s", $0) } ?? "never (40 s)"), now \(await height())p; events \(await events())")
+        let (downStop, _) = await clockStops(1) { engine.video.withdraw(from: bigSlot) }
+        var downAfter: Double?
+        let downStart = now
+        while now - downStart < 60 { if await height() <= 240 { downAfter = now - downStart; break }; try? await Task.sleep(for: .milliseconds(500)) }
+        log("hidden: clock stop \(String(format: "%.2f", downStop)) s; ≤240p after \(downAfter.map { String(format: "%.1f s", $0) } ?? "never (60 s)"), now \(await height())p; events \(await events())")
+        check("big slot / hidden: no clock stop", upStop < 0.3 && downStop < 0.3, String(format: "%.2f s, %.2f s", upStop, downStop))
+        _ = await measureCPUBoth("hidden at \(await height())p", seconds: 10)
+        let (w2, slot2) = makeWindow(onScreen: true, show: true)
+        engine.video.present(in: slot2)
+        for q in ["small", "hd720"] {
+            _ = await engine.debugEvaluate("const p = document.getElementById('movie_player'); p.setPlaybackQualityRange('\(q)','\(q)'); p.setPlaybackQuality('\(q)'); return true;")
+            try? await Task.sleep(for: .seconds(4))
+            _ = await measureCPUBoth("panel-size slot at \(await height())p", seconds: 10)
+        }
+        engine.video.withdraw(from: slot2)
+        w2.orderOut(nil)
+        _ = await engine.debugEvaluate("const p = document.getElementById('movie_player'); p.setPlaybackQualityRange('tiny','tiny'); p.setPlaybackQuality('tiny'); return true;")
+        try? await Task.sleep(for: .seconds(4))
+        _ = await measureCPUBoth("hidden at \(await height())p (pinned tiny)", seconds: 10)
+        big.orderOut(nil)
+        big.close()
+    }
+
     /// web-audio: the visualizer's spectrum tap (`QTWebAudioTap`). Asks for `spectrum(bandCount: 96)` at 60 fps like
     /// the Stage visualizer: bands must flow, move frame to frame, survive mute and a seek; once nobody asks, the
     /// page's tap must switch off. CPU (WebContent + this process) with the visualizer "hidden" vs "visible".
@@ -528,6 +633,7 @@ final class Lab {
         case "cue": await cued()
         case "advance": await advanceMany()
         case "switch": await switching()
+        case "move": await moving()
         default: await basic()
         }
         engine.shutdown()
