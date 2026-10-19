@@ -7,6 +7,7 @@ const loadTweaks = () => {
   try { saved = JSON.parse(localStorage.getItem(TWEAK_KEY) || "{}"); } catch {}
   const url = Object.fromEntries(new URLSearchParams(location.search));
   if (url.translation) url.translation = url.translation !== "false";
+  if (url.lang) { url.language = url.lang; delete url.lang; }
   return { ...window.QT_TWEAK_DEFAULTS, ...saved, ...url };
 };
 
@@ -19,23 +20,24 @@ function useFitScale() {
 
 function TweaksPanel({ tw, set, open, setOpen }) {
   const p = usePlayer();
-  if (!open) return <button className="tweaks-fab" onClick={() => setOpen(true)}>Tweaks</button>;
+  if (!open) return <button className="tweaks-fab" onClick={() => setOpen(true)}>{tr("Tweaks")}</button>;
   const row = (label, key, opts) => (
     <div className="tw-row">
-      <label>{label}</label>
+      <label>{tr(label)}</label>
       <div className="tw-opts">
-        {opts.map(([v, l]) => <button key={String(v)} className={tw[key] === v ? "on" : ""} onClick={() => set(key, v)}>{l}</button>)}
+        {opts.map(([v, l]) => <button key={String(v)} className={tw[key] === v ? "on" : ""} onClick={() => set(key, v)}>{tr(l)}</button>)}
       </div>
     </div>
   );
   return (
     <div className="tweaks" onKeyDown={(e) => e.stopPropagation()}>
-      <h4>Tweaks <button onClick={() => setOpen(false)}><Icon name="close" size={12} /></button></h4>
+      <h4>{tr("Tweaks")} <button onClick={() => setOpen(false)}><Icon name="close" size={12} /></button></h4>
+      {row("Language", "language", [["auto", "Auto"], ["en-US", "English"], ["zh-CN", "简体中文"]])}
       {row("Surface", "surface", [["window", "Window"], ["stage", "Stage"], ["desktop", "Mini + menu bar"]])}
-      {row("Stage layout", "stageLayout", STAGE_LAYOUTS.map((x) => [x.id, x.label.split(" —")[0]]))}
-      {row("Stage background", "stageBackground", STAGE_BACKGROUNDS.map((x) => [x.id, x.label.replace(" (Premium)", "")]))}
+      {row("Stage layout", "stageLayout", [["standard", "Art + lyrics"], ["lyrics-only", "Lyrics"], ["art-only", "Art"]])}
+      {row("Stage background", "stageBackground", [["blur", "Blur"], ["cover", "Cover"], ["vinyl", "Vinyl"], ["video", "Video"], ["visual", "Visualizer"]])}
       {row("Account", "account", [["premium", "Premium engine"], ["free", "Free (ads)"]])}
-      {tw.account === "free" && <div className="tw-row"><div className="tw-opts"><button onClick={() => p.playAd()}>Play an ad now</button></div></div>}
+      {tw.account === "free" && <div className="tw-row"><div className="tw-opts"><button onClick={() => p.playAd()}>{tr("Play an ad now")}</button></div></div>}
       {row("Window theme", "theme", [["dark", "Dark"], ["light", "Light"]])}
       {row("Translation line", "translation", [[true, "On"], [false, "Off"]])}
     </div>
@@ -57,6 +59,9 @@ function App() {
   const filterRef = useRef(null);
   const toastTimer = useRef(null);
   const t = p.track;
+  const lang = resolveLang(tw.language);
+  window.QT_LANG = lang; // set before children render so tr() sees it
+  useEffect(() => { document.documentElement.lang = lang; }, [lang]);
 
   const toast = useCallback((msg, undo) => {
     clearTimeout(toastTimer.current);
@@ -112,10 +117,10 @@ function App() {
       if (e.key === " " && !typing) { e.preventDefault(); p.toggle(); }
       else if (cmd && e.key === "ArrowRight") { e.preventDefault(); p.next(); }
       else if (cmd && e.key === "ArrowLeft") { e.preventDefault(); p.prev(); }
-      else if (cmd && !e.shiftKey && e.key.toLowerCase() === "l") { e.preventDefault(); p.like(); toast(p.state.liked.has(p.state.trackId) ? "Added to Liked Songs" : "Removed from Liked Songs"); }
+      else if (cmd && !e.shiftKey && e.key.toLowerCase() === "l") { e.preventDefault(); p.like(); toast(tr(p.state.liked.has(p.state.trackId) ? "Added to Liked Songs" : "Removed from Liked Songs")); }
       else if (cmd && !e.shiftKey && e.key.toLowerCase() === "f") { e.preventDefault(); set("surface", "window"); setSection("liked"); setTimeout(() => filterRef.current?.focus(), 50); }
       else if (cmd && e.shiftKey && e.key.toLowerCase() === "f") { e.preventDefault(); set("surface", tw.surface === "stage" ? "window" : "stage"); }
-      else if (cmd && e.shiftKey && e.key.toLowerCase() === "v") { e.preventDefault(); if (t.mv) setVideoMode((x) => !x); else toast("No official music video for this song"); }
+      else if (cmd && e.shiftKey && e.key.toLowerCase() === "v") { e.preventDefault(); if (t.mv) setVideoMode((x) => !x); else toast(tr("No official music video for this song")); }
       else if (cmd && e.shiftKey && e.key.toLowerCase() === "m") { e.preventDefault(); ui.toggleMini(); }
       else if (cmd && e.shiftKey && e.key.toLowerCase() === "l") { e.preventDefault(); setDeskLyrics((x) => !x); }
       else if (cmd && e.altKey && e.key.toLowerCase() === "n") { e.preventDefault(); setPanelCollapsed((x) => !x); }
@@ -123,7 +128,7 @@ function App() {
         e.preventDefault();
         p.nudgeOffset(e.key === "ArrowUp" ? -0.1 : 0.1);
         const o = player.state.lyricOffset;
-        toast(`Lyrics timing ${o >= 0 ? "+" : ""}${o.toFixed(1)} s · saved for this song`);
+        toast(tr("Lyrics timing {x} s", { x: `${o >= 0 ? "+" : ""}${o.toFixed(1)}` }));
       }
     };
     addEventListener("keydown", onKey);
@@ -143,15 +148,15 @@ function App() {
           <div className={`mac-window theme-${theme}`}>
             <div className="traffic"><i /><i /><i /></div>
             <Sidebar section={section} setSection={setSection} toast={toast}
-              onDropToPlaylist={(id, name) => id && toast(`Added “${byId[id].title}” to ${name}`)} />
+              onDropToPlaylist={(id, name) => id && toast(tr("Added “{x}” to {y}", { x: byId[id].title, y: name }))} />
             <main className="main">
               <div className="toolbar">
-                <button className="tb-btn" title="Back"><Icon name="chevL" size={16} /></button>
-                <button className="tb-btn" title="Forward"><Icon name="chevR" size={16} /></button>
-                <div className="search"><Icon name="search" size={14} /> Search music <span style={{ flex: 1 }} /><kbd>⌘K</kbd></div>
+                <button className="tb-btn" title={tr("Back")}><Icon name="chevL" size={16} /></button>
+                <button className="tb-btn" title={tr("Forward")}><Icon name="chevR" size={16} /></button>
+                <div className="search"><Icon name="search" size={14} /> {tr("Search music")} <span style={{ flex: 1 }} /><kbd>⌘K</kbd></div>
                 <span style={{ flex: 1 }} />
                 {panelCollapsed && (
-                  <button className="tb-btn" title="Show panel  ⌥⌘N" aria-label="Show panel" onClick={() => setPanelCollapsed(false)}><Icon name="sidebar" size={16} /></button>
+                  <button className="tb-btn" title={tk("Show panel", "⌥⌘N")} aria-label={tr("Show panel")} onClick={() => setPanelCollapsed(false)}><Icon name="sidebar" size={16} /></button>
                 )}
               </div>
               {section === "home" ? (
@@ -176,7 +181,7 @@ function App() {
         {toastMsg && (
           <div className={`toast theme-${theme}`} style={{ pointerEvents: toastMsg.undo ? "auto" : "none" }}>
             {toastMsg.msg}
-            {toastMsg.undo && <button style={{ marginLeft: 10, color: "var(--accent)", fontWeight: 600 }} onClick={() => { toastMsg.undo(); setToastMsg(null); }}>Undo</button>}
+            {toastMsg.undo && <button style={{ marginLeft: 10, color: "var(--accent)", fontWeight: 600 }} onClick={() => { toastMsg.undo(); setToastMsg(null); }}>{tr("Undo")}</button>}
           </div>
         )}
       </div>

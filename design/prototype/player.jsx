@@ -131,7 +131,7 @@ function Scrubber({ className = "" }) {
   };
   return (
     <div className={`scrub ${className}`}>
-      <span>{ad ? "Ad" : fmt(pos)}</span>
+      <span>{ad ? tr("Ad") : fmt(pos)}</span>
       <div className={`track ${ad ? "disabled" : ""}`} ref={ref} onClick={onClick}>
         <div className="fill" style={{ width: `${pct}%`, background: ad ? "#f6c343" : undefined }} />
         <div className="knob" style={{ left: `${pct}%` }} />
@@ -146,15 +146,15 @@ function Transport({ size = 16, playSize = 18 }) {
   const s = p.state;
   return (
     <>
-      <button className={`tp small ${s.shuffle ? "on" : ""}`} title="Shuffle" onClick={p.setShuffle}><Icon name="shuffle" size={size} /></button>
-      <button className="tp" title="Previous (⌘←)" onClick={p.prev} disabled={!!s.ad}><Icon name="prev" size={size + 2} /></button>
-      <button className="tp play" title={s.playing ? "Pause (Space)" : "Play (Space)"} onClick={p.toggle}>
+      <button className={`tp small ${s.shuffle ? "on" : ""}`} title={tr("Shuffle")} onClick={p.setShuffle}><Icon name="shuffle" size={size} /></button>
+      <button className="tp" title={tk("Previous", "⌘←")} onClick={p.prev} disabled={!!s.ad}><Icon name="prev" size={size + 2} /></button>
+      <button className="tp play" title={tk(s.playing ? "Pause" : "Play", "Space")} onClick={p.toggle}>
         <Icon name={s.playing ? "pause" : "play"} size={playSize} />
       </button>
-      <button className="tp" title={s.ad && s.ad.remaining > s.ad.skippableAt ? "Skip available soon" : "Next (⌘→)"} onClick={() => (s.ad ? s.ad.remaining <= s.ad.skippableAt && p.skipAd() : p.next())}>
+      <button className="tp" title={tk("Next", "⌘→")} onClick={() => (s.ad ? s.ad.remaining <= s.ad.skippableAt && p.skipAd() : p.next())}>
         <Icon name="next" size={size + 2} />
       </button>
-      <button className={`tp small ${s.repeat ? "on" : ""}`} title="Repeat" onClick={p.setRepeat}><Icon name="repeat" size={size} /></button>
+      <button className={`tp small ${s.repeat ? "on" : ""}`} title={tr("Repeat")} onClick={p.setRepeat}><Icon name="repeat" size={size} /></button>
     </>
   );
 }
@@ -170,8 +170,8 @@ function AdCard({ size = 312 }) {
     <div className="ad-art" style={{ width: size, height: size }}>
       <div className="ad-bg" style={{ backgroundImage: `url(${p.track.cover})` }} />
       <div className="ad-center">
-        <span className="ad-pill">Ad · 0:{String(Math.ceil(ad.remaining)).padStart(2, "0")}</span>
-        {canSkip ? <button className="ad-skip" onClick={p.skipAd}>Skip</button> : <span className="ad-wait">Skip in {Math.ceil(ad.remaining - ad.skippableAt)}</span>}
+        <span className="ad-pill">{tr("Ad")} · 0:{String(Math.ceil(ad.remaining)).padStart(2, "0")}</span>
+        {canSkip ? <button className="ad-skip" onClick={p.skipAd}>{tr("Skip")}</button> : <span className="ad-wait">{tr("Skip in {n}", { n: Math.ceil(ad.remaining - ad.skippableAt) })}</span>}
       </div>
     </div>
   );

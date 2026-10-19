@@ -96,7 +96,7 @@ function LyricsView({ track, mode = "panel", align = "left", translation = true,
   };
 
   if (p.state.ad && p.track.id === track.id) return null;
-  if (!lines) return <div className="lyrics-empty">No lyrics</div>;
+  if (!lines) return <div className="lyrics-empty">{tr("No lyrics")}</div>;
   const manual = scrollY !== null;
   return (
     <div className="lyrics-wrap" onWheel={onWheel}>
@@ -117,8 +117,8 @@ function LyricsView({ track, mode = "panel", align = "left", translation = true,
       </div>
     </div>
       {manual && (
-        <button className="ly-back" onClick={backToCurrent} title="Back to the current line">
-          <Icon name={scrollY > y ? "chevD" : "chevU"} size={13} stroke={2.2} /> Current
+        <button className="ly-back" onClick={backToCurrent} title={tr("Back to the current line")}>
+          <Icon name={scrollY > y ? "chevD" : "chevU"} size={13} stroke={2.2} /> {tr("Current")}
         </button>
       )}
     </div>
@@ -158,30 +158,30 @@ function LyricsOptionsButton({ track, translation, setTranslation, onToast, clas
   const off = p.state.lyricOffset;
   return (
     <>
-      <button className={className} title="Lyrics" aria-label="Lyrics options" onClick={(e) => setAnchor(anchor ? null : e.currentTarget)}>
+      <button className={className} title={tr("Lyrics")} aria-label={tr("Lyrics options")} onClick={(e) => setAnchor(anchor ? null : e.currentTarget)}>
         <Icon name="lyrics" size={16} />
       </button>
       {anchor && (
         <Popover anchor={anchor} theme={theme} onClose={() => setAnchor(null)}>
           <div className="pop-head">
-            <b>{L ? L.source.replace(/ \(.*\)/, "") : "No lyrics"}</b>
-            {L && <span>{L.wordSynced ? "Word timing" : "Line timing"}</span>}
+            <b>{L ? tr(L.source.replace(/ \(.*\)/, "")) : tr("No lyrics")}</b>
+            {L && <span>{tr(L.wordSynced ? "Word timing" : "Line timing")}</span>}
           </div>
-          <div className="pop-row"><span>Translation</span><Switch on={translation} onChange={setTranslation} label="Translation" /></div>
-          <div className="pop-row" title="NetEase, Kugou and QQ Music — unofficial, may stop working">
-            <span>Unofficial sources</span><Switch on={unofficial} onChange={setUnofficial} label="Unofficial sources" />
+          <div className="pop-row"><span>{tr("Translation")}</span><Switch on={translation} onChange={setTranslation} label={tr("Translation")} /></div>
+          <div className="pop-row" title={tr("NetEase, Kugou and QQ Music — unofficial, may stop working")}>
+            <span>{tr("Unofficial sources")}</span><Switch on={unofficial} onChange={setUnofficial} label={tr("Unofficial sources")} />
           </div>
           <div className="pop-row">
-            <span>Timing</span>
+            <span>{tr("Timing")}</span>
             <div className="stepper">
-              <button onClick={() => p.nudgeOffset(-0.1)} title="Earlier  ⌥↑">−</button>
+              <button onClick={() => p.nudgeOffset(-0.1)} title={tk("Earlier", "⌥↑")}>−</button>
               <b>{off > 0 ? "+" : ""}{off.toFixed(1)}s</b>
-              <button onClick={() => p.nudgeOffset(0.1)} title="Later  ⌥↓">+</button>
+              <button onClick={() => p.nudgeOffset(0.1)} title={tk("Later", "⌥↓")}>+</button>
             </div>
           </div>
           <div className="pop-foot">
-            <button disabled={!L}>Other versions</button>
-            <button disabled={!L} onClick={() => { onToast?.("Reported"); setAnchor(null); }}>Wrong lyrics</button>
+            <button disabled={!L}>{tr("Other versions")}</button>
+            <button disabled={!L} onClick={() => { onToast?.(tr("Reported")); setAnchor(null); }}>{tr("Wrong lyrics")}</button>
           </div>
         </Popover>
       )}

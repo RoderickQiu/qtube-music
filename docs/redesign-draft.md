@@ -45,6 +45,7 @@ signed + notarized with Sparkle updates.
 4. **The library is a database, not a feed.** Sortable, searchable, jumpable, and it remembers where you were.
 5. **Calm by default, expressive on demand.** Motion and visualizers are opt-in, GPU-native (Metal / Core Animation), and step down on battery / Low Power Mode.
 6. **We own playback.** One source of truth for queue, Now Playing, and media keys — never shared with a web page.
+7. **Localized from day one.** Every string goes through the localization system; **Simplified Chinese (zh-CN) and English (en-US) ship by default**, and the app follows the system language.
 
 ---
 
@@ -217,6 +218,20 @@ Autoplay · from "Liked"    ← radio continuation, visually distinct, can be tu
 
 ---
 
+## 7b. Internationalization (default: zh-CN + en-US)
+
+i18n is a launch requirement, not a later pass. Both locales are first-class and tested on every screen.
+
+- **Locales at launch:** `en-US` (development language) and `zh-CN`. Adding `zh-TW`, `vi-VN` or `ja-JP` later should only mean adding translations.
+- **Language choice:** follows the macOS system language by default. Users can override it per app in System Settings › General › Language & Region › Applications, and in QTube Music's own Settings. The UI switches without restarting.
+- **No hard-coded strings:** all UI text lives in a String Catalog (`Localizable.xcstrings`), including plural rules ("1 song" / "12 songs"; "12 首"), menus, shortcuts' labels, VoiceOver labels and error messages. CI fails on any unlocalized string and runs a pseudo-locale pass to catch truncation.
+- **Formatting:** dates, times, durations and counts use `Date.FormatStyle` / `Duration.UnitsFormatStyle` / `formatted()` with the current locale, so you get "Sun 18 Oct 9:41" in English and "10月18日 周日 9:41" in Chinese, never hand-built strings.
+- **Typography:** the system font (SF Pro) stays first in every locale with PingFang SC as the fallback for Han. Do **not** put PingFang first in zh-CN: its Latin glyphs break Vietnamese stacked diacritics ("Đối" renders as "Đôí"), which the prototype hit and fixed. Lyrics choose a font per line's script. No forced uppercase or letter-spacing on CJK; layouts allow 30–40% longer English and denser Chinese without clipping.
+- **Content language:** YouTube Music requests send `hl` = the app language (`zh-CN` / `en`), so shelf titles, moods and genres come back localized. `gl` (region) stays the account's region and is separate from language.
+- **Lyrics translation follows the app:** in zh-CN the translation line defaults to Chinese (NetEase/QQ/Kugou translations, then on-device Translation); in en-US it defaults to English via Apple's Translation framework, labelled machine translation where it is.
+- **Search:** works across scripts. Matching folds diacritics and Traditional/Simplified Chinese (see §6 matching), so "ha phom", "Hạ Phỏm" and "出牌" find the same song.
+- **Prototype:** the Claude Design prototype ships both locales (`i18n.jsx`); switch with the Language tweak or `?lang=zh-CN` / `?lang=en-US`, default follows the browser.
+
 ## 8. Mac manners checklist
 
 | Area | Behaviour |
@@ -274,7 +289,7 @@ General YouTube (Shorts, subscriptions feed, comments), podcasts (decided: skipp
 | | Deliverable |
 |---|---|
 | M0 | Claude Design mockups of: window + docked panel, Stage (3 backgrounds), mini player, Song⇄Video |
-| M1 | SwiftUI shell with mock data; Stage + lyrics renderer with word sync |
+| M1 | SwiftUI shell with mock data in both locales (String Catalog set up from the first commit); Stage + lyrics renderer with word sync |
 | M2 | Sign-in + data layer (home, library, playlists, search) |
 | M3 | Playback engine + Now Playing + queue model |
 | M4 | Song⇄Video + PiP |
@@ -288,6 +303,7 @@ General YouTube (Shorts, subscriptions feed, comments), podcasts (decided: skipp
 4. **Backgrounds:** five curated for v1; more variety later, held to the design bar in §4.1.
 5. **Minimum macOS:** 15, with Liquid Glass on 26+.
 6. **Unofficial lyrics sources** (NetEase, Kugou, QQ): off by default, one opt-in toggle each.
+7. **i18n:** zh-CN and en-US ship by default; the app follows the system language (§7b).
 
 ---
 

@@ -15,6 +15,8 @@
     Spacing    4 / 8 / 12 / 16 / 24 / 32.  Radii: window 12, controls 6, artwork 8.
     Motion     One curve: cubic-bezier(.2,.8,.2,1). 320 ms UI, 520 ms lyric scroll. Nothing loops unless
                the user picked an animated Stage background.
+    i18n       en-US and zh-CN ship by default (i18n.jsx). Language follows the system unless chosen. SF Pro stays first in
+               every locale (Vietnamese diacritics), Han falls back to PingFang SC. Dates via Intl.
     Content    Real tracks from the user's NetEase "Liked" list; covers, lyrics (word timing + Chinese
                translation) via NetEase; music-video stills via YouTube Music. Audio is simulated.
   -->
@@ -32,13 +34,15 @@
       "stageLayout": "standard",
       "stageBackground": "blur",
       "account": "premium",
-      "translation": true
+      "translation": true,
+      "language": "auto"
     }/*EDITMODE-END*/;
   </script>
 </head>
 <body>
   <div id="root"></div>
   <script type="text/babel" src="icons.jsx"></script>
+  <script type="text/babel" src="i18n.jsx"></script>
   <script type="text/babel" src="player.jsx"></script>
   <script type="text/babel" src="lyrics.jsx"></script>
   <script type="text/babel" src="window.jsx"></script>

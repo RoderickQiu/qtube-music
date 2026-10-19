@@ -3,21 +3,21 @@
 function controlsMenuItems(p, ui) {
   const s = p.state;
   return [
-    { label: s.playing ? "Pause" : "Play", shortcut: "Space", onClick: p.toggle },
-    { label: "Next", shortcut: "⌘→", onClick: () => p.next() },
-    { label: "Previous", shortcut: "⌘←", onClick: p.prev },
+    { label: tr(s.playing ? "Pause" : "Play"), shortcut: "Space", onClick: p.toggle },
+    { label: tr("Next"), shortcut: "⌘→", onClick: () => p.next() },
+    { label: tr("Previous"), shortcut: "⌘←", onClick: p.prev },
     { sep: true },
-    { label: s.liked.has(s.trackId) ? "Remove from Liked Songs" : "Like", shortcut: "⌘L", onClick: () => p.like() },
-    { label: "Shuffle", check: s.shuffle, onClick: p.setShuffle },
-    { label: "Repeat", check: s.repeat, onClick: p.setRepeat },
+    { label: tr(s.liked.has(s.trackId) ? "Remove from Liked Songs" : "Like"), shortcut: "⌘L", onClick: () => p.like() },
+    { label: tr("Shuffle"), check: s.shuffle, onClick: p.setShuffle },
+    { label: tr("Repeat"), check: s.repeat, onClick: p.setRepeat },
     { sep: true },
-    { label: "Song ⇄ Music Video", shortcut: "⇧⌘V", disabled: !p.track.mv, onClick: ui.toggleVideo },
-    { label: "Stage", shortcut: "⇧⌘F", onClick: ui.openStage },
-    { label: "Mini Player", shortcut: "⇧⌘M", onClick: ui.toggleMini },
-    { label: "Desktop Lyrics", check: ui.deskLyrics, shortcut: "⇧⌘L", onClick: ui.toggleDeskLyrics },
+    { label: tr("Song ⇄ Music Video"), shortcut: "⇧⌘V", disabled: !p.track.mv, onClick: ui.toggleVideo },
+    { label: tr("Stage"), shortcut: "⇧⌘F", onClick: ui.openStage },
+    { label: tr("Mini Player"), shortcut: "⇧⌘M", onClick: ui.toggleMini },
+    { label: tr("Desktop Lyrics"), check: ui.deskLyrics, shortcut: "⇧⌘L", onClick: ui.toggleDeskLyrics },
     { sep: true },
-    { label: "Lyrics Earlier", shortcut: "⌥↑", onClick: () => p.nudgeOffset(-0.1) },
-    { label: "Lyrics Later", shortcut: "⌥↓", onClick: () => p.nudgeOffset(0.1) },
+    { label: tr("Lyrics Earlier"), shortcut: "⌥↑", onClick: () => p.nudgeOffset(-0.1) },
+    { label: tr("Lyrics Later"), shortcut: "⌥↓", onClick: () => p.nudgeOffset(0.1) },
   ];
 }
 
@@ -41,15 +41,15 @@ function MenuBarExtra() {
               <div className="mbp-title">{t.title}</div>
               <div className="mbp-artist">{t.artist}</div>
             </div>
-            <button className={`mbp-like ${p.state.liked.has(t.id) ? "on" : ""}`} onClick={() => p.like()} aria-label="Like">
+            <button className={`mbp-like ${p.state.liked.has(t.id) ? "on" : ""}`} onClick={() => p.like()} aria-label={tr("Like")}>
               <Icon name={p.state.liked.has(t.id) ? "heartFill" : "heart"} size={16} />
             </button>
           </div>
           <div className="mbp-scrub"><Scrubber /></div>
           <div className="mbp-controls">
-            <button className="tp" onClick={p.prev} aria-label="Previous"><Icon name="prev" size={18} /></button>
-            <button className="tp mbp-play" onClick={p.toggle} aria-label={p.state.playing ? "Pause" : "Play"}><Icon name={p.state.playing ? "pause" : "play"} size={18} /></button>
-            <button className="tp" onClick={() => p.next()} aria-label="Next"><Icon name="next" size={18} /></button>
+            <button className="tp" onClick={p.prev} aria-label={tr("Previous")}><Icon name="prev" size={18} /></button>
+            <button className="tp mbp-play" onClick={p.toggle} aria-label={tr(p.state.playing ? "Pause" : "Play")}><Icon name={p.state.playing ? "pause" : "play"} size={18} /></button>
+            <button className="tp" onClick={() => p.next()} aria-label={tr("Next")}><Icon name="next" size={18} /></button>
           </div>
           {!p.state.ad && ln && (
             <div className="mbp-lyric">
@@ -77,12 +77,12 @@ function MiniPlayer() {
     </div>
   );
   return (
-    <div className={`mini ${mode}`} onDoubleClick={() => setMode(mode === "compact" ? "art" : "compact")} title="Double-click to switch size">
+    <div className={`mini ${mode}`} onDoubleClick={() => setMode(mode === "compact" ? "art" : "compact")} title={tr("Double-click to switch size")}>
       <img src={t.cover} alt="" />
       {mode === "compact" ? (
         <>
           <div style={{ minWidth: 0 }}>
-            <div className="t-title" style={{ color: "#fff" }}>{p.state.ad ? "Advertisement" : t.title}</div>
+            <div className="t-title" style={{ color: "#fff" }}>{p.state.ad ? tr("Advertisement") : t.title}</div>
             <div className="t-sub" style={{ color: "rgba(255,255,255,.6)" }}>{t.artist}</div>
           </div>
           {controls}
@@ -127,13 +127,13 @@ function DesktopSurface({ translation, ui }) {
         <span className="app">QTube Music</span>
         {appMenus.map((m) => (
           <span key={m} style={{ padding: "0 2px", cursor: "default", borderRadius: 4, background: menu?.name === m ? "rgba(255,255,255,.2)" : "none" }}
-            onClick={(e) => m === "Controls" ? setMenu({ name: m, x: e.clientX - 10, y: e.clientY + 14 }) : ui.toast("Not in this prototype yet")}>
-            {m}
+            onClick={(e) => m === "Controls" ? setMenu({ name: m, x: e.clientX - 10, y: e.clientY + 14 }) : ui.toast(tr("Not in this prototype yet"))}>
+            {tr(m)}
           </span>
         ))}
         <div className="right">
           <MenuBarExtra />
-          <span>Sun 18 Oct  9:41</span>
+          <span>{formatClock()}</span>
         </div>
       </div>
       {ui.deskLyrics && <DesktopLyrics translation={translation} />}

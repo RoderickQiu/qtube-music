@@ -1,10 +1,10 @@
 // Home: built only from the user's real library — no invented recommendations.
 
-const MOODS = ["Relax", "Energize", "Focus", "Commute", "Romance", "Sleep", "Feel good"];
+const MOODS = ["Relax", "Energize", "Focus", "Commute", "Romance", "Sleep", "Feel good"]; // translated at render
 
 function greeting() {
   const h = new Date().getHours();
-  return h < 5 ? "Good night" : h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+  return tr(h < 5 ? "Good night" : h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening");
 }
 
 function Shelf({ title, children, scroller = false }) {
@@ -13,11 +13,11 @@ function Shelf({ title, children, scroller = false }) {
   return (
     <section className="shelf">
       <header>
-        <h2>{title}</h2>
+        <h2>{tr(title)}</h2>
         {scroller && (
           <div className="shelf-nav">
-            <button className="icon-ghost panel" aria-label="Scroll left" onClick={() => by(-1)}><Icon name="chevL" size={16} /></button>
-            <button className="icon-ghost panel" aria-label="Scroll right" onClick={() => by(1)}><Icon name="chevR" size={16} /></button>
+            <button className="icon-ghost panel" aria-label={tr("Scroll left")} onClick={() => by(-1)}><Icon name="chevL" size={16} /></button>
+            <button className="icon-ghost panel" aria-label={tr("Scroll right")} onClick={() => by(1)}><Icon name="chevR" size={16} /></button>
           </div>
         )}
       </header>
@@ -34,7 +34,7 @@ function HomeView({ onShowVideo, onOpenPlaylist }) {
     <div className="content home">
       <div className="home-head">
         <h1>{greeting()}</h1>
-        <div className="chips">{MOODS.map((m) => <button key={m} className="chip">{m}</button>)}</div>
+        <div className="chips">{MOODS.map((m) => <button key={m} className="chip">{tr(m)}</button>)}</div>
       </div>
 
       <Shelf title="Listen again" scroller>
@@ -54,14 +54,14 @@ function HomeView({ onShowVideo, onOpenPlaylist }) {
         <div className="picks">
           {playable.slice(0, 9).map((t) => (
             <div key={t.id} className={`pick ${p.state.trackId === t.id ? "playing" : ""}`} onDoubleClick={() => p.play(t.id)}>
-              <button className="pick-art" onClick={() => p.play(t.id)} aria-label={`Play ${t.title}`}>
+              <button className="pick-art" onClick={() => p.play(t.id)} aria-label={tr("Play {x}", { x: t.title })}>
                 <img src={t.cover} alt="" /><span><Icon name="play" size={12} /></span>
               </button>
               <div style={{ minWidth: 0 }}>
                 <div className="t-title">{t.title}</div>
                 <div className="t-sub">{t.artist}</div>
               </div>
-              <button className={`heart ${p.state.liked.has(t.id) ? "on" : ""}`} onClick={() => p.like(t.id)} aria-label="Like">
+              <button className={`heart ${p.state.liked.has(t.id) ? "on" : ""}`} onClick={() => p.like(t.id)} aria-label={tr("Like")}>
                 <Icon name={p.state.liked.has(t.id) ? "heartFill" : "heart"} size={15} />
               </button>
             </div>
@@ -85,14 +85,14 @@ function HomeView({ onShowVideo, onOpenPlaylist }) {
       <Shelf title="Your playlists" scroller>
         <button className="card" onClick={onOpenPlaylist}>
           <div className="card-art liked"><Icon name="heartFill" size={44} stroke={0} /></div>
-          <div className="t-title">Liked Songs</div>
-          <div className="t-sub">{TRACKS.length} songs</div>
+          <div className="t-title">{tr("Liked Songs")}</div>
+          <div className="t-sub">{tr("{n} songs · {m} min", { n: TRACKS.length, m: Math.round(TRACKS.reduce((a, x) => a + x.duration, 0) / 60) })}</div>
         </button>
         {USER_PLAYLISTS.map((name) => (
           <button key={name} className="card">
             <div className="card-art ph"><Icon name="playlist" size={34} /></div>
             <div className="t-title">{name}</div>
-            <div className="t-sub">Playlist</div>
+            <div className="t-sub">{tr("Playlist")}</div>
           </button>
         ))}
       </Shelf>

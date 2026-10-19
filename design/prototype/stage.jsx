@@ -94,21 +94,21 @@ function VideoLyricsOverlay({ track, translation }) {
 function AppearanceButton({ track, layout, setLayout, background, setBackground, isVideo, account }) {
   const [anchor, setAnchor] = useState(null);
   const layouts = [
-    { id: "standard", label: "Art + lyrics", glyph: <><i className="g-art" /><i className="g-lines" /></> },
-    { id: "lyrics-only", label: "Lyrics", glyph: <i className="g-lines c" /> },
-    { id: "art-only", label: "Art", glyph: <i className="g-art c" /> },
+    { id: "standard", label: tr("Art + lyrics"), glyph: <><i className="g-art" /><i className="g-lines" /></> },
+    { id: "lyrics-only", label: tr("Lyrics"), glyph: <i className="g-lines c" /> },
+    { id: "art-only", label: tr("Art"), glyph: <i className="g-art c" /> },
   ];
   const bgs = [
-    { id: "blur", label: "Blur", preview: <div className="sw-img blur" style={{ backgroundImage: `url(${track.cover})` }} /> },
-    { id: "cover", label: "Cover", preview: <div className="sw-img" style={{ backgroundImage: `url(${track.cover})` }} /> },
-    { id: "vinyl", label: "Vinyl", preview: <div className="sw-vinyl"><img src={track.cover} alt="" /></div> },
-    { id: "video", label: "Video", preview: track.mv ? <div className="sw-img" style={{ backgroundImage: `url(${track.mv.still})` }} /> : <div className="sw-img none" />, disabled: !track.mv },
-    { id: "visual", label: "Visualizer", preview: <div className="sw-bars">{[5, 9, 6, 11, 7, 4, 8].map((h, i) => <i key={i} style={{ height: h * 3 }} />)}</div>, disabled: account === "free" },
+    { id: "blur", label: tr("Blur"), preview: <div className="sw-img blur" style={{ backgroundImage: `url(${track.cover})` }} /> },
+    { id: "cover", label: tr("Cover"), preview: <div className="sw-img" style={{ backgroundImage: `url(${track.cover})` }} /> },
+    { id: "vinyl", label: tr("Vinyl"), preview: <div className="sw-vinyl"><img src={track.cover} alt="" /></div> },
+    { id: "video", label: tr("Video"), preview: track.mv ? <div className="sw-img" style={{ backgroundImage: `url(${track.mv.still})` }} /> : <div className="sw-img none" />, disabled: !track.mv },
+    { id: "visual", label: tr("Visualizer"), preview: <div className="sw-bars">{[5, 9, 6, 11, 7, 4, 8].map((h, i) => <i key={i} style={{ height: h * 3 }} />)}</div>, disabled: account === "free" },
   ];
   const current = isVideo ? "video" : background;
   return (
     <>
-      <button className="icon-ghost" title="Appearance" aria-label="Appearance" onClick={(e) => setAnchor(anchor ? null : e.currentTarget)}><Icon name="sparkle" size={16} /></button>
+      <button className="icon-ghost" title={tr("Appearance")} aria-label={tr("Appearance")} onClick={(e) => setAnchor(anchor ? null : e.currentTarget)}><Icon name="sparkle" size={16} /></button>
       {anchor && (
         <Popover anchor={anchor} onClose={() => setAnchor(null)} width={308}>
           {!isVideo && (
@@ -121,7 +121,7 @@ function AppearanceButton({ track, layout, setLayout, background, setBackground,
           <div className="sw-grid">
             {bgs.map((b) => (
               <button key={b.id} className={`sw ${current === b.id ? "on" : ""}`} disabled={b.disabled}
-                title={b.id === "visual" && account === "free" ? "Premium" : b.label} onClick={() => setBackground(b.id)}>
+                title={b.id === "visual" && account === "free" ? tr("Premium") : b.label} onClick={() => setBackground(b.id)}>
                 {b.preview}<span>{b.label}</span>
               </button>
             ))}
@@ -203,13 +203,13 @@ function Stage({ layout, setLayout, background, setBackground, videoMode, setVid
 
       <div className={`st-chrome ${chrome ? "" : "hidden"}`}>
         <div className="st-top">
-          <button className="icon-ghost" title="Close  Esc" aria-label="Close Stage" onClick={close}><Icon name="chevD" size={18} /></button>
+          <button className="icon-ghost" title={tk("Close", "Esc")} aria-label={tr("Close")} onClick={close}><Icon name="chevD" size={18} /></button>
           <div className="grow" />
           <LyricsOptionsButton track={t} translation={translation} setTranslation={setTranslation} onToast={toast} />
           <AppearanceButton track={t} layout={layout} setLayout={setLayout} background={background} setBackground={setBg} isVideo={isVideo} account={p.state.account} />
           <div className="seg">
-            <button className={!isVideo ? "on" : ""} onClick={() => { setVideoMode(false); if (background === "video") setBackground("blur"); }}>Song</button>
-            <button className={isVideo ? "on" : ""} disabled={!t.mv} title={t.mv ? "" : "No music video"} onClick={() => setVideoMode(true)}>Video</button>
+            <button className={!isVideo ? "on" : ""} onClick={() => { setVideoMode(false); if (background === "video") setBackground("blur"); }}>{tr("Song")}</button>
+            <button className={isVideo ? "on" : ""} disabled={!t.mv} title={t.mv ? "" : tr("No official music video for this song")} onClick={() => setVideoMode(true)}>{tr("Video")}</button>
           </div>
         </div>
         <div className="st-bottom">
@@ -217,16 +217,16 @@ function Stage({ layout, setLayout, background, setBackground, videoMode, setVid
           <div className="st-transport"><Transport size={20} playSize={22} /></div>
         </div>
         <div className="st-side">
-          <button className={`tp small ${p.state.liked.has(t.id) ? "on" : ""}`} onClick={() => p.like()} aria-label="Like"><Icon name={p.state.liked.has(t.id) ? "heartFill" : "heart"} size={20} /></button>
-          <button className={`tp small ${queueOpen ? "on" : ""}`} title="Queue" aria-label="Queue" onClick={() => setQueueOpen(!queueOpen)}><Icon name="list" size={20} /></button>
-          <button className="tp small" title="AirPlay" aria-label="AirPlay"><Icon name="airplay" size={20} /></button>
+          <button className={`tp small ${p.state.liked.has(t.id) ? "on" : ""}`} onClick={() => p.like()} aria-label={tr("Like")}><Icon name={p.state.liked.has(t.id) ? "heartFill" : "heart"} size={20} /></button>
+          <button className={`tp small ${queueOpen ? "on" : ""}`} title={tr("Queue")} aria-label={tr("Queue")} onClick={() => setQueueOpen(!queueOpen)}><Icon name="list" size={20} /></button>
+          <button className="tp small" title={tr("AirPlay")} aria-label={tr("AirPlay")}><Icon name="airplay" size={20} /></button>
         </div>
       </div>
       {queueOpen && (
         <div className="st-queue theme-dark">
           <div className="st-queue-head">
-            <b>Queue</b>
-            <button className="icon-ghost" aria-label="Close queue" onClick={() => setQueueOpen(false)}><Icon name="close" size={14} /></button>
+            <b>{tr("Queue")}</b>
+            <button className="icon-ghost" aria-label={tr("Close queue")} onClick={() => setQueueOpen(false)}><Icon name="close" size={14} /></button>
           </div>
           <div className="st-queue-body"><UpNext toast={toast} /></div>
         </div>
@@ -241,7 +241,7 @@ function ArtOnlyLyric({ track, translation }) {
   const ln = currentLyric(track, pos + off);
   return (
     <div style={{ textAlign: "center", minHeight: 64, "--ly-on": "#fff", "--ly-off": "rgba(255,255,255,.4)" }}>
-      <div style={{ font: "600 22px/1.3 var(--font-display)" }}>{ln ? (ln.words ? <KaraokeLine line={ln} offset={off} /> : ln.text) : "Instrumental"}</div>
+      <div style={{ font: "600 22px/1.3 var(--font-display)" }}>{ln ? (ln.words ? <KaraokeLine line={ln} offset={off} /> : ln.text) : tr("Instrumental")}</div>
       {translation && ln?.tr && <div style={{ color: "rgba(255,255,255,.6)", marginTop: 4, fontSize: 15 }}>{ln.tr}</div>}
     </div>
   );

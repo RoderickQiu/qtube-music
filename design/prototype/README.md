@@ -9,4 +9,5 @@ open "http://127.0.0.1:8765/QTube%20Music.html"
 ```
 
 Deep-link any state with URL params, e.g. `?surface=stage&stageBackground=vinyl&stageLayout=art-only`,
-`?section=liked`, `?theme=light`, `?account=free`. Audio is simulated.
+`?section=liked`, `?theme=light`, `?account=free`, `?lang=zh-CN` / `?lang=en-US`.
+Language defaults to the browser's (zh-CN and en-US ship; strings live in `i18n.jsx`). Audio is simulated.
