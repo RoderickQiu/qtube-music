@@ -97,8 +97,14 @@ public enum QTLyricsTranslationSkipReason: String, Sendable, Hashable {
 
 /// Provider-lane policy applied to every document the resolver hands out.
 public enum QTLyricsTranslationPolicy {
-    /// Keeps the provider's translation only when it is in `target` and the song isn't already in `target`.
+    /// Keeps the provider's translation only when it is in `target` and the song isn't already in `target`; then shows
+    /// Chinese lyrics in the target's script (`QTLyricsScriptConversion`: 繁體 lyrics with a 简体中文 target are converted,
+    /// and the reverse).
     public static func applyProviderLane(to document: QTLyricsDocument, target: String?) -> QTLyricsDocument {
+        QTLyricsScriptConversion.apply(to: providerLane(of: document, target: target), target: target)
+    }
+
+    private static func providerLane(of document: QTLyricsDocument, target: String?) -> QTLyricsDocument {
         guard document.hasTranslation else { return document }
         let keep = target != nil && QTLanguageCode.isSame(document.translationLanguage, target)
             && !QTLanguageCode.isSame(document.language, target)
@@ -111,21 +117,21 @@ public enum QTLyricsTranslationPolicy {
         }
         // A Simplified lane for a Traditional target (or the reverse) is converted, so every surface shows the script
         // the user picked.
-        if let target, let lane = document.translationLanguage,
-           let transform = chineseTransform(from: QTLanguageCode.normalize(lane), to: QTLanguageCode.normalize(target)) {
-            for i in d.lines.indices {
-                d.lines[i].translation = d.lines[i].translation.map { $0.applyingTransform(transform, reverse: false) ?? $0 }
-            }
-            d.translationLanguage = QTLanguageCode.normalize(target)
+        if let script = QTChineseScript(target: target), let lane = document.translationLanguage,
+           let from = QTChineseScript(target: lane), from != script {
+            d.lines = convertedTranslations(d.lines, to: script)
+            d.translationLanguage = script.rawValue
         }
         return d
     }
 
-    static func chineseTransform(from: String, to: String) -> StringTransform? {
-        switch (from, to) {
-        case ("zh-Hans", "zh-Hant"): StringTransform("Hans-Hant")
-        case ("zh-Hant", "zh-Hans"): StringTransform("Hant-Hans")
-        default: nil
+    /// A Chinese translation lane (NetEase's and QQ's are Simplified) written in `script` (OpenCC, phrase-level).
+    public static func convertedTranslations(_ lines: [QTLyricsLine], to script: QTChineseScript,
+                                             region: QTChineseRegion = .current) -> [QTLyricsLine] {
+        lines.map { line in
+            var l = line
+            l.translation = line.translation.map { QTChineseConverter.shared.convert($0, to: script, region: region) }
+            return l
         }
     }
 

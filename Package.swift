@@ -9,11 +9,14 @@ let package = Package(
     products: [
         .executable(name: "QTubeMusic", targets: ["QTubeMusicApp"]),
     ],
-    // One third-party dependency: Sparkle (approved; updates — no feed / automatic checks off until Developer ID).
-    // QTLyrics has its own LRC/YRC/QRC/KRC/TTML parsers and decrypters (LyricsKit's are not public API).
-    // Ask the user before adding anything else.
+    // Two third-party dependencies, both approved: Sparkle (updates — no feed / automatic checks off until Developer
+    // ID) and SwiftyOpenCC (OpenCC, Traditional ⇄ Simplified Chinese lyrics). QTLyrics has its own
+    // LRC/YRC/QRC/KRC/TTML parsers and decrypters (LyricsKit's are not public API). Ask the user before adding
+    // anything else.
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.0"),
+        // 2.0.0-beta builds OpenCC from source (1.x links a system libopencc).
+        .package(url: "https://github.com/ddddxxx/SwiftyOpenCC", exact: "2.0.0-beta"),
     ],
     targets: [
         .target(
@@ -23,7 +26,7 @@ let package = Package(
         .target(name: "QTInnerTube", dependencies: ["QTCore"]),
         .target(name: "QTAuth", dependencies: ["QTInnerTube"]),
         .target(name: "QTPlayback", dependencies: ["QTCore", "QTInnerTube"]),
-        .target(name: "QTLyrics", dependencies: ["QTCore"]),
+        .target(name: "QTLyrics", dependencies: ["QTCore", .product(name: "OpenCC", package: "SwiftyOpenCC")]),
         // Opt-in integrations (spec §10): Last.fm scrobbling, Discord Rich Presence. Off by default; nothing is sent
         // until the user turns one on in Settings › Integrations.
         .target(name: "QTIntegrations", dependencies: ["QTCore"]),

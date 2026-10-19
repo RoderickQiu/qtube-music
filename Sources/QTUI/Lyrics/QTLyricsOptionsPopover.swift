@@ -210,6 +210,8 @@ public struct QTLyricsOptionsPopover: View {
                 EmptyView()
             case .sameLanguage(let code):
                 Text(QTLoc.tr("Song is already in %@", QTLyricsTranslationTarget.nativeName(for: code)))
+            case .convertedScript(let code):
+                Text(QTLoc.tr("Shown in %@", QTLyricsTranslationTarget.nativeName(for: code)))
             case .provider(let name):
                 Text(QTLoc.tr("Translation by %@", QTLoc.tr(name)))
             case .translating:

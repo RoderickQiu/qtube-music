@@ -17,7 +17,7 @@ SwiftPM package `QTubeMusic` (`Package.swift`, tools 6.2, Swift 6 language mode,
 | `QTDevSession` | QTAuth | DEBUG-only executable: import the dev session from CDP cookie JSON on stdin; read-only `status` / `summary` / `probe` / `ytcfg` (never prints cookie values) | data-live |
 | `QTPlaybackLab` | QTPlayback | dev-only executable: drives the web engine live, muted and anonymous (`swift run --scratch-path .build/<you> QTPlaybackLab --scenario basic`) | playback |
 | `QTNativeSpike` | QTPlayback, QTAuth | DEBUG-only executable for the M5 spike: `clients` / `bench` / `cipher` / `avplayer` — stream resolution per client, download → AVAudioEngine (muted), TTFA, CPU, gapless, crossfade, EQ, spectrum; `--signed-in` reads the shared dev session (never prints cookie values). Downloads the EJS solver and audio into `~/Library/Caches/com.roderickqiu.qtube.native-spike/` (audio purged after each run) | native-spike |
-| `QTLyrics` | QTCore | `QTLyricsResolver` (actor, `QTLyricsProviding`): parsers (LRC, YRC, QRC, KRC, TTML), QRC/KRC decryption, providers (YouTube Music, LRCLIB, AMLL; NetEase/Kugou/QQ opt-in), matcher, `QTLyricsCache` (SQLite), romanization, translation (selector, coordinator, Apple Intelligence + Translation framework engines); `QTMockLyricsProvider` | lyrics |
+| `QTLyrics` | QTCore, OpenCC (SwiftyOpenCC) | `QTLyricsResolver` (actor, `QTLyricsProviding`): parsers (LRC, YRC, QRC, KRC, TTML), QRC/KRC decryption, providers (YouTube Music, LRCLIB, AMLL; NetEase/Kugou/QQ opt-in), matcher, `QTLyricsCache` (SQLite), romanization, translation (selector, coordinator, Apple Intelligence + Translation framework engines), Chinese script (`QTChineseScript`, `QTChineseConverter`, `QTLyricsScriptConversion`); `QTMockLyricsProvider` | lyrics |
 | `QTIntegrations` | QTCore | Opt-in integrations, all off by default: Last.fm (`QTLastFMRequest` signing/requests, `QTLastFMClient`, `QTScrobbleRules`, `QTListenTracker`, `QTScrobbleQueue` offline queue, `QTScrobbler` actor), Discord Rich Presence (`QTDiscordIPC` framing, `QTDiscordActivity`, `QTDiscordPresence` socket actor), `QTIntegrationsSettings` + `QTIntegrationsStore` (defaults `qt.integrations.v1`; secrets in the Keychain via `QTKeychainSecretStore`) | desktop |
 | `QTUI` | all | SwiftUI/AppKit UI, app model, theme | per folder, below |
 | `QTubeMusicApp` (product `QTubeMusic`) | QTUI, Sparkle | `@main` app: `Window` (main), `Settings`, `MenuBarExtra`, `QTCommands`, app delegate (Dock menu, AppleScript application properties), `QTAppIntents.swift` (App Intents + App Shortcuts), `QTUpdater.swift` (Sparkle, dormant); `Resources/` (sdef, intent String Catalogs — excluded from SwiftPM, put in the bundle by build-app.sh) | desktop |
@@ -25,9 +25,13 @@ SwiftPM package `QTubeMusic` (`Package.swift`, tools 6.2, Swift 6 language mode,
 Spec names → types: PlaybackEngine = `QTPlaybackEngine`, QueueController = `QTQueueController`,
 NowPlayingController = `QTNowPlayingController`, WebPlaybackEngine = `QTWebPlaybackEngine`.
 
-**One third-party dependency: Sparkle** (approved; only the app target links it). LyricsKit was dropped at
-integration: its QRC/KRC/YRC parsers and decrypters are not public, so `QTLyrics` has its own (zlib and sqlite3 come
-from the system). Do not add any other dependency without asking the user.
+**Two third-party dependencies, both approved: Sparkle** (only the app target links it) **and SwiftyOpenCC**
+(`exact: 2.0.0-beta`, MIT; builds OpenCC, Apache-2.0, from source — 1.x links a system libopencc; `QTLyrics` links
+its `OpenCC` product). Its dictionaries are the resource bundle `SwiftyOpenCC_OpenCC.bundle`, which build-app.sh
+copies into `Contents/Resources` with the other SwiftPM bundles (its `Bundle.module` looks there first; a missing
+bundle is a `fatalError` on first conversion). LyricsKit was dropped at integration: its QRC/KRC/YRC parsers and
+decrypters are not public, so `QTLyrics` has its own (zlib and sqlite3 come from the system). Do not add any other
+dependency without asking the user.
 
 ### What runs today (after integration)
 
@@ -242,7 +246,8 @@ Views:
   are cached in the lyrics SQLite (`translations` table) under `lyrics:<FNV-1a of the lines>` + language + engine;
   jobs belong to the center (they survive the view that asked). `QTLyricsTranslationCoordinator` (QTLyrics) holds the
   engines, validation (`QTLyricsTranslationValidator`) and the cache. Popover labels the engine ("Apple
-  Intelligence" / "On-device translation" / provider) and says "Song is already in …" when it skips; when the
+  Intelligence" / "On-device translation" / provider) and says "Song is already in …" when it skips, or "Shown in …"
+  when the lyrics were converted to the target's Chinese script (`QTLyricsTranslationStatus.convertedScript`); when the
   Apple Intelligence toggle is on but the model can't run (`modelNotReady`, language unsupported, unavailable) it adds
   the system's reason on a second line (`QTAppleIntelligence.Status.reason`, shared with Settings). Every machine
   translation (engine output, hosted session, cache reads) goes through `QTLyricsTranslationPolish` (a line the engine
@@ -381,11 +386,27 @@ Coordinators (one per process, `@MainActor`):
   as the panel's content view, `NSHostingView` grew the window by the hidden title bar's height (72 → 104 pt, past
   the bottom of the screen). A `-qt.surface mini` launch ignores the main window becoming key until it has hidden
   it (activation during launch used to end the mini player before it was ever seen).
+- **Chinese script** (QTLyrics/Language/QTChineseScript.swift). 繁體 and 简体 are one written language, so a Chinese
+  target never machine-translates Chinese lyrics: `QTLyricsTranslationPolicy.applyProviderLane` (every shown
+  document: resolver, session, bundled fallback, target changes) ends with `QTLyricsScriptConversion.apply`, which
+  converts the lyric lines in place when the target is 简体中文 / 繁體中文 and the lyrics are in the other script. Script
+  detection (`QTChineseScript.detect`, also used by `QTLyricsLanguageDetector`) counts what OpenCC would change each
+  way, so Cantonese and Hokkien in Han characters are recognised too; text that reads the same in both is left alone.
+  OpenCC configs are script-only (s2tw / s2hk by the Mac's region — HK and MO get Hong Kong forms — and tw2s / hk2s,
+  hk2s for lyrics with Cantonese-only characters): phrase segmentation picks the right character, but no regional
+  idioms (软件 ↛ 軟體), since the words must match the recording. Word timing survives: the whole line converts and is
+  cut back at the original word boundaries (one character for one), else each word converts alone. Converted
+  documents take the target as `language` and record `scriptConvertedFrom`; results are cached (8 most recent).
+  Provider lanes in the other script (NetEase/QQ zh-Hans under a 繁體中文 target) convert the same way
+  (`QTLyricsTranslationPolicy.convertedTranslations`). Comparison keys for matching still fold with
+  `QTHanziConversion`, and providers always get the original spelling. If OpenCC's dictionaries can't load,
+  `QTChineseConverter` falls back to ICU's character-level `Hant-Hans` / `Hans-Hant`.
 - `QTLyricsTiming.nudge(model, by:)` (Lyrics/) — offset change + toast; `QTLyricsVersionStore.shared`.
 - `QTLyricsSession` (AppModel/QTLyricsSessionService.swift, lyrics-live) — **the one lyrics source of truth**, one per
   app (`model.lyricsSession` = `player.lyricsSession`; `player.lyrics`/`isLoadingLyrics` forward to it). Publishes
   `phase` (idle/loading/loaded/notFound/unreachable), `document` (offset applied; translation lane only when it is in
-  the current target and the song isn't already in it; zh-Hans lane converted for a zh-Hant target), `fullDocument`,
+  the current target and the song isn't already in it; a Chinese lane converted to the target's script; Chinese
+  lyric lines shown in the target's script, see "Chinese script" below), `fullDocument`,
   `syncKind`, `sourceName`, `attribution`, `versions`/`otherVersions`/`chosenVersionID`/`isPinned`,
   `isPossibleMismatch`, `translationPlan`/`translationTarget`/`translationEngineName`, `romanizationSource`/
   `hasRomanization`, `offset`, `unreachableSources`, `isShowingFallback`. Actions: `load(_:)` (track change),

@@ -117,6 +117,21 @@ struct QTScriptedTranslationEngine: QTLyricsTranslationEngine {
         #expect(r.lanes.translations == nil)
     }
 
+    /// Traditional lyrics with a 简体中文 target are shown converted: "Shown in 简体中文", no translation line.
+    @Test func traditionalSongWithSimplifiedTargetSaysShownIn() {
+        let zh = QTLyricsDocument(lines: [QTLyricsLine(start: 1, text: "愛情你比我想的閣較偉大"), QTLyricsLine(start: 5, text: "你是我的未來")],
+                                  syncKind: .line, source: .youtubeMusic, language: "zh-Hant")
+        let shown = QTLyricsTranslationPolicy.applyProviderLane(to: zh, target: "zh-Hans")
+        #expect(shown.lines[0].text == "爱情你比我想的阁较伟大")
+        let r = center().resolve(shown, target: "zh-Hans")
+        #expect(r.status == .convertedScript("zh-Hans"))
+        #expect(r.machineKey == nil)
+        #expect(r.lanes.translations == nil)
+        // As written (the target's own script): still "Song is already in 繁體中文".
+        #expect(center().resolve(QTLyricsTranslationPolicy.applyProviderLane(to: zh, target: "zh-Hant"), target: "zh-Hant").status
+            == .sameLanguage("zh-Hant"))
+    }
+
     @Test func fingerprintIsStableAndContentBased() {
         #expect(QTLyricsTranslationCenter.fingerprint(vi) == QTLyricsTranslationCenter.fingerprint(vi))
         var other = vi

@@ -93,6 +93,9 @@ public struct QTLyricsDocument: Codable, Sendable, Hashable {
     public var confidence: Double
     /// Per-track user offset in seconds. Positive = lyrics appear earlier (⌥↑ "Lyrics Earlier" adds +0.1).
     public var offset: TimeInterval
+    /// Set when the lyric lines were converted from the other Chinese script (Traditional ⇄ Simplified) to match the
+    /// translation target: the script they arrived in (`zh-Hant` / `zh-Hans`). Nil for lyrics shown as written.
+    public var scriptConvertedFrom: String?
 
     public init(lines: [QTLyricsLine], syncKind: QTLyricsSyncKind, source: QTLyricsSource, language: String? = nil,
                 translationLanguage: String? = nil, translationSource: QTLyricsSource? = nil,

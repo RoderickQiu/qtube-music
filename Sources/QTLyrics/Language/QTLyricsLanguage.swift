@@ -27,7 +27,7 @@ public enum QTLanguageCode {
 }
 
 /// Detects the language of lyric lines on device. Script heuristics first (kana ⇒ Japanese, hangul ⇒ Korean,
-/// Han only ⇒ Chinese with Traditional/Simplified decided by the T→S table), then `NLLanguageRecognizer`.
+/// Han only ⇒ Chinese with Traditional/Simplified decided by `QTChineseScript`), then `NLLanguageRecognizer`.
 public enum QTLyricsLanguageDetector {
     public static func detect(_ lines: [String]) -> String? {
         let text = lines.joined(separator: "\n")
@@ -48,7 +48,12 @@ public enum QTLyricsLanguageDetector {
         let share = { (n: Int) in Double(n) / Double(letters) }
         if kana > 0, share(kana + han) > 0.3, share(kana) > 0.05 { return "ja" }
         if share(hangul) > 0.3 { return "ko" }
-        if share(han) > 0.3 { return QTHanziConversion.isMostlyTraditional(text) ? "zh-Hant" : "zh-Hans" }
+        if share(han) > 0.3 {
+            // Script from OpenCC's tables (Cantonese/Hokkien in Han characters included); text that reads the same in
+            // both scripts falls back to the bundled T→S table (Simplified unless it finds Traditional forms).
+            if let script = QTChineseScript.detect(text) { return script.rawValue }
+            return QTHanziConversion.isMostlyTraditional(text) ? "zh-Hant" : "zh-Hans"
+        }
         if share(devanagari) > 0.3 { return "hi" }
         if share(thai) > 0.3 { return "th" }
         let recognizer = NLLanguageRecognizer()

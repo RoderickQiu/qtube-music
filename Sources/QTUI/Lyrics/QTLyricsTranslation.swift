@@ -13,7 +13,8 @@ import Translation
 //      the model is available for the target — it reads the whole song, so imagery and slang survive;
 //   3. Apple's Translation framework (macOS 15+), "On-device translation", whose language models download only
 //      after the user clicks "Download {language} for offline translation".
-// Songs already in the target language get no translation line. A failed Apple Intelligence run (refusal, wrong
+// Songs already in the target language get no translation line; Chinese lyrics in the other script are shown converted
+// into the target's (QTLyricsScriptConversion). A failed Apple Intelligence run (refusal, wrong
 // line count, untranslated echo, timeout) falls back to the Translation framework for the whole song; nothing partial
 // or misaligned is ever shown. Results are cached in SQLite per lyrics + language + engine.
 
@@ -23,6 +24,8 @@ public enum QTLyricsTranslationStatus: Equatable, Sendable {
     case off
     /// The song is already in the target language (BCP-47 code).
     case sameLanguage(String)
+    /// Chinese lyrics shown converted into the target's script (繁體 ⇄ 简体), BCP-47 code of the target.
+    case convertedScript(String)
     /// The lyrics provider supplies it (display name, e.g. "NetEase").
     case provider(String)
     case translating
@@ -36,6 +39,7 @@ public enum QTLyricsTranslationStatus: Equatable, Sendable {
     init?(argument: String, target: String) {
         switch argument {
         case "same": self = .sameLanguage(target)
+        case "converted": self = .convertedScript(target)
         case "translating", "pending": self = .translating
         case "download": self = .needsDownload(target)
         case "unavailable": self = .unavailable
@@ -142,15 +146,16 @@ final class QTLyricsTranslationCenter {
         guard let target else { return .init(status: forced ?? .off, lanes: .init()) }
         let songLanguage = Self.songLanguage(doc)
         if QTLyricsTranslationTarget.isSameLanguage(songLanguage, target) {
-            return .init(status: forced ?? .sameLanguage(target), lanes: .init())
+            let status: QTLyricsTranslationStatus = doc.scriptConvertedFrom != nil ? .convertedScript(target) : .sameLanguage(target)
+            return .init(status: forced ?? status, lanes: .init())
         }
         if doc.hasTranslation, let tl = doc.translationLanguage {
             let name = doc.translationSource?.name ?? doc.source.name
             if tl == target {
                 return .init(status: forced ?? .provider(name), lanes: .init(translations: provider, translationLanguage: tl))
             }
-            if tl.hasPrefix("zh"), target.hasPrefix("zh"), let transform = Self.chineseTransform(from: tl, to: target) {
-                let converted = provider.map { $0?.applyingTransform(transform, reverse: false) ?? $0 }
+            if let script = QTChineseScript(target: target), QTChineseScript(target: tl) != nil {
+                let converted = QTLyricsTranslationPolicy.convertedTranslations(doc.lines, to: script).map(\.translation)
                 return .init(status: forced ?? .provider(name), lanes: .init(translations: converted, translationLanguage: target))
             }
         }
@@ -349,14 +354,6 @@ final class QTLyricsTranslationCenter {
         case .thai: return "th"
         case .cyrillic: return "ru"
         case .latin, .other: return "en"
-        }
-    }
-
-    static func chineseTransform(from: String, to: String) -> StringTransform? {
-        switch (from, to) {
-        case ("zh-Hans", "zh-Hant"): StringTransform("Hans-Hant")
-        case ("zh-Hant", "zh-Hans"): StringTransform("Hant-Hans")
-        default: nil
         }
     }
 
