@@ -122,6 +122,8 @@ import Testing
         let d = doc([12, 15, 40], durations: [3, 2.5, 3])
         let rows = QTLyricsRowBuilder.rows(for: d, lanes: .init(), metrics: .make(.panel), width: 300, includeGaps: true)
         #expect(rows.map(\.isGap) == [true, false, false, true, false])
+        // Only the intro is marked: it never takes layout space, so the first line sits at the anchor.
+        #expect(rows.map(\.isIntro) == [true, false, false, false, false])
         if case .gap(let s, let e) = rows[3].kind {
             #expect(s > 17.5 && e < 40)
         }
@@ -186,6 +188,25 @@ import Testing
     @Test func forcedStatusForScreenshots() {
         let forced = QTLyricsTranslationCenter(launch: QTLaunchOptions(arguments: ["qt.lyrics.translationState": "download"]))
         #expect(forced.resolve(vi, target: "ko").status == .needsDownload("ko"))
+    }
+
+    /// Every surface reads `QTResolvedLyrics`: a provider lane in another language never shows up as "the translation".
+    @Test func resolvedLyricsNeverLeakTheProviderLaneIntoAnotherTarget() {
+        let english = QTResolvedLyrics(document: vi, resolution: center.resolve(vi, target: "en"))
+        #expect(english.currentLine(atPlaybackTime: 2)?.line.text == "Bao đêm qua")
+        #expect(english.currentLine(atPlaybackTime: 2)?.translation == nil)
+        #expect(english.translation(forLine: 0) == nil)
+        let chinese = QTResolvedLyrics(document: vi, resolution: center.resolve(vi, target: "zh-Hans"))
+        #expect(chinese.currentLine(atPlaybackTime: 2)?.translation == "多少个夜晚我还是这样哽咽")
+        let off = QTResolvedLyrics(document: vi, resolution: center.resolve(vi, target: nil))
+        #expect(off.translation(forLine: 0) == nil)
+    }
+
+    @Test func resolvedLyricsInstrumentalBeforeTheFirstLine() {
+        let r = QTResolvedLyrics(document: vi, resolution: center.resolve(vi, target: nil))
+        #expect(r.isInstrumental(atPlaybackTime: 0.5))
+        #expect(!r.isInstrumental(atPlaybackTime: 1.5))
+        #expect(!QTResolvedLyrics.none.isInstrumental(atPlaybackTime: 0))
     }
 }
 

@@ -71,6 +71,16 @@ public final class QTAppModel {
             FileHandle.standardError.write(Data("QTube Music: mock catalog not found; run Scripts/make-mock-catalog.py\n".utf8))
             catalog = QTMockCatalog(tracks: [], liked: QTPlaylist(id: "LM", title: .localized("Liked Songs"), kind: .liked, tracks: []))
         }
+        // Mock runs serve lyrics that came from unofficial providers; say so in the session's settings (never
+        // persisted) so the lyrics options don't name NetEase over an "Unofficial sources" switch that is off.
+        let mockSources = Set(catalog.lyrics.values.filter(\.source.isUnofficial).map(\.source.id))
+        if !mockSources.isEmpty, !settings.settings.unofficialLyricsSources.anyEnabled {
+            settings.override { s in
+                s.unofficialLyricsSources = QTUnofficialLyricsSources(netease: mockSources.contains(QTLyricsSource.netease.id),
+                                                                      kugou: mockSources.contains(QTLyricsSource.kugou.id),
+                                                                      qq: mockSources.contains(QTLyricsSource.qq.id))
+            }
+        }
         let engine = QTSimulatedPlaybackEngine(account: launch.account == .free ? .free : .premium)
         let player = QTPlayerModel(engine: engine, lyricsProvider: QTMockLyricsProvider(catalog: catalog),
                                    likedTrackIDs: Set(catalog.liked.tracks?.map(\.videoId) ?? []))

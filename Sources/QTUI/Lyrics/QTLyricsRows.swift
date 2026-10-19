@@ -19,7 +19,7 @@ struct QTLyricsMetrics {
     var laneGap: CGFloat
     /// Horizontal inset of the rail (`.lyrics-rail` left/right).
     var inset: CGFloat
-    /// Where the current line's centre sits, as a fraction of the height (prototype `anchor = 0.36`).
+    /// Where the current line's centre sits, as a fraction of the height (panel 0.31: the first line sits right under the hero, as in the prototype).
     var anchor: CGFloat
     var inactiveOpacity: Float
     var hoverOpacity: Float
@@ -63,7 +63,7 @@ struct QTLyricsMetrics {
                 main: .init(size: s.main * textScale, weight: .bold, lineHeight: 1.3, centered: false, tracking: -0.005),
                 romanization: .init(size: (s.translation - 1) * textScale, weight: .medium, lineHeight: 1.3, centered: false),
                 translation: .init(size: s.translation * textScale, weight: .medium, lineHeight: 1.3, centered: false),
-                rowPadding: 7, laneGap: 3, inset: 30, anchor: 0.36, inactiveOpacity: dim, hoverOpacity: 0.62,
+                rowPadding: 7, laneGap: 3, inset: 30, anchor: 0.31, inactiveOpacity: dim, hoverOpacity: 0.62,
                 farOpacity: nil, unsungOpacity: increaseContrast ? 0.5 : 0.36, inactiveScale: 0.97,
                 futureBlur: 0, farBlur: 0, edge: 10 * textScale, fadeTop: 0.14, fadeBottom: 0.80, overArt: false,
                 shadow: nil, outline: nil, dotSize: 7 * textScale)
@@ -157,6 +157,10 @@ struct QTLyricsRowModel {
     var start: Double
     var end: Double?
 
+    /// The gap before the first line. It never takes layout space: the first line sits at the anchor from the start
+    /// (like the prototype) and the dots fade in just above it, so the intro doesn't push the lyrics down.
+    var isIntro = false
+
     var lineIndex: Int? { if case .line(let i) = kind { i } else { nil } }
     var isGap: Bool { if case .gap = kind { true } else { false } }
     var plainText: String {
@@ -204,7 +208,9 @@ enum QTLyricsRowBuilder {
                     let threshold = i == 0 ? introThreshold : interludeThreshold
                     if line.start - gs >= threshold {
                         let s = i == 0 ? 0 : gs + 0.4
-                        rows.append(gapRow(start: s, end: line.start - 0.25, metrics: m, width: width))
+                        var gap = gapRow(start: s, end: line.start - 0.25, metrics: m, width: width)
+                        gap.isIntro = i == 0
+                        rows.append(gap)
                     }
                 }
             }

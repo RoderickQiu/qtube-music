@@ -198,7 +198,19 @@ final class QTLyricsRailView: NSView, NSMenuItemValidation {
     }
 
     private func height(of r: QTLyricsRowModel, isCurrent: Bool) -> CGFloat {
-        r.isGap && !isCurrent ? 0 : r.height
+        r.isIntro || (r.isGap && !isCurrent) ? 0 : r.height
+    }
+
+    /// Top of a row's layers: the intro dots sit just above the first line instead of in the flow.
+    private func nodeY(_ i: Int) -> CGFloat {
+        rows[i].isIntro ? rowY[i] - rows[i].height : rowY[i]
+    }
+
+    /// The row the rail centres on: the intro gap hands over to the first line.
+    private func focusRow(_ i: Int) -> Int {
+        var i = i
+        while rows.indices.contains(i + 1), rows[i].isIntro { i += 1 }
+        return i
     }
 
     private var totalHeight: CGFloat {
@@ -261,7 +273,7 @@ final class QTLyricsRailView: NSView, NSMenuItemValidation {
         displayedOffset = target
         updateVisibleNodes()
         for (i, node) in nodes {
-            node.container.position = CGPoint(x: 0, y: rowY[i])
+            node.container.position = CGPoint(x: 0, y: nodeY(i))
             if move {
                 let delta = (oldOffset + oldYs[i]) - (target + rowY[i])
                 if abs(delta) > 0.5 { addSpring(to: node.container, from: delta, delay: stagger(row: i, current: newCurrent ?? 0, movingUp: delta > 0)) }
@@ -294,7 +306,7 @@ final class QTLyricsRailView: NSView, NSMenuItemValidation {
         guard !rows.isEmpty else { return 0 }
         let h = bounds.height
         if config?.document.syncKind == .plain { return h * max(0.16, metrics.fadeTop + 0.02) }
-        let i = current ?? 0
+        let i = focusRow(current ?? 0)
         return h * metrics.anchor - (rowY[i] + height(of: rows[i], isCurrent: i == current) / 2)
     }
 
@@ -302,7 +314,8 @@ final class QTLyricsRailView: NSView, NSMenuItemValidation {
     private var scrollRange: (CGFloat, CGFloat) {
         guard !rows.isEmpty else { return (0, 0) }
         let a = bounds.height * metrics.anchor
-        let firstCentre = rowY[0] + height(of: rows[0], isCurrent: current == 0) / 2
+        let first = focusRow(0)
+        let firstCentre = rowY[first] + height(of: rows[first], isCurrent: current == first) / 2
         let lastIndex = rows.count - 1
         let lastCentre = rowY[lastIndex] + height(of: rows[lastIndex], isCurrent: current == lastIndex) / 2
         let hi = config?.document.syncKind == .plain ? bounds.height * 0.16 : a - firstCentre
@@ -355,7 +368,7 @@ final class QTLyricsRailView: NSView, NSMenuItemValidation {
         let scale = window.backingScaleFactor
         var keep = Set<Int>()
         for i in rows.indices {
-            let y = rowY[i], h = max(rows[i].height, 1)
+            let y = nodeY(i), h = max(rows[i].height, 1)
             guard y + h >= top, y <= bottom else { continue }
             keep.insert(i)
             let node: QTLyricsRowNode
@@ -367,7 +380,7 @@ final class QTLyricsRailView: NSView, NSMenuItemValidation {
                 rail.addSublayer(node.container)
                 CATransaction.begin()
                 CATransaction.setDisableActions(true)
-                node.container.position = CGPoint(x: 0, y: rowY[i])
+                node.container.position = CGPoint(x: 0, y: nodeY(i))
                 CATransaction.commit()
                 applyState(node, row: i, animated: false)
             }

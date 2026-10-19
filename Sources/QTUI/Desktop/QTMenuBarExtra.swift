@@ -270,22 +270,23 @@ struct QTCurrentLyricLine: View {
     let style: Style
 
     var body: some View {
-        let doc = player.ad == nil ? player.lyrics : nil
+        // Lyric + translation from the shared resolution (`QTAppModel.resolvedLyrics`): same lane as every surface.
+        let resolved = player.ad == nil ? model.resolvedLyrics : .none
         TimelineView(.periodic(from: .now, by: player.timeline.rate > 0 ? 0.2 : 3600)) { _ in
-            let index = doc?.lineIndex(atPlaybackTime: player.timeline.currentTime)
-            let line = index.flatMap { i in doc?.lines.indices.contains(i) == true ? doc?.lines[i] : nil }
-            content(line)
+            let current = resolved.currentLine(atPlaybackTime: player.timeline.currentTime)
+            let index = current?.index
+            content(current?.line, translation: current?.translation)
                 .id(index ?? -1)
                 .transition(.opacity)
                 .animation(QTTheme.Motion.animation(QTTheme.Motion.lyricScroll, reduceMotion: reduceMotion), value: index)
         }
         .frame(maxWidth: .infinity)
+        .qtHostsLyricsTranslation(style == .popover)
         .accessibilityIdentifier("qt.desktop.lyricLine")
     }
 
     @ViewBuilder
-    private func content(_ line: QTLyricsLine?) -> some View {
-        let translation = model.resolvedTranslationLanguage != nil ? line?.translation : nil
+    private func content(_ line: QTLyricsLine?, translation: String?) -> some View {
         switch style {
         case .popover:
             VStack(spacing: 3) {

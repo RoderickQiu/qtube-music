@@ -71,7 +71,14 @@ Views:
 - `QTLyricsView(document:time:style:showsTranslation:onSeek:)` — `time` is a `QTPlaybackTimeline` (anchor + rate);
   the view interpolates itself, so parents re-render only on play/pause/seek. `style`: `.panel`, `.stage(centered:)`,
   `.mini`, `.desktop`. `onSeek` gets a playback time.
-- `QTLyricsOptionsButton(overArt:)` → system popover with `QTLyricsOptionsPopover()`.
+- `QTLyricsOptionsButton(overArt:)` → system popover with `QTLyricsOptionsPopover()` (source + timing kind of what is
+  showing, Translate to + status, one "Unofficial sources" switch — per-provider switches live in Settings › Lyrics —,
+  timing stepper, Other versions).
+- `QTAppModel.resolvedLyrics` → `QTResolvedLyrics` (Lyrics/): the document + the **one** translation lane every surface
+  shows (`translation(forLine:)`, `currentLine(atPlaybackTime:)` → line + translation, `isInstrumental(atPlaybackTime:)`,
+  `translationStatus`). Never read `QTLyricsLine.translation` in a view: it is the provider's lane in whatever language
+  the provider shipped. Surfaces that show a translation without a `QTLyricsView` add `.qtHostsLyricsTranslation()` so
+  on-device translation runs for them too.
 - `QTQueueList(style: .panel | .stageDrawer)`.
 - `QTTransportControls(style: .playerBar | .stage | .compact)`; `QTScrubber(overArt:)`.
 - `QTSongVideoToggle(isVideo:hasVideo:)` — segmented Picker.

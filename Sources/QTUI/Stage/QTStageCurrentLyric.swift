@@ -14,23 +14,36 @@ struct QTStageCurrentLyric: View {
     let showsTranslation: Bool
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(QTAppModel.self) private var model: QTAppModel?
 
     private var surface: QTTheme.Typography.LyricSurface { style == .videoOverlay ? .videoOverlay : .artOnly }
     private var alignment: HorizontalAlignment { style == .videoOverlay ? .leading : .center }
     private var textAlignment: TextAlignment { style == .videoOverlay ? .leading : .center }
 
     var body: some View {
+        // The translation lane comes only from the shared resolution (`QTAppModel.resolvedLyrics`), so this line
+        // shows the same translation as the panel and the Stage rail — never the provider's lane in another language.
+        let resolved = model?.resolvedLyrics ?? QTResolvedLyrics(document: document, translations: nil,
+                                                                 translationLanguage: nil, translationStatus: .off)
+        let matches = resolved.document == document
         TimelineView(.animation(minimumInterval: 1 / 20, paused: time.rate == 0)) { _ in
             let now = time.currentTime
-            let index = document?.lineIndex(atPlaybackTime: now)
-            let line = index.flatMap { document?.lines[$0] }
+            let current = matches ? resolved.currentLine(atPlaybackTime: now) : nil
+            let index = current?.index
+            // Art only, before the first line (intro) or an instrumental track: "Instrumental", like the prototype.
+            let isInstrumental = style == .artOnly && matches && resolved.isInstrumental(atPlaybackTime: now)
             ZStack {
             VStack(alignment: alignment, spacing: style == .videoOverlay ? 6 : 4) {
-                if let line {
+                if isInstrumental {
+                    Text(QTLoc.tr("Instrumental"))
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(QTTheme.Colors.onArtSecondary)
+                        .accessibilityIdentifier("qt.stage.currentLyric.instrumental")
+                } else if let line = current?.line {
                     Text(attributed(line, lyricTime: document?.lyricTime(forPlaybackTime: now) ?? now))
                         .font(style == .videoOverlay ? .system(size: 40, weight: .bold) : .system(size: 22, weight: .semibold))
                         .lineSpacing(2)
-                    if showsTranslation, let tr = line.translation, !tr.isEmpty {
+                    if showsTranslation, let tr = current?.translation {
                         Text(tr)
                             .font(.system(size: style == .videoOverlay ? 22 : 15, weight: style == .videoOverlay ? .semibold : .regular))
                             .foregroundStyle(.white.opacity(style == .videoOverlay ? 0.75 : 0.6))
@@ -39,13 +52,14 @@ struct QTStageCurrentLyric: View {
             }
             .multilineTextAlignment(textAlignment)
             .frame(maxWidth: style == .videoOverlay ? 1000 : 560, alignment: Alignment(horizontal: alignment, vertical: .center))
-            .id(index ?? -1)
+            .id(isInstrumental ? -2 : index ?? -1)
             .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: reduceMotion ? 0 : 10)),
                                     removal: .opacity.combined(with: .offset(y: reduceMotion ? 0 : -10))))
             }
             .animation(QTTheme.Motion.animation(QTTheme.Motion.lyricSpring, reduceMotion: reduceMotion), value: index)
         }
         .shadow(color: style == .videoOverlay ? .black.opacity(0.5) : .clear, radius: 9, y: 2)
+        .qtHostsLyricsTranslation(showsTranslation)
         .foregroundStyle(QTTheme.Colors.onArt)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("qt.stage.currentLyric")

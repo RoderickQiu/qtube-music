@@ -46,8 +46,9 @@ public struct QTLyricsOptionsButton: View {
     }
 }
 
-/// Lyrics options: source + timing kind, translation target (+ engine / download consent / same-language state),
-/// unofficial sources, timing offset, "Wrong lyrics? / Other versions (n)".
+/// Lyrics options: source + timing kind of what's showing, translation target (+ engine / download consent /
+/// same-language state), one "Unofficial sources" switch (per-provider switches live in Settings › Lyrics), timing
+/// offset, "Wrong lyrics? / Other versions (n)".
 /// Reads `QTAppModel` / `QTPlayerModel` from the environment.
 public struct QTLyricsOptionsPopover: View {
     @Environment(QTAppModel.self) private var model
@@ -60,14 +61,14 @@ public struct QTLyricsOptionsPopover: View {
     public init() {}
 
     public var body: some View {
-        let doc = player.lyrics
-        let resolution = center.resolve(doc, target: model.resolvedTranslationLanguage)
+        let resolved = model.resolvedLyrics
+        let doc = resolved.document
+        let status = resolved.translationStatus
         VStack(alignment: .leading, spacing: 0) {
             header(doc)
             Form {
-                translationSection(resolution)
-                sourcesSection
-                timingSection(doc)
+                translationSection(status)
+                lyricsSection(doc)
             }
             .formStyle(.grouped)
             .scrollContentBackground(.hidden)
@@ -115,7 +116,7 @@ public struct QTLyricsOptionsPopover: View {
     // MARK: Translation
 
     @ViewBuilder
-    private func translationSection(_ resolution: QTLyricsTranslationResolution) -> some View {
+    private func translationSection(_ status: QTLyricsTranslationStatus) -> some View {
         @Bindable var model = model
         Section {
             Picker(QTLoc.tr("Translate to"), selection: $model.lyricsTranslation) {
@@ -130,14 +131,14 @@ public struct QTLyricsOptionsPopover: View {
             .pickerStyle(.menu)
             .accessibilityIdentifier("qt.lyrics.translationPicker")
         } footer: {
-            translationStatus(resolution)
+            translationStatus(status)
         }
     }
 
     @ViewBuilder
-    private func translationStatus(_ resolution: QTLyricsTranslationResolution) -> some View {
+    private func translationStatus(_ status: QTLyricsTranslationStatus) -> some View {
         Group {
-            switch resolution.status {
+            switch status {
             case .noLyrics, .off:
                 EmptyView()
             case .sameLanguage(let code):
@@ -151,7 +152,9 @@ public struct QTLyricsOptionsPopover: View {
                 }
             case .needsDownload(let code):
                 Button {
-                    if let key = resolution.machineKey { center.requestDownload(key) }
+                    if let key = center.resolve(player.lyrics, target: model.resolvedTranslationLanguage).machineKey {
+                        center.requestDownload(key)
+                    }
                 } label: {
                     Label(QTLoc.tr("Download %@ for offline translation", QTLyricsTranslationTarget.nativeName(for: code)),
                           systemImage: "arrow.down.circle")
@@ -172,36 +175,15 @@ public struct QTLyricsOptionsPopover: View {
         .accessibilityIdentifier("qt.lyrics.translationStatus")
     }
 
-    // MARK: Unofficial sources
+    // MARK: Sources, timing, versions
 
-    private var sourcesSection: some View {
+    private func lyricsSection(_ doc: QTLyricsDocument?) -> some View {
         Section {
-            sourceToggle(QTLoc.tr("NetEase"), \.netease)
-            sourceToggle(QTLoc.tr("Kugou"), \.kugou)
-            sourceToggle(QTLoc.tr("QQ Music"), \.qq)
-        } header: {
-            Text(QTLoc.tr("Unofficial sources"))
-        } footer: {
-            Text(QTLoc.tr("Unofficial, may stop working", table: .lyrics))
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .trailing)
-        }
-    }
-
-    private func sourceToggle(_ title: String, _ keyPath: WritableKeyPath<QTUnofficialLyricsSources, Bool>) -> some View {
-        Toggle(title, isOn: Binding(
-            get: { model.settings.settings.unofficialLyricsSources[keyPath: keyPath] },
-            set: { on in model.settings.update { $0.unofficialLyricsSources[keyPath: keyPath] = on } }))
-            .toggleStyle(.switch)
-            .controlSize(.small)
-            .help(QTLoc.tr("NetEase, Kugou and QQ Music — unofficial, may stop working"))
-    }
-
-    // MARK: Timing + versions
-
-    private func timingSection(_ doc: QTLyricsDocument?) -> some View {
-        Section {
+            Toggle(QTLoc.tr("Unofficial sources"), isOn: unofficialSources)
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .help(QTLoc.tr("NetEase, Kugou and QQ Music — unofficial, may stop working"))
+                .accessibilityIdentifier("qt.lyrics.unofficialSources")
             LabeledContent(QTLoc.tr("Timing")) {
                 HStack(spacing: 6) {
                     Text(QTLoc.tr("%@ s", table: .lyrics, QTFormat.signedOffset(doc?.offset ?? 0)))
@@ -225,6 +207,18 @@ public struct QTLyricsOptionsPopover: View {
                 versionsMenu(doc)
             }
         }
+    }
+
+    /// One switch for NetEase, Kugou and QQ Music: on when any is enabled; turning it on enables all three (fine
+    /// tuning lives in Settings › Lyrics), off disables all.
+    private var unofficialSources: Binding<Bool> {
+        Binding(
+            get: { model.settings.settings.unofficialLyricsSources.anyEnabled },
+            set: { on in
+                model.settings.update {
+                    $0.unofficialLyricsSources = on ? QTUnofficialLyricsSources(netease: true, kugou: true, qq: true) : QTUnofficialLyricsSources()
+                }
+            })
     }
 
     private func versionsMenu(_ doc: QTLyricsDocument?) -> some View {

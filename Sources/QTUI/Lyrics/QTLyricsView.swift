@@ -98,7 +98,7 @@ public struct QTLyricsView: View {
                 QTLyricsUnavailableView(isInstrumental: document.map(QTLyricsRowBuilder.isInstrumental) ?? false, style: style)
             }
         }
-        .modifier(QTLyricsTranslationHost(document: document, key: style.isScrolling ? resolution.machineKey : nil))
+        .modifier(QTLyricsTranslationHost(document: document, key: showsTranslation ? resolution.machineKey : nil))
     }
 
     @ViewBuilder
@@ -134,6 +134,7 @@ public struct QTLyricsView: View {
     /// Lyrics stand still while an ad plays.
     private var isStalled: Bool { player?.ad != nil }
 
+    /// Same resolution as `QTAppModel.resolvedLyrics` (every surface shows the same lane).
     private var translation: QTLyricsTranslationResolution {
         let center = QTLyricsTranslationCenter.shared
         guard let model else { return center.resolve(document, target: nil, honorsTarget: false) }
