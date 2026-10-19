@@ -166,7 +166,8 @@ struct QTNowPlayingHero: View {
                 HStack(spacing: QTTheme.Spacing.xs) {
                     QTSongVideoToggle(isVideo: Binding(get: { model.isVideoMode }, set: { model.isVideoMode = $0 }),
                                       hasVideo: track?.hasVideo ?? false)
-                        .controlSize(.regular)
+                        // Secondary to the Now Playing | Queue switch above it: a small segmented control under the title.
+                        .controlSize(.small)
                     Spacer(minLength: 0)
                     QTLyricsOptionsButton()
                 }
@@ -182,11 +183,7 @@ struct QTNowPlayingHero: View {
     }
 
     private func subtitle(_ track: QTTrack?) -> String {
-        guard let track else { return "" }
-        if let album = track.album?.title, !album.isEmpty, album != track.title {
-            return "\(track.artistLine) · \(album)"
-        }
-        return track.artistLine
+        track?.qtNowPlayingSubtitle(separator: " · ") ?? ""
     }
 
     @ViewBuilder

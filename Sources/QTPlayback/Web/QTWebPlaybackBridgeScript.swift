@@ -325,17 +325,25 @@ enum QTWebPlaybackBridgeScript {
         if (!ad && v && !d) { t = num(v.currentTime); d = num(v.duration); }
         const paused = v ? v.paused : true;
         const vid = videoID(p);
-        if (!S.resolved && vid && vid !== S.prevVid) S.resolved = vid;
-        else if (!S.resolved && S.nav && location.pathname !== '/watch' && S.errGen !== S.gen) {
+        // Never learn the resolved id from an ad: while one presents, the player may report the ad's own id, and
+        // content that then shows under the real id would never match again (the app froze on "Ad · 0:00").
+        if (!S.resolved && vid && !ad && (vid !== S.prevVid || vid === S.target)) S.resolved = vid;
+        else if (!S.resolved && !ad && S.nav && location.pathname !== '/watch' && S.errGen !== S.gen) {
           // A watch URL for an id that doesn't exist redirects to Home with an empty player.
           S.errGen = S.gen; post({ type: 'error', gen: S.gen, vid: S.target, code: 100, status: '', reason: 'redirected' });
+        } else if (S.resolved && vid && vid !== S.resolved && vid === S.target && !ad) {
+          // The requested item itself (e.g. after an ad that reported its own id): adopt it.
+          S.resolved = vid;
         } else if (S.resolved && vid && vid !== S.resolved && !ad && !S.armed && !S.reasserted && p.loadVideoById) {
           // Something (a late YouTube navigation) replaced the requested item before it played: ask once more,
           // then accept whatever the page settles on.
           S.reasserted = true; S.resolved = ''; S.prevVid = vid;
           try { p.loadVideoById({ videoId: S.target, startSeconds: S.start }); } catch (_) {}
         }
-        const match = !!S.resolved && vid === S.resolved;
+        // An ad belongs to this load once the page has moved on from the previous item (pre-roll before the
+        // content resolves, or between ads of a pod); post-load content must match the resolved id.
+        const match = ad ? (!!vid && (vid === S.resolved || vid === S.target || vid !== S.prevVid))
+                         : (!!S.resolved && vid === S.resolved);
         if (match && !ad && ps === 1 && d > 0 && t < d - 1) S.armed = true;
         if (!ad && S.errGen !== S.gen) checkPlayability(p);
         if (match && !ad && (S.qualityGen !== S.gen || S.qualityKey !== wantedQuality())) applyQuality(p);

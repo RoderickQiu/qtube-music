@@ -29,9 +29,9 @@ struct QTStageAdCard: View {
 
     @ViewBuilder
     private func content(_ ad: QTAdState) -> some View {
-        let remaining = player.engine.state.ad?.remaining ?? ad.remaining
+        let live = player.engine.state.ad ?? ad
         VStack(spacing: QTTheme.Spacing.s) {
-            Text(QTLoc.tr("Ad · %@", table: .stage, QTFormat.duration(remaining.rounded(.up))))
+            Text(live.qtBadgeText(onStage: true))
                 .font(QTTheme.Typography.secondary.weight(.semibold))
                 .monospacedDigit()
                 .padding(.horizontal, QTTheme.Spacing.s)

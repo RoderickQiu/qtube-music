@@ -119,13 +119,12 @@ private extension NSView.BackgroundStyle {
 final class QTTrackNumberCell: NSTableCellView {
     enum Playing { case none, playing, paused }
     private let label = makeLabel(font: QTTrackFonts.number, color: .tertiaryLabelColor)
-    private let icon = NSImageView()
+    private let icon = QTNowPlayingBarsView(pointSize: 12, weight: .regular)
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         label.alignment = .center
         icon.translatesAutoresizingMaskIntoConstraints = false
-        icon.symbolConfiguration = .init(pointSize: 12, weight: .regular)
         addSubview(label)
         addSubview(icon)
         NSLayoutConstraint.activate([
@@ -145,7 +144,7 @@ final class QTTrackNumberCell: NSTableCellView {
         label.stringValue = number.formatted(.number.locale(QTLoc.locale))
         label.isHidden = playing != .none
         icon.isHidden = playing == .none
-        icon.image = QTNowPlayingIndicator.image(isPlaying: playing == .playing)
+        icon.show(isPlaying: playing == .playing, reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
         self.accent = accent
         applyColors()
     }
@@ -153,7 +152,7 @@ final class QTTrackNumberCell: NSTableCellView {
     override var backgroundStyle: NSView.BackgroundStyle { didSet { applyColors() } }
 
     private func applyColors() {
-        icon.contentTintColor = backgroundStyle.isEmphasizedSelection ? .alternateSelectedControlTextColor : accent
+        icon.tint = backgroundStyle.isEmphasizedSelection ? .alternateSelectedControlTextColor : accent
     }
 }
 

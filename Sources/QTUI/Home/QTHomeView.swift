@@ -238,7 +238,8 @@ struct QTHomeCard: View {
         } label: {
             VStack(alignment: .leading, spacing: 4) {
                 artwork(QTArtworkView(track: t, video: video), width: w, height: h,
-                        playIcon: isCurrent && player.isPlaying ? .pause : .play, showsPlay: isHovered || isCurrent)
+                        playIcon: isCurrent && player.isPlaying ? .pause : .play, showsPlay: isHovered || isCurrent,
+                        nowPlaying: isCurrent && !isHovered ? player.isPlaying : nil)
                     .padding(.bottom, 6)
                 Text(verbatim: t.title)
                     .font(QTTheme.Typography.rowTitle)
@@ -369,7 +370,8 @@ struct QTHomeCard: View {
     }
 
     /// Artwork with hover zoom (inside its rounded clip), soft shadow, and the accent play button.
-    private func artwork<A: View>(_ art: A, width: CGFloat, height: CGFloat, playIcon: QTIcon, showsPlay: Bool) -> some View {
+    private func artwork<A: View>(_ art: A, width: CGFloat, height: CGFloat, playIcon: QTIcon, showsPlay: Bool,
+                                     nowPlaying: Bool? = nil) -> some View {
         let shape = RoundedRectangle(cornerRadius: QTTheme.Radius.artwork, style: .continuous)
         let anim = QTTheme.Motion.animation(.timingCurve(0.2, 0.8, 0.2, 1, duration: 0.4), reduceMotion: reduceMotion)
         return art
@@ -379,7 +381,7 @@ struct QTHomeCard: View {
             .clipShape(shape)
             .background(shape.fill(.black.opacity(0.001)).shadow(color: .black.opacity(isHovered ? 0.28 : 0.18), radius: isHovered ? 12 : 8, y: 4))
             .overlay(alignment: .bottomTrailing) {
-                QTCardPlayBadge(icon: playIcon)
+                QTCardPlayBadge(icon: playIcon, nowPlaying: nowPlaying)
                     .padding(10)
                     .opacity(showsPlay ? 1 : 0)
                     .offset(y: showsPlay || reduceMotion ? 0 : 4)
@@ -390,17 +392,25 @@ struct QTHomeCard: View {
 
 /// Play/pause badge on hovered cards (`.card-play`): a small glass disc over the artwork with a white glyph, like
 /// Music.app's — neutral, so a column of hovered cards never competes with the page's Play button or the sidebar.
+/// On the current track's card, unhovered, the disc holds the now-playing marker instead (bars / still speaker).
 struct QTCardPlayBadge: View {
     let icon: QTIcon
+    var nowPlaying: Bool? = nil
 
     var body: some View {
-        icon.image
-            .font(.system(size: 14, weight: .bold))
-            .foregroundStyle(.white)
-            .frame(width: 36, height: 36)
-            .qtGlass(.overArt, in: Circle())
-            .shadow(color: .black.opacity(0.25), radius: 8, y: 4)
-            .accessibilityHidden(true)
+        Group {
+            if let nowPlaying {
+                QTNowPlayingGlyph(isPlaying: nowPlaying, pointSize: 13, weight: .semibold, tint: .white)
+            } else {
+                icon.image
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(.white)
+            }
+        }
+        .frame(width: 36, height: 36)
+        .qtGlass(.overArt, in: Circle())
+        .shadow(color: .black.opacity(0.25), radius: 8, y: 4)
+        .accessibilityHidden(true)
     }
 }
 
@@ -472,8 +482,14 @@ struct QTQuickPickRow: View {
                     .overlay {
                         RoundedRectangle(cornerRadius: QTTheme.Radius.control, style: .continuous)
                             .fill(.black.opacity(0.4))
-                            .overlay { (isCurrent && player.isPlaying ? QTIcon.pause : QTIcon.play).image.foregroundStyle(.white) }
-                            .opacity(isHovered ? 1 : 0)
+                            .overlay {
+                                if isHovered {
+                                    (isCurrent && player.isPlaying ? QTIcon.pause : QTIcon.play).image.foregroundStyle(.white)
+                                } else if isCurrent {
+                                    QTNowPlayingGlyph(isPlaying: player.isPlaying, pointSize: 13, weight: .semibold, tint: .white)
+                                }
+                            }
+                            .opacity(isHovered || isCurrent ? 1 : 0)
                     }
             }
             .buttonStyle(.plain)

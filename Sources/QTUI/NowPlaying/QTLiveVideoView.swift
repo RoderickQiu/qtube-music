@@ -33,6 +33,10 @@ struct QTLiveVideoView<Placeholder: View>: View {
         let inPiP = output?.isPictureInPictureActive ?? false
         let wants = output != nil && model.isVideoMode && player.mode == .video && player.ad == nil && !inPiP
         let showsVideo = wants && (output?.hasFrame ?? false)
+        // Waiting for the counterpart's first frame (the reload takes 1.3–2.4 s): the still stays up, with a quiet
+        // spinner over it once the wait is noticeable.
+        let awaitsFrames = output != nil && model.isVideoMode && player.nowPlaying?.hasVideo == true
+            && player.ad == nil && !inPiP && !showsVideo
         ZStack {
             Color.black
             if output != nil {
@@ -41,6 +45,7 @@ struct QTLiveVideoView<Placeholder: View>: View {
             placeholder()
                 .opacity(showsVideo ? 0 : 1)
                 .allowsHitTesting(false)
+            QTVideoWaitIndicator(isWaiting: awaitsFrames, large: kind == .stage)
             if inPiP {
                 Image(systemName: "pip")
                     .font(.system(size: kind == .stage ? 44 : 18, weight: .regular))
@@ -58,6 +63,57 @@ struct QTLiveVideoView<Placeholder: View>: View {
         .accessibilityAddTraits(.isImage)
         .accessibilityLabel(QTLoc.tr("Music video"))
         .accessibilityIdentifier("qt.video.\(kind == .stage ? "stage" : "panel")")
+    }
+}
+
+/// A system spinner over the still while a slot waits for the video's frames. Delayed (~0.6 s) so a quick switch
+/// never flashes it, and given up after the switch's own timeout (the engine falls back by then), so a video that
+/// never arrives doesn't leave it spinning. Stage: on a small dark glass disc; panel: the spinner alone.
+struct QTVideoWaitIndicator: View {
+    let isWaiting: Bool
+    let large: Bool
+
+    static let delay: Duration = .milliseconds(600)
+    static let giveUp: Duration = .seconds(14)
+
+    @State private var isShown = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        ZStack {
+            if isShown {
+                Group {
+                    if large {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .controlSize(.regular)
+                            .padding(12)
+                            .qtGlass(.overArt, in: Circle())
+                    } else {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .controlSize(.small)
+                            .shadow(color: .black.opacity(0.4), radius: 4)
+                    }
+                }
+                .environment(\.colorScheme, .dark)
+                .transition(.opacity)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        .task(id: isWaiting) {
+            guard isWaiting else {
+                withAnimation(QTTheme.Motion.animation(.easeOut(duration: 0.2), reduceMotion: reduceMotion)) { isShown = false }
+                return
+            }
+            try? await Task.sleep(for: Self.delay)
+            guard !Task.isCancelled else { return }
+            withAnimation(QTTheme.Motion.animation(.easeOut(duration: 0.25), reduceMotion: reduceMotion)) { isShown = true }
+            try? await Task.sleep(for: Self.giveUp)
+            guard !Task.isCancelled else { return }
+            withAnimation(QTTheme.Motion.animation(.easeOut(duration: 0.2), reduceMotion: reduceMotion)) { isShown = false }
+        }
     }
 }
 

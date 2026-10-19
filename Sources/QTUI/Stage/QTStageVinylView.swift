@@ -12,6 +12,11 @@ struct QTStageVinylView: View {
     let isPlaying: Bool
     let policy: QTStageMotionPolicy
 
+    /// How far the turntable reaches past the record's right edge, as a fraction of the record's diameter: the
+    /// tonearm at rest (lifted, swung out by 26°) — headshell plus a little shadow. Layouts reserve it so the arm
+    /// stays inside the art column (prototype geometry: the headshell ends 125 of 460 units past the record).
+    static let armReach: CGFloat = 0.28
+
     @Environment(\.displayScale) private var displayScale
     @State private var label: CGImage?
 

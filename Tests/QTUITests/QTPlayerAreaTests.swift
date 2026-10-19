@@ -51,15 +51,35 @@ import Testing
         #expect(!player.queue.autoplay.contains(d))
     }
 
-    /// Tables and the Queue mark the current track the same way: a speaker only while playing, a pause glyph
-    /// while paused. Every glyph the transport draws exists.
+    /// Tables, the Queue and Home mark the current track the same way: moving level bars while playing, a still
+    /// speaker while paused — never a pause glyph (beside a track it reads as "playing"). Every glyph the transport
+    /// draws exists.
     @Test func nowPlayingIndicatorAndTransportGlyphs() {
-        #expect(QTNowPlayingIndicator.symbolName(isPlaying: true) == QTIcon.volume.systemName)
-        #expect(QTNowPlayingIndicator.symbolName(isPlaying: false) == QTIcon.pause.systemName)
-        #expect(!QTNowPlayingIndicator.symbolName(isPlaying: false).hasPrefix("speaker"))
-        for name in ["play.circle.fill", "pause.circle.fill", QTNowPlayingIndicator.symbolName(isPlaying: true),
-                     QTNowPlayingIndicator.symbolName(isPlaying: false)] {
+        #expect(QTNowPlayingIndicator.pausedSymbolName.hasPrefix("speaker"))
+        #expect(!QTNowPlayingIndicator.pausedSymbolName.contains("pause"))
+        for name in ["play.circle.fill", "pause.circle.fill", QTNowPlayingIndicator.pausedSymbolName] {
             #expect(NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil, "\(name)")
         }
+        let marker = QTNowPlayingBarsView(pointSize: 12)
+        marker.show(isPlaying: true, reduceMotion: false)
+        #expect(marker.accessibilityLabel() == QTNowPlayingIndicator.accessibilityLabel(isPlaying: true))
+        marker.show(isPlaying: false, reduceMotion: false)
+        #expect(marker.accessibilityLabel() == QTNowPlayingIndicator.accessibilityLabel(isPlaying: false))
+        #expect(marker.intrinsicContentSize.width > 0)
+    }
+
+    /// The now-playing subtitle drops an album that only repeats the song's title (singles).
+    @Test func nowPlayingSubtitleSkipsAlbumNamedLikeTheSong() {
+        func t(_ title: String, album: String?) -> QTTrack {
+            QTTrack(videoId: "s", title: title, artists: [QTArtistRef(name: "Kim Ny Ngọc")],
+                    album: album.map { QTAlbumRef(title: $0) }, duration: 200)
+        }
+        let title = "Đối Với Anh Em Không Còn Cảm Giác"
+        #expect(t(title, album: title).qtNowPlayingSubtitle(separator: " — ") == "Kim Ny Ngọc")
+        // Same text in decomposed Unicode (a different byte sequence) still counts as the same name.
+        #expect(t(title, album: title.decomposedStringWithCanonicalMapping).qtNowPlayingSubtitle(separator: " — ") == "Kim Ny Ngọc")
+        #expect(t("Say So", album: "Say So - Single").qtNowPlayingSubtitle(separator: " · ") == "Kim Ny Ngọc")
+        #expect(t("Say So", album: "Hot Pink").qtNowPlayingSubtitle(separator: " · ") == "Kim Ny Ngọc · Hot Pink")
+        #expect(t("Say So", album: nil).qtNowPlayingSubtitle(separator: " · ") == "Kim Ny Ngọc")
     }
 }

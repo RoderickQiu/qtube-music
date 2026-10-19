@@ -220,11 +220,20 @@ public struct QTStageView: View {
         let artWidth = max((area.width - gap) / 2.08, 0)
         let lyricsWidth = max(area.width - gap - artWidth, 0)
         let metaUnder = a.showsMetaUnderArt
-        let artSize = min(QTTheme.Metrics.stageArtwork, artWidth, area.height - (metaUnder ? 96 : 0))
+        // Vinyl: the turntable (record + tonearm) fits the art column, so the arm never reaches into the lyrics.
+        // The record leaves room for the arm's rest position and sits left of centre; the title stays centred
+        // under the record.
+        let reach = a.artSlot == .vinyl ? QTStageVinylView.armReach : 0
+        let artSize = min(QTTheme.Metrics.stageArtwork, artWidth / (1 + reach), area.height - (metaUnder ? 96 : 0))
+        let recordShift = reach * artSize / 2
         return HStack(spacing: gap) {
             VStack(spacing: 22) {
                 artSlot(a, size: artSize)
-                if metaUnder { meta(alignment: .center) }
+                    .offset(x: -recordShift)
+                if metaUnder {
+                    meta(alignment: .center)
+                        .padding(.trailing, recordShift * 2)
+                }
             }
             .frame(width: artWidth, height: area.height)
 
@@ -263,9 +272,12 @@ public struct QTStageView: View {
 
     private func artOnlyLayout(_ a: QTStageResolvedAppearance, area: CGSize) -> some View {
         let wanted: CGFloat = a.artSlot == .vinyl ? 500 : QTTheme.Metrics.stageArtworkArtOnly
-        let size = max(min(wanted, area.width, area.height - 150), 120)
+        let reach = a.artSlot == .vinyl ? QTStageVinylView.armReach : 0
+        let size = max(min(wanted, area.width / (1 + reach), area.height - 150), 120)
         return VStack(spacing: 22) {
+            // The turntable as a whole (record + arm at rest) is centred, not the record alone.
             artSlot(a, size: size)
+                .offset(x: -reach * size / 2)
             meta(alignment: .center)
             if a.artSlot != .ad {
                 QTStageCurrentLyric(document: player.lyrics, time: player.timeline, style: .artOnly,
@@ -328,10 +340,14 @@ public struct QTStageView: View {
     private func lyrics(centered: Bool) -> some View {
         QTLyricsView(document: player.lyrics, time: player.timeline, style: .stage(centered: centered),
                      showsTranslation: showsTranslation) { player.seek(to: $0) }
+            // A clear band under the title, then a long fade: a line leaving upwards is gone before it reaches
+            // the title block instead of lingering under it as a half-transparent ghost.
             .mask {
                 LinearGradient(stops: [
                     .init(color: .clear, location: 0),
-                    .init(color: .black, location: 0.06),
+                    .init(color: .clear, location: 0.08),
+                    .init(color: .black.opacity(0.35), location: 0.15),
+                    .init(color: .black, location: 0.22),
                     .init(color: .black, location: 0.9),
                     .init(color: .clear, location: 1),
                 ], startPoint: .top, endPoint: .bottom)
@@ -344,8 +360,7 @@ public struct QTStageView: View {
         let subtitle: String = {
             guard let track else { return "" }
             if compact { return track.artistLine }
-            if let album = track.album?.title, !album.isEmpty { return "\(track.artistLine) — \(album)" }
-            return track.artistLine
+            return track.qtNowPlayingSubtitle(separator: " — ")
         }()
         return VStack(alignment: alignment, spacing: 6) {
             Text(track?.title ?? "")

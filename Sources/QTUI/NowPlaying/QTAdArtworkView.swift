@@ -56,7 +56,7 @@ public struct QTAdCountdownPill: View {
     }
 
     public var body: some View {
-        Text(QTLoc.tr("Ad · %@", table: .player, QTFormat.duration(ad.remaining.rounded(.up))))
+        Text(ad.qtBadgeText(onStage: false))
             .font(compact ? .subheadline.weight(.semibold) : .callout.weight(.semibold))
             .monospacedDigit()
             .foregroundStyle(.white)

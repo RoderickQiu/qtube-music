@@ -85,6 +85,12 @@ Everything is wired (integration of M1 polish + M2–M4):
   one toast; the engine resumes the item when the network returns.
 - **Buffering:** `QTPlayerModel.isBuffering` → `qtBufferingIndicator` (Shared/) swaps the play glyph for a system
   spinner after 0.45 s.
+- **Ads (web engine):** the bridge counts an ad as this load's once the page has left the previous item, and never
+  resolves a load to an id seen while an ad presents (the player may report the ad's own id; resolving to it froze
+  the app on "Ad · 0:00" when the content followed). An ad whose media has run out reads "Ad" with the buffering
+  state, not "0:00"; one whose countdown doesn't move for 10 s while playing reloads the item once from the last
+  content position (then fails like any stall). Covered by `Tests/QTPlaybackTests/QTBridgeAdTests.swift` (the
+  bridge in JavaScriptCore against a fake player).
 
 
 **Live data (data-live).** `QTLiveCatalogStore.shared` (attached in `QTAppModel.bootstrap`) owns the client and
@@ -245,10 +251,14 @@ Views:
   `accessibilityRepresentation`; identifier default `qt.player.scrubber`, the Stage passes `qt.stage.scrubber`).
 - `QTSongVideoToggle(isVideo:hasVideo:)` — segmented Picker.
 - `QTToastOverlay()`, `QTIcon` (prototype icon name → SF Symbol; test checks every symbol exists).
-- `QTNowPlayingIndicator.symbolName/image(isPlaying:)` + `QTNowPlayingGlyph(isPlaying:pointSize:weight:tint:)`
-  (Shared/; an `NSImageView` with an AppKit symbol effect, so pass size and colour instead of `.font`/
-  `.foregroundStyle`) — the one marker for the current track in tables and lists: speaker only while playing,
-  pause glyph while paused.
+- `QTNowPlayingBarsView` (AppKit, tables) + `QTNowPlayingGlyph(isPlaying:pointSize:weight:tint:)` (SwiftUI wrapper;
+  pass size and colour instead of `.font`/`.foregroundStyle`), `QTNowPlayingIndicator.pausedSymbolName` /
+  `accessibilityLabel(isPlaying:)` (Shared/) — the one marker for the current track in tables, the Queue and Home:
+  four level bars moving on a Core Animation loop while playing (still bars with Reduce Motion), a still
+  `speaker.fill` while paused — never a pause glyph (beside a track it reads as "playing"). Home cards show it in
+  their play badge when not hovered; hover shows the play/pause action instead.
+- `QTTrack.qtNowPlayingSubtitle(separator:)` (NowPlaying/) — "Artist — Album" for the Stage / panel, artist only
+  when the album repeats the title (singles, "… - Single").
 - `QTTickingView(every:isRunning:)` / `QTTickingView(isRunning:restartOn:nextChange:)` + `\.qtPausesTimeDrivenViews`
   (Shared/) — the only way to redraw SwiftUI on a clock (see *Performance rules*).
 - `QTAdTint.color(overArt:increasedContrast:)` (PlayerBar/) — the amber ad colour (scrubber fill + "Ad" label).
@@ -301,7 +311,9 @@ Coordinators (one per process, `@MainActor`):
   `lastSeamlessFallback` says why one fell back.
 - **Live video:** `QTLiveVideoView(kind: .panel | .stage, cornerRadius:) { placeholder }` (NowPlaying/) shows the web
   engine's real video with the placeholder (artwork / MV still) on top until the first frame, then crossfades
-  (0.32 s); ads, PiP and the simulated engine show the placeholder (PiP adds a quiet `pip` glyph).
+  (0.32 s); ads, PiP and the simulated engine show the placeholder (PiP adds a quiet `pip` glyph). While Video is
+  wanted but the frames haven't come (a Song⇄Video switch), `QTVideoWaitIndicator` puts a system spinner over the
+  still after 0.6 s (Stage: on a glass disc), gone with the first frame or after 14 s.
   `QTVideoSlotCoordinator` gives the one video to the highest visible slot (Stage > panel); none → the page goes back
   to the hidden host at 144p. `QTWebVideoOutput` (`engine.video`): `present(in:)` / `withdraw(from:)`, `hasFrame`,
   `isPictureInPictureActive`, `setPictureInPicture(_:)`, quality per slot (`small` panel … `hd1080` Stage). How it

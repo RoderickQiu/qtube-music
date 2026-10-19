@@ -16,6 +16,11 @@
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "清空接下来播放" } }
       }
     },
+    "Paused" : {
+      "localizations" : {
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "已暂停" } }
+      }
+    },
     "Queue · %@" : {
       "localizations" : {
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "播放队列 · %@" } }

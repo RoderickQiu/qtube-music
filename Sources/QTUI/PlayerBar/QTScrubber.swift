@@ -57,7 +57,7 @@ private struct QTScrubberContent: View {
 
     private var leading: String { ad != nil ? QTLoc.tr("Ad") : QTFormat.duration(shownTime) }
     private var trailing: String {
-        if let ad { return QTFormat.duration(ad.remaining.rounded(.up)) }
+        if let ad { return ad.qtRemainingText ?? "" }
         return QTFormat.remaining(safeDuration - shownTime)
     }
 

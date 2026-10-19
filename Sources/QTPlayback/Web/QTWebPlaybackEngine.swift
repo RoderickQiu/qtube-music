@@ -109,6 +109,12 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
     var lastSample: QTWebPlaybackSample?
     private var watchdog: Task<Void, Never>?
     private var lastProgress: (time: TimeInterval, uptime: TimeInterval) = (0, 0)
+    /// Last change of the ad countdown (nil while no ad shows).
+    private var adProgress: (remaining: TimeInterval, uptime: TimeInterval)?
+    /// Position of the last content (not ad) sample this load; a stuck ad reloads the item from here.
+    private var lastContentTime: TimeInterval?
+    /// An ad whose countdown hasn't moved for this long (while playing) is stuck: the item reloads once.
+    static let adStallTimeout: TimeInterval = 10
     private var didRetryStall = false
     /// play/pause requested before the page's player was ready; applied on `ready`.
     private var playIntentBeforeReady: Bool?
@@ -235,6 +241,8 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         let gen = generation
         lastSample = nil
         didRetryStall = false
+        adProgress = nil
+        lastContentTime = nil
         playingVideoID = nil
         requestedVideoID = videoID
         video.itemDidChange(isVideo: item.mode == .video)
@@ -633,6 +641,7 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         if case .failed = state.status { return }
         lastSample = s
         if s.ad == nil, !s.videoID.isEmpty { playingVideoID = s.videoID }
+        if s.ad == nil { lastContentTime = s.time }
         let now = ProcessInfo.processInfo.systemUptime
         let duration = s.duration > 0 ? s.duration : state.duration
         let before = state
@@ -640,7 +649,9 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         if let ad = s.ad {
             state.ad = QTAdState(duration: ad.duration, remaining: ad.remaining, skippableIn: ad.skippableIn)
             // The ad's media hasn't reported its length yet: show it as loading rather than "Ad · 0:00".
-            state.isBuffering = ad.duration <= 0
+            // Its media over but the page not handed back yet (between ads of a pod, content loading): no
+            // "Ad · 0:00" over a full bar, the ad state shows it's loading.
+            state.isBuffering = ad.duration <= 0 || ad.remaining <= 0.05
             state.status = s.paused ? .paused : .playing
             state.timeline = QTPlaybackTimeline(time: s.time, rate: 0, anchorUptime: now, duration: duration > 0 ? duration : .infinity)
         } else {
@@ -767,6 +778,15 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         if s.ad != nil || s.paused || abs(s.time - lastProgress.time) > 0.05 {
             lastProgress = (s.time, now)
         }
+        // An ad progresses when its countdown moves; one that sits still (its media over, the page never handing
+        // back, or the page's samples no longer matching this load) is a stall like any other.
+        if let ad = s.ad {
+            if s.paused || adProgress.map({ abs($0.remaining - ad.remaining) > 0.05 }) ?? true {
+                adProgress = (ad.remaining, now)
+            }
+        } else {
+            adProgress = nil
+        }
         if state.status == .playing, watchdog == nil {
             let timeout = configuration.stallTimeout
             watchdog = Task { @MainActor [weak self] in
@@ -782,22 +802,37 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
     }
 
     private func checkStall(timeout: Duration) {
-        guard state.status == .playing, state.ad == nil, let item = state.item else { return stopWatchdog() }
+        guard state.status == .playing, let item = state.item else { return stopWatchdog() }
+        let now = ProcessInfo.processInfo.systemUptime
         guard isNetworkAvailable else {
-            lastProgress = (state.timeline.currentTime, ProcessInfo.processInfo.systemUptime)
+            lastProgress = (state.timeline.currentTime, now)
+            if let ad = state.ad { adProgress = (ad.remaining, now) }
             return
         }
-        let stalledFor = ProcessInfo.processInfo.systemUptime - lastProgress.uptime
-        guard stalledFor > Double(timeout.components.seconds) else { return }
+        let stalledFor: TimeInterval
+        let limit: TimeInterval
+        if state.ad != nil {
+            stalledFor = now - (adProgress?.uptime ?? lastProgress.uptime)
+            limit = min(Double(timeout.components.seconds), Self.adStallTimeout)
+        } else {
+            stalledFor = now - lastProgress.uptime
+            limit = Double(timeout.components.seconds)
+        }
+        guard stalledFor > limit else { return }
         stopWatchdog()
+        if state.ad != nil {
+            QTWebVideoOutput.log.info("ad stalled for \(stalledFor, format: .fixed(precision: 1)) s; reloading the item")
+        }
         if didRetryStall {
             state.status = .failed(.network("stalled"))
+            state.ad = nil
             state.isBuffering = false
             publish()
         } else {
             didRetryStall = true
             var resume = item
-            resume.startTime = state.timeline.currentTime
+            // During an ad the page's clock may be the ad's: resume the content where it was (or where it starts).
+            resume.startTime = state.ad != nil ? (lastContentTime ?? item.startTime) : state.timeline.currentTime
             lastProgress = (resume.startTime, ProcessInfo.processInfo.systemUptime)
             Task { try? await self.load(resume, autoplay: true); self.didRetryStall = true }
         }

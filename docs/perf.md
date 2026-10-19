@@ -78,7 +78,8 @@ Every budget still passes (web window 4.6 %, Blur Stage 3.8 %, visualizer 12.1 %
 3. **SwiftUI `.symbolEffect(.variableColor.iterative)` on the Queue's now-playing glyph** re-rendered through the
    display list every frame (`InterpolatedDisplayList<Resolved>`, about 3.4k updates in 12 s), costing 15 %.
    → `QTNowPlayingGlyph` is an `NSImageView` with `addSymbolEffect`, and Core Animation runs the effect. The
-   glyph looks the same.
+   glyph looks the same. (R6: the marker is now `QTNowPlayingBarsView` — four `CALayer` bars on a keyframe loop,
+   still the render server's job; window playing with the Queue tab and the Liked table both showing it: 1.4 % app.)
 4. **Visualizer:** the `MTKView` now covers only the bottom half of the Stage (`heightFraction`; the shader lays
    things out against the full height, so the picture is unchanged — max pixel difference 2/255). It also stops its
    display link while its window is occluded.
