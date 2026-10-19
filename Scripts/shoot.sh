@@ -85,7 +85,13 @@ for k in "${KINDS[@]}"; do
   fi
   if [[ -z "$ID" ]]; then echo "error: no '$k' window" >&2; STATUS=1; continue; fi
   if [[ $FIRST == 1 ]]; then FILE="$QT_SCREENSHOTS/$OUT.png"; FIRST=0; else FILE="$QT_SCREENSHOTS/$OUT-$k.png"; fi
-  screencapture -l"$ID" -o -x "$FILE"
+  # Stage Manager can shrink an inactive window to a ~144x134 thumbnail mid-capture; retry until full size.
+  for attempt in $(seq 1 12); do
+    screencapture -l"$ID" -o -x "$FILE"
+    W="$(sips -g pixelWidth "$FILE" 2>/dev/null | awk '/pixelWidth/ {print $2}')"
+    [[ -n "$W" && "$W" -ge 300 ]] && break
+    sleep 0.5
+  done
   echo "$FILE"
 done
 

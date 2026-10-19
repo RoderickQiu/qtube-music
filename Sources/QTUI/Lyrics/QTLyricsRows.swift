@@ -99,7 +99,8 @@ struct QTLyricsMetrics {
                 romanization: .init(size: main * 0.5, weight: .semibold, lineHeight: 1.3, centered: true),
                 translation: .init(size: main * s.translation / s.main, weight: .semibold, lineHeight: 1.3, centered: true),
                 rowPadding: 0, laneGap: 6, inset: 0, anchor: 0.5, inactiveOpacity: 0.55, hoverOpacity: 1,
-                farOpacity: nil, unsungOpacity: 0.45, inactiveScale: 1, futureBlur: 0, farBlur: 0, edge: 16,
+                // A touch stronger than the in-app styles: the unsung part must still read on pale wallpapers.
+                farOpacity: nil, unsungOpacity: 0.55, inactiveScale: 1, futureBlur: 0, farBlur: 0, edge: 16,
                 fadeTop: 0, fadeBottom: 1, overArt: true, shadow: shadow,
                 outline: (width: max(1.5, main / 18), color: NSColor.black.withAlphaComponent(0.28)), dotSize: 10)
         }

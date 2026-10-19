@@ -98,14 +98,20 @@ public struct QTQueueList: View {
         }
         .onDeleteCommand { remove(selection) }
         .onChange(of: queue) { selection = selection.filter { item($0) != nil } }
-        .safeAreaInset(edge: .bottom, spacing: 0) { footer }
         .accessibilityIdentifier(style == .panel ? "qt.player.queue.panel" : "qt.player.queue.stageDrawer")
 
         switch style {
         case .panel:
-            list
+            // Rows scroll under the footer's bar material, like Music's queue.
+            list.safeAreaInset(edge: .bottom, spacing: 0) { footer }
         case .stageDrawer:
-            list.environment(\.colorScheme, .dark)
+            // The footer sits on the drawer's glass with no fill of its own, so it goes below the list rather
+            // than over it (rows must not show through).
+            VStack(spacing: 0) {
+                list
+                footer
+            }
+            .environment(\.colorScheme, .dark)
         }
     }
 

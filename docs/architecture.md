@@ -11,9 +11,10 @@ SwiftPM package `QTubeMusic` (`Package.swift`, tools 6.2, Swift 6 language mode,
 | Target | Depends on | Contents | Owner |
 |---|---|---|---|
 | `QTCore` | — | Models (`QTTrack`, `QTAlbum`, `QTArtist`, `QTPlaylist`, `QTShelf`/`QTHomeFeed`, `QTArtworkPalette`), `QTQueue`, `QTLyricsDocument`, `QTSettings` + `QTSettingsStore`, `QTMockCatalog` + `QTCatalogService`, `QTFormat`, `QTLoc` localization, **all String Catalogs** | shared (scaffold) |
-| `QTInnerTube` | QTCore | InnerTube client + parsers (M3). Today: `QTInnerTubeConfiguration` | data-layer |
-| `QTAuth` | QTInnerTube | Google sign-in, Keychain cookies (M3). Today: `QTAuthState` | data-layer |
-| `QTPlayback` | QTCore, QTInnerTube | `QTPlaybackEngine` protocol, `QTSimulatedPlaybackEngine`; empty `QTQueueController`, `QTNowPlayingController`, `QTWebPlaybackEngine` | playback |
+| `QTInnerTube` | QTCore | `QTInnerTubeClient` (actor: ytcfg scrape, WEB_REMIX context, hl/gl, SAPISIDHASH, TTL+LRU cache, retries, session-loss detection; account writes gated by `setAllowsAccountWrites`), parsers → QTCore models (music-only filter), `QTCounterpartResolver` (Song⇄Video), `QTInnerTubeCatalog` (`QTCatalogService`), `QTInnerTubeConfiguration` | data-layer |
+| `QTAuth` | QTInnerTube | `QTAuthController` (`restore()`, `beginSignIn(hl:over:)`, `signOut()`, DEBUG-only session import), `QTSessionStore` (actor, Keychain `com.roderickqiu.qtube`), `QTAuthSession`/`QTCookie` (auth-cookie allowlist), `QTWebCookieStore`, `QTAuthState` | data-layer |
+| `QTPlayback` | QTCore, QTInnerTube | `QTPlaybackEngine` protocol, `QTSimulatedPlaybackEngine`, `QTQueueController` (queue + context, shuffle/repeat, autoplay continuation, persistence via `QTQueueStore`, holds a process activity while playing), `QTNowPlayingController` (sole owner of Now Playing + remote commands), `Web/QTWebPlaybackEngine` (hidden WKWebView, JS bridge, ads), `QTPlaybackEngineSelector`, `QTNativePlaybackEngine` stub (M5) | playback |
+| `QTPlaybackLab` | QTPlayback | dev-only executable: drives the web engine live, muted and anonymous (`swift run --scratch-path .build/<you> QTPlaybackLab --scenario basic`) | playback |
 | `QTLyrics` | QTCore | `QTLyricsResolver` (actor, `QTLyricsProviding`): parsers (LRC, YRC, QRC, KRC, TTML), QRC/KRC decryption, providers (YouTube Music, LRCLIB, AMLL; NetEase/Kugou/QQ opt-in), matcher, `QTLyricsCache` (SQLite), romanization, translation plan; `QTMockLyricsProvider` | lyrics |
 | `QTUI` | all | SwiftUI/AppKit UI, app model, theme | per folder, below |
 | `QTubeMusicApp` (product `QTubeMusic`) | QTUI | `@main` app: `Window` (main), `Settings`, `MenuBarExtra`, `QTCommands`, app delegate | desktop |
@@ -24,6 +25,15 @@ NowPlayingController = `QTNowPlayingController`, WebPlaybackEngine = `QTWebPlayb
 **No third-party dependencies.** LyricsKit was dropped at integration: its QRC/KRC/YRC parsers and decrypters
 are not public, so `QTLyrics` has its own (zlib and sqlite3 come from the system). Do not add any dependency
 without asking the user (Sparkle comes later).
+
+### What runs today (after integration)
+
+The app runs on mock data (`QTMockCatalog`, `QTMockLyricsProvider`) and `QTSimulatedPlaybackEngine`;
+`QTPlayerModel` is a façade over `QTQueueController` with `nowPlaying: nil` and no queue store, so mock and
+screenshot runs never take the user's media keys or overwrite a saved queue. Built and tested but not yet wired
+into the app (next milestone): `QTInnerTubeClient` / `QTInnerTubeCatalog`, `QTAuthController`,
+`QTWebPlaybackEngine` + `QTPlaybackEngineSelector`, `QTNowPlayingController`, `QTQueueStore`,
+`QTLyricsResolver`.
 
 ## QTUI folder ownership
 
@@ -68,6 +78,21 @@ Views:
 - `QTToastOverlay()`, `QTIcon` (prototype icon name → SF Symbol; test checks every symbol exists).
 - Window plumbing: `QTWindowID` (identifiers + capture titles), `QTWindowAccessor`, `QTWindowPlacement`,
   `QTReadiness` (`hold`/`release` around anything async the first frame needs).
+
+Coordinators (one per process, `@MainActor`):
+- `QTNavigator.shared` (Shell/) — content-column navigation: `go(.section(…) | .album(…) | .artist(…))`,
+  `goBack`/`goForward` (history 64), per-page list state, `requestSearchFocus()` / `requestFilterFocus()`. Navigate
+  through it so moves enter history; setting `model.sidebarSelection` still works.
+- `QTStageCoordinator.shared` (Stage/) — `toggleStage(model:)` (⇧⌘F; closes a detached Stage), `showDetached(on:model:activate:)`,
+  `returnToMainWindow(model:)`, `isDetached`.
+- `QTDesktopCoordinator.shared` (Desktop/) — mini player, desktop lyrics (hidden while the Stage is up, inline or
+  detached), menu bar title, Dock menu, `showMainWindow()` (user-initiated only).
+- `QTLyricsTiming.nudge(model, by:)` (Lyrics/) — offset change + toast; `QTLyricsVersionStore.shared`.
+
+Keyboard ownership: `QTCommands` (Commands/) is the only menu definition — every shortcut is bound once there
+(navigation items call `QTNavigator`). Space in the main window is consumed by `QTWindowKeyMonitor` (Shell/);
+elsewhere the Controls menu's Space fires. `QTKeyRouting` hands Space / ⌘←→ / ⌘↑↓ / ⌥↑↓ to a text field being
+edited, and bare Space to a focused control. Esc is handled inside the Stage (`.cancelAction`), not in menus.
 
 Core:
 - `QTPlaybackEngine` (`@MainActor`): `capabilities`, `state`, `stateUpdates()` (new `AsyncStream` per subscriber,
@@ -161,7 +186,18 @@ Booleans: `YES/NO`, `true/false`, `1/0` (empty = true).
 | `qt.catalog` | mock catalog folder override (also `$QT_MOCK_CATALOG`) | |
 
 Builders add their own as `qt.<area>.<name>` (e.g. `qt.stage.chrome hidden`, `qt.lyrics.scrolled YES`), read with
-`model.launch.string/bool/double("qt.stage.chrome")`, and list them in their report.
+`model.launch.string/bool/double("qt.stage.chrome")`, and list them here.
+
+| Area | Keys |
+|---|---|
+| window | `qt.window.search <text>` · `qt.library.filter <text>` · `qt.library.scroll <pt>` (300 pins the compact header) · `qt.library.sort title\|album\|artist\|time\|added[:desc]` · `qt.library.select 1,3` · `qt.home.scroll <pt>` |
+| player | `qt.player.upNext demo\|id,id` · `qt.player.autoplay NO` · `qt.player.shuffle YES` · `qt.player.repeat off\|all\|one` |
+| lyrics-ui | `qt.lyrics.scrolled` · `qt.lyrics.options` · `qt.lyrics.demoVersions` · `qt.lyrics.translationState same\|translating\|download\|unavailable\|onDevice\|appleIntelligence` · `qt.lyrics.lab` · `qt.lyrics.debug` |
+| stage | `qt.stage.chrome hidden` · `qt.stage.queue YES` · `qt.stage.popover appearance` · `qt.stage.window YES` (detached window) · `qt.stage.reduceMotion YES` · `qt.stage.visualizerOnBattery YES` · `qt.stage.closeAfter <s>` |
+| desktop | `qt.desktop.miniMode compact\|art` · `qt.desktop.miniLyric` · `qt.desktop.miniHover` · `qt.desktop.lyricsUnlocked` · `qt.desktop.menuBarScroll` · `qt.desktop.lyricsSize <pt>` · `qt.settingsTab general\|playback\|lyrics\|account\|advanced`; DEBUG: `qt.desktop.switchLanguage`, `qt.desktop.popUpMenu <index>`, `qt.desktop.showShortcuts` |
+
+Env-gated test suites: `QT_LIVE=1` (live anonymous InnerTube / lyrics / playback), `QT_RECORD=1` (re-record
+InnerTube fixtures), `QT_DUMP=1` (print parser output), `QT_KEYCHAIN_TEST=1` (Keychain round trip).
 
 ## Scripts
 
@@ -179,6 +215,11 @@ Builders add their own as `qt.<area>.<name>` (e.g. `qt.stage.chrome hidden`, `qt
   via the ready file because its title is the localized tab name), `screencapture -l<id> -o -x` into the main
   checkout's `screenshots/<outname>.png` (+ `<outname>-<window>.png`), quits, restores the frontmost app if it
   moved. `QT_KEEP=1` leaves it running; `QT_BUILD=1` builds first. Prefix outnames with your area.
+- `Scripts/shoot-region.sh` — screen-region capture on U270CA (mini player, unlocked desktop lyrics); other
+  windows on that display can show at the edges. `Scripts/tools/qt-composite.swift` composites a transparent
+  window capture over system wallpapers (desktop-lyrics shots).
+- `Scripts/make-app-icon.sh` (`Scripts/tools/qt-make-icon.swift`) — renders `Assets/AppIcon.icns` (macOS 15–25)
+  and the Icon Composer `Assets/AppIcon.icon` that `build-app.sh` compiles with actool (`Assets.car`).
 - `Scripts/contact-sheet.sh <outname> [--title T] [--columns N] <img> <caption>…` — one captioned PNG in
   `screenshots/` (AppKit, offline).
 

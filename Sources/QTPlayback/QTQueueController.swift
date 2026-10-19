@@ -72,6 +72,10 @@ public final class QTQueueController {
     @ObservationIgnored private var loadsInFlight = 0
     @ObservationIgnored private var consecutiveFailures = 0
     @ObservationIgnored private var lastAnnouncedTrackID: String?
+    /// Held while playing or loading so App Nap never throttles track ends, ad countdowns or the
+    /// simulated engine's clock when the app is in the background or occluded (real audio output already
+    /// exempts the process; this covers silent engines and the gaps between tracks).
+    @ObservationIgnored private var playbackActivity: NSObjectProtocol?
     @ObservationIgnored private let uptime: @MainActor () -> TimeInterval
 
     /// - Parameters:
@@ -504,6 +508,7 @@ public final class QTQueueController {
         guard source === engine else { return }
         let previous = state
         state = s
+        updatePlaybackActivity(for: s.status)
         publishNowPlaying()
         guard loadsInFlight == 0, s.item?.track.videoId == queue.nowPlaying?.track.videoId else { return }
         if s.status == .ended, previous.status != .ended {
@@ -513,6 +518,21 @@ public final class QTQueueController {
             Task { await self.skipAfterFailure(wasPlaying: previous.status == .playing) }
         } else if s.status != previous.status, s.status == .paused {
             scheduleSave()
+        }
+    }
+
+    private func updatePlaybackActivity(for status: QTPlaybackStatus) {
+        let active: Bool
+        switch status {
+        case .playing, .loading: active = true
+        default: active = false
+        }
+        if active, playbackActivity == nil {
+            playbackActivity = ProcessInfo.processInfo.beginActivity(
+                options: [.userInitiated, .idleSystemSleepDisabled], reason: "Playing music")
+        } else if !active, let activity = playbackActivity {
+            ProcessInfo.processInfo.endActivity(activity)
+            playbackActivity = nil
         }
     }
 
