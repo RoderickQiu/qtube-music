@@ -39,7 +39,7 @@ signed + notarized with Sparkle updates.
 
 ## 2. Principles
 
-1. **Music only.** Songs, albums, artists, playlists, music videos. No Shorts, vlogs, comments, podcasts, or AI features.
+1. **Music only.** Songs, albums, artists, playlists, music videos. No Shorts, vlogs, comments, podcasts, or AI features (the one exception: optional Apple Intelligence lyric translation, §7b).
 2. **The player is the product.** Now Playing is a place you live in, not a modal you dismiss.
 3. **Mac manners, everywhere.** Native menus, keyboard-first, selection semantics, drag & drop, menu bar, media keys. If Finder or Music.app does it a certain way, so do we.
 4. **The library is a database, not a feed.** Sortable, searchable, jumpable, and it remembers where you were.
@@ -231,6 +231,12 @@ i18n is a launch requirement, not a later pass. Both locales are first-class and
 - **Two separate language settings.** *Interface language* (menus, labels: en-US / zh-CN, follows the system) and *Lyrics translation* (the language of the translation line) are independent. An English-interface user can read Chinese or Korean translations; a Chinese-interface user can turn translations off or pick English.
   - **Lyrics translation options:** Interface language (default) · Off · 简体中文 · 繁體中文 · English · 한국어 · 日本語 · Tiếng Việt · Español · Français · Deutsch (language names shown in their own language). Settable globally and per song from the lyrics popover.
   - **Source order:** the lyrics provider's own translation when it matches the target (NetEase / QQ / Kugou give Simplified Chinese; licensed Musixmatch covers many languages), otherwise on-device machine translation via Apple's Translation framework (available on macOS 15, matching our minimum), labelled "On-device translation".
+  - **Apple Intelligence as a translation engine (toggle: "Translate lyrics with Apple Intelligence").** On Macs that support it, lyric translation can use Apple's on-device foundation model (Foundation Models framework) instead of the Translation framework. Why we want it: a language model reads the whole song, so it keeps tone, slang and imagery across lines ("Hạ Phỏm" is a card-game metaphor, which a line-by-line translator renders literally), and it stays private, offline and free.
+    - **Availability:** macOS 26+, Apple silicon, Apple Intelligence enabled, and the target language supported by the model. Check at runtime (`SystemLanguageModel.default.availability` / supported languages); otherwise the toggle is disabled with the reason, and translation uses the Translation framework.
+    - **Default:** on when available, since it gives the most natural lyric translations; the user can turn it off.
+    - **How:** guided generation (`@Generable` output with exactly one translated string per source line) so lines stay aligned with timestamps; translate in chunks that fit the model's context window, passing song title, artist and previous lines as context; cache results per song + language.
+    - **Fallbacks:** if the model refuses (safety guardrails on explicit lyrics), returns a mismatched line count, or times out, fall back to the Translation framework for that song; never show a partial or misaligned translation.
+    - **Labelling:** the lyrics popover names the engine used ("Apple Intelligence" / "On-device translation" / the provider), and the same toggle could later power optional extras like a short "meaning of this line" explanation, out of scope for v1.
   - **Model download needs consent:** when a language model isn't installed, the popover offers "Download {language} for offline translation"; nothing downloads silently. (The prototype mirrors this with Chrome's on-device Translator API, which also requires a click.)
   - **No pointless translation:** if the song is already in the target language (a Chinese song with Chinese selected), no translation line is shown and the popover says so.
 - **Search:** works across scripts. Matching folds diacritics and Traditional/Simplified Chinese (see §6 matching), so "ha phom", "Hạ Phỏm" and "出牌" find the same song.
@@ -286,7 +292,7 @@ This is not a visual decision, but it shapes the design.
 
 ## 12. Out of scope for v1
 
-General YouTube (Shorts, subscriptions feed, comments), podcasts (decided: skipped entirely), AI features, social features, a 40-skin store, a Windows or Linux version.
+General YouTube (Shorts, subscriptions feed, comments), podcasts (decided: skipped entirely), AI features beyond Apple Intelligence lyric translation, social features, a 40-skin store, a Windows or Linux version.
 
 ## 13. Milestones
 
@@ -298,6 +304,7 @@ General YouTube (Shorts, subscriptions feed, comments), podcasts (decided: skipp
 | M3 | Playback engine + Now Playing + queue model |
 | M4 | Song⇄Video + PiP |
 | M5 | Library tables, mini player, menu bar, desktop lyrics, Last.fm / Discord |
+| M6 | Lyric translation engines: Translation framework (macOS 15+) and Apple Intelligence (macOS 26+) with fallback |
 
 ## 14. Decisions (2026-10-18)
 
@@ -309,6 +316,7 @@ General YouTube (Shorts, subscriptions feed, comments), podcasts (decided: skipp
 6. **Unofficial lyrics sources** (NetEase, Kugou, QQ): off by default, one opt-in toggle each.
 7. **i18n:** zh-CN and en-US ship by default; the app follows the system language (§7b).
 8. **Lyrics translation language is its own setting**, independent of the interface language (§7b).
+9. **Apple Intelligence translation:** an engine toggle for lyric translation on macOS 26+ Apple-silicon Macs, on by default where available, falling back to the Translation framework (§7b). Draft only; not part of the Claude Design prototype.
 
 ---
 
