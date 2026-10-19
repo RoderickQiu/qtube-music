@@ -32,6 +32,7 @@ public struct QTPlayerBar: View {
         .padding(.horizontal, 28)
         .frame(height: QTTheme.Metrics.playerBarHeight)
         .background(.bar)
+        .background { QTPlayerKeyAppearanceProbe() }
         .overlay(alignment: .top) { Divider() }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("qt.player.bar")
@@ -92,6 +93,7 @@ struct QTPlayerBarNowPlaying: View {
 
             if let ad {
                 QTAdSkipControl(ad: ad)
+                    .padding(.leading, 2)
             } else if let track = player.nowPlaying {
                 QTLikeButton(track: track)
             }
@@ -124,38 +126,67 @@ struct QTLikeButton: View {
     }
 }
 
-/// "Skip" once YouTube allows it, else a quiet "Skip in 4" countdown. No fake controls.
+/// The ad's Skip control. In the player bar it is always a real button: disabled while YouTube counts down
+/// ("Skip in 4", tabular figures), then a prominent "Skip" the moment skipping is allowed (⌘→ does the same).
+/// Over art (Stage, ad artwork) the countdown is quiet text and Skip a white capsule, as in the prototype.
 public struct QTAdSkipControl: View {
     private let ad: QTAdState
     private let overArt: Bool
     @Environment(QTPlayerModel.self) private var player
+    @Environment(\.colorScheme) private var colorScheme
 
     public init(ad: QTAdState, overArt: Bool = false) {
         self.ad = ad
         self.overArt = overArt
     }
 
+    private var waitTitle: String? {
+        ad.skippableIn.map { QTLoc.tr("Skip in %lld", Int($0.rounded(.up))) }
+    }
+
     public var body: some View {
         Group {
-            if ad.canSkip {
+            if overArt {
+                if ad.canSkip {
+                    Button { player.skipAd() } label: {
+                        Text(QTLoc.tr("Skip"))
+                            .fontWeight(.semibold)
+                            .padding(.horizontal, 6)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.large)
+                    .tint(.white)
+                    .foregroundStyle(.black)
+                    .help("\(QTLoc.tr("Skip"))  ⌘→")
+                    .accessibilityIdentifier("qt.player.ad.skip")
+                } else if let waitTitle {
+                    Text(waitTitle)
+                        .font(QTTheme.Typography.secondary)
+                        .monospacedDigit()
+                        .foregroundStyle(QTTheme.Colors.onArtSecondary)
+                        .fixedSize()
+                        .accessibilityIdentifier("qt.player.ad.wait")
+                }
+            } else if ad.canSkip {
                 Button(QTLoc.tr("Skip")) { player.skipAd() }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
+                    .fixedSize()
+                    .help("\(QTLoc.tr("Skip"))  ⌘→")
+                    .accessibilityIdentifier("qt.player.ad.skip")
+            } else if let waitTitle {
+                Button(waitTitle) {}
                     .buttonStyle(.bordered)
                     .buttonBorderShape(.capsule)
-                    .controlSize(.small)
-                    .accessibilityIdentifier("qt.player.ad.skip")
-            } else if let wait = ad.skippableIn {
-                Text(QTLoc.tr("Skip in %lld", Int(wait.rounded(.up))))
-                    .font(QTTheme.Typography.caption)
                     .monospacedDigit()
-                    .foregroundStyle(overArt ? QTTheme.Colors.onArtSecondary : QTTheme.Colors.tertiaryLabel)
+                    .disabled(true)
                     .fixedSize()
                     .accessibilityIdentifier("qt.player.ad.wait")
             }
         }
         .environment(\.colorScheme, overArt ? .dark : colorScheme)
     }
-
-    @Environment(\.colorScheme) private var colorScheme
 }
 
 // MARK: - Tools (right)

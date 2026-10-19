@@ -53,6 +53,7 @@ struct QTPanelHeader: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+            .controlSize(.regular)
             .fixedSize()
             .accessibilityIdentifier("qt.player.panel.tabs")
             Spacer(minLength: 0)
@@ -158,11 +159,11 @@ struct QTNowPlayingHero: View {
                 HStack(spacing: QTTheme.Spacing.xs) {
                     QTSongVideoToggle(isVideo: Binding(get: { model.isVideoMode }, set: { model.isVideoMode = $0 }),
                                       hasVideo: track?.hasVideo ?? false)
-                        .controlSize(.small)
+                        .controlSize(.regular)
                     Spacer(minLength: 0)
                     QTLyricsOptionsButton()
                 }
-                .padding(.top, 10)
+                .padding(.top, 12)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }

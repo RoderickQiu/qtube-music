@@ -1,3 +1,4 @@
+import AppKit
 import QTCore
 import QTPlayback
 import SwiftUI
@@ -10,7 +11,7 @@ import SwiftUI
 /// rather than an `NSSlider`, because a slider's fill turns grey whenever the window isn't key and the spec asks
 /// for an artwork-tinted progress bar. It behaves like a native adjustable control: VoiceOver adjustable action,
 /// keyboard focus (Full Keyboard Access) with ←/→ = ∓5 s, click or drag to seek. While an ad plays it shows
-/// "Ad" · the ad countdown in system yellow and is disabled.
+/// "Ad" · the ad countdown in the amber ad tint (`QTAdTint`) and is disabled.
 public struct QTScrubber: View {
     private let overArt: Bool
     @Environment(QTPlayerModel.self) private var player
@@ -62,7 +63,7 @@ private struct QTScrubberContent: View {
         return contrast == .increased ? QTTheme.Colors.tertiaryLabel : QTTheme.Colors.quaternaryLabel
     }
     private var fillColor: Color {
-        if ad != nil { return Color(nsColor: .systemYellow) }
+        if ad != nil { return QTAdTint.color(overArt: overArt, increasedContrast: contrast == .increased) }
         return overArt ? .white.opacity(0.92) : accent
     }
 
@@ -71,6 +72,8 @@ private struct QTScrubberContent: View {
     var body: some View {
         HStack(spacing: QTTheme.Spacing.xs) {
             Text(leading)
+                .fontWeight(ad != nil ? .semibold : nil)
+                .foregroundStyle(ad != nil ? QTAdTint.color(overArt: overArt, increasedContrast: contrast == .increased) : labelColor)
                 .frame(width: 44, alignment: .trailing)
             bar
             Text(trailing)
@@ -117,7 +120,6 @@ private struct QTScrubberContent: View {
         }
         .frame(height: 16)
         .animation(QTTheme.Motion.animation(.spring(response: 0.24, dampingFraction: 0.9), reduceMotion: reduceMotion), value: isActive)
-        .opacity(ad != nil ? 0.85 : 1)
         .onHover { isHovering = $0 }
         .focusable(ad == nil, interactions: .activate)
         .focused($isFocused)
@@ -135,5 +137,22 @@ private struct QTScrubberContent: View {
             }
         }
         .accessibilityIdentifier("qt.player.scrubber")
+    }
+}
+
+/// The amber that marks an ad (prototype `#f6c343`): the scrubber's ad progress and its "Ad" label. A deeper amber
+/// on light backgrounds so it holds contrast against the bar material; deeper still with Increase Contrast.
+public enum QTAdTint {
+    public static func color(overArt: Bool = false, increasedContrast: Bool = false) -> Color {
+        if overArt { return Color(red: 0.965, green: 0.765, blue: 0.263) }
+        return Color(nsColor: NSColor(name: "qt.player.adTint") { appearance in
+            let dark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            switch (dark, increasedContrast) {
+            case (true, false): return NSColor(srgbRed: 0.965, green: 0.765, blue: 0.263, alpha: 1)
+            case (true, true): return NSColor(srgbRed: 1.0, green: 0.82, blue: 0.36, alpha: 1)
+            case (false, false): return NSColor(srgbRed: 0.88, green: 0.6, blue: 0.0, alpha: 1)
+            case (false, true): return NSColor(srgbRed: 0.68, green: 0.42, blue: 0.0, alpha: 1)
+            }
+        })
     }
 }

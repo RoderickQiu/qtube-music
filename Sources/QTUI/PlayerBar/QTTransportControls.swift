@@ -33,8 +33,8 @@ public struct QTTransportControls: View {
 
     private var playGlyph: CGFloat {
         switch style {
-        case .playerBar: 22
-        case .stage: 34
+        case .playerBar: 32
+        case .stage: 52
         case .compact: 22
         }
     }
@@ -106,16 +106,29 @@ public struct QTTransportControls: View {
         .accessibilityIdentifier("qt.transport.previous")
     }
 
+    /// Player bar and Stage: the primary control is a filled disc (SF `play.circle.fill`, palette-rendered: label-
+    /// coloured disc, window-coloured glyph; white disc, dark glyph on the Stage), like Music's mini player and the
+    /// prototype's `.tp.play`. The compact surfaces keep a plain glyph.
     private var playPause: some View {
-        Button {
+        let title = QTLoc.tr(player.isPlaying ? "Pause" : "Play")
+        return Button {
             player.togglePlayPause()
         } label: {
-            Label(QTLoc.tr(player.isPlaying ? "Pause" : "Play"),
-                  systemImage: player.isPlaying ? QTIcon.pause.systemName : QTIcon.play.systemName)
-                .font(.system(size: playGlyph))
-                .frame(width: playGlyph + 12, height: playGlyph + 10)
-                .contentShape(Rectangle())
-                .contentTransition(.symbolEffect(.replace.downUp))
+            Group {
+                if style == .compact {
+                    Label(title, systemImage: player.isPlaying ? QTIcon.pause.systemName : QTIcon.play.systemName)
+                        .font(.system(size: playGlyph))
+                } else {
+                    Label(title, systemImage: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(style == .stage ? Color.black.opacity(0.88) : QTTheme.Colors.windowBackground,
+                                         style == .stage ? Color.white : QTTheme.Colors.label)
+                        .font(.system(size: playGlyph, weight: .regular))
+                }
+            }
+            .frame(width: playGlyph + (style == .compact ? 12 : 6), height: playGlyph + (style == .compact ? 10 : 4))
+            .contentShape(style == .compact ? AnyShape(Rectangle()) : AnyShape(Circle()))
+            .contentTransition(.symbolEffect(.replace.downUp))
         }
         .buttonStyle(.borderless)
         .help("\(QTLoc.tr(player.isPlaying ? "Pause" : "Play"))  Space")

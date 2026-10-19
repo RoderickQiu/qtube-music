@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import QTCore
 import QTLyrics
@@ -48,5 +49,17 @@ import Testing
         player.moveInQueue(itemID: d.id, to: .upNext, at: 0)
         #expect(player.queue.upNext.map(\.track.videoId) == ["d", "x"])
         #expect(!player.queue.autoplay.contains(d))
+    }
+
+    /// Tables and the Queue mark the current track the same way: a speaker only while playing, a pause glyph
+    /// while paused. Every glyph the transport draws exists.
+    @Test func nowPlayingIndicatorAndTransportGlyphs() {
+        #expect(QTNowPlayingIndicator.symbolName(isPlaying: true) == QTIcon.volume.systemName)
+        #expect(QTNowPlayingIndicator.symbolName(isPlaying: false) == QTIcon.pause.systemName)
+        #expect(!QTNowPlayingIndicator.symbolName(isPlaying: false).hasPrefix("speaker"))
+        for name in ["play.circle.fill", "pause.circle.fill", QTNowPlayingIndicator.symbolName(isPlaying: true),
+                     QTNowPlayingIndicator.symbolName(isPlaying: false)] {
+            #expect(NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil, "\(name)")
+        }
     }
 }

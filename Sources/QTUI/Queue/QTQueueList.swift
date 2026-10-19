@@ -214,10 +214,9 @@ struct QTQueueRow: View {
                     if kind == .nowPlaying {
                         ZStack {
                             RoundedRectangle(cornerRadius: 4, style: .continuous).fill(.black.opacity(0.35))
-                            Image(systemName: isPlaying ? "waveform" : QTIcon.pause.systemName)
-                                .font(.system(size: 14, weight: .semibold))
+                            QTNowPlayingGlyph(isPlaying: isPlaying)
+                                .font(.system(size: 13, weight: .semibold))
                                 .foregroundStyle(.white)
-                                .symbolEffect(.variableColor.iterative, isActive: isPlaying)
                         }
                         .accessibilityHidden(true)
                     }

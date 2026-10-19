@@ -57,11 +57,11 @@ public struct QTAdCountdownPill: View {
 
     public var body: some View {
         Text(QTLoc.tr("Ad · %@", table: .player, QTFormat.duration(ad.remaining.rounded(.up))))
-            .font(compact ? .caption2.weight(.semibold) : .callout.weight(.semibold))
+            .font(compact ? .subheadline.weight(.semibold) : .callout.weight(.semibold))
             .monospacedDigit()
             .foregroundStyle(.white)
-            .padding(.horizontal, compact ? 7 : 12)
-            .padding(.vertical, compact ? 3 : 5)
+            .padding(.horizontal, compact ? 9 : 12)
+            .padding(.vertical, compact ? 4 : 5)
             .background(.ultraThinMaterial, in: Capsule())
             .environment(\.colorScheme, .dark)
             .fixedSize()

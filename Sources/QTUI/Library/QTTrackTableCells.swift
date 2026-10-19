@@ -128,8 +128,7 @@ final class QTTrackNumberCell: NSTableCellView {
         label.stringValue = number.formatted(.number.locale(QTLoc.locale))
         label.isHidden = playing != .none
         icon.isHidden = playing == .none
-        icon.image = NSImage(systemSymbolName: playing == .playing ? "speaker.wave.2.fill" : "speaker.fill",
-                             accessibilityDescription: QTLoc.tr("Now Playing"))
+        icon.image = QTNowPlayingIndicator.image(isPlaying: playing == .playing)
         icon.contentTintColor = accent
     }
 }

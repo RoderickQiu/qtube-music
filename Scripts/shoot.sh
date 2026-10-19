@@ -49,6 +49,8 @@ for _ in $(seq 1 50); do pgrep -f "^$EXE" >/dev/null || break; sleep 0.1; done
 READY="$(mktemp -t qtshoot).json"; rm -f "$READY"
 LAUNCH=(-ApplePersistenceIgnoreState YES -qt.screen "${QT_SCREEN:-U270CA}" -qt.readyFile "$READY")
 if [[ ${#SHOW[@]} -gt 0 ]]; then LAUNCH+=(-qt.show "$(IFS=,; echo "${SHOW[*]}")"); fi
+# Screenshots use the demo (mock) catalog unless the caller asks for `-qt.catalog live` (the user's real library).
+if [[ " ${ARGS[*]-} " != *" -qt.catalog "* ]]; then LAUNCH+=(-qt.catalog mock); fi
 open -g -n "$APP" --args "${LAUNCH[@]}" ${ARGS[@]+"${ARGS[@]}"}
 
 DEADLINE=$(( $(date +%s) + ${QT_TIMEOUT:-45} ))
@@ -87,12 +89,41 @@ for k in "${KINDS[@]}"; do
   fi
   if [[ -z "$ID" ]]; then echo "error: no '$k' window" >&2; STATUS=1; continue; fi
   if [[ $FIRST == 1 ]]; then FILE="$QT_SCREENSHOTS/$OUT.png"; FIRST=0; else FILE="$QT_SCREENSHOTS/$OUT-$k.png"; fi
-  # Stage Manager can shrink an inactive window to a ~144x134 thumbnail mid-capture; retry until full size.
-  for attempt in $(seq 1 12); do
+  # Stage Manager can shrink an inactive window to a thumbnail (~144x134, or a few hundred px mid-animation);
+  # retry until the capture is at least 90 % of the window's width in points from the ready file.
+  read -r MINW ASPECT <<<"$(python3 -c 'import json,re,sys
+for w in json.load(open(sys.argv[1]))["windows"]:
+    if w["identifier"] == sys.argv[2]:
+        f = [float(v) for v in re.findall(r"-?[0-9.]+", w["frame"])]
+        print(int(f[2] * 0.9), "%.4f" % (f[2] / f[3])); break' "$READY" "qt.window.$k" 2>/dev/null || true)"
+  ASPECT="${ASPECT:-0}"
+  [[ -n "$MINW" && "$MINW" -ge 300 ]] || MINW=300
+  # A window mid-way through a Stage Manager animation is drawn smaller and in perspective, so also wait for two
+  # captures in a row with the same size.
+  LAST=""
+  for attempt in $(seq 1 24); do
     screencapture -l"$ID" -o -x "$FILE"
-    W="$(sips -g pixelWidth "$FILE" 2>/dev/null | awk '/pixelWidth/ {print $2}')"
-    [[ -n "$W" && "$W" -ge 300 ]] && break
-    sleep 0.5
+    W="$(sips -g pixelWidth -g pixelHeight "$FILE" 2>/dev/null | awk '/pixel(Width|Height)/ {printf "%s ", $2}')"
+    # …and with the window's own aspect ratio (a tilted Stage Manager rendering is narrower for its height).
+    # A tilted rendering also leaves transparent wedges near the corners; a flat one is opaque there.
+    OK_ASPECT="$(python3 -c 'import sys
+w, h = (float(v) for v in sys.argv[1].split()); a = float(sys.argv[2])
+ok = a == 0 or w / h > a * 0.994
+try:
+    from PIL import Image
+    im = Image.open(sys.argv[3]).convert("RGBA"); W, H = im.size; dx, dy = int(W * 0.03), int(H * 0.03)
+    R = int(min(W, H * a)) if a else W   # a popover may overhang the window to the right
+    ok = ok and all(im.getpixel(p)[3] > 250 for p in [(dx, dy), (R - dx, dy), (dx, H - dy), (R - dx, H - dy)])
+except ImportError:
+    pass
+print(1 if ok else 0)' "$W" "$ASPECT" "$FILE" 2>/dev/null || echo 1)"
+    # A full-size but nearly empty capture (a tiny tilted card on transparency) has a very low PNG density
+    # (real UI >= ~0.1 byte/pixel; the empty card ~0.02).
+    read -r PW PH <<<"$W"; BYTES="$(stat -f %z "$FILE" 2>/dev/null || echo 0)"
+    DENSE=0; [[ -n "${PH:-}" && "$PH" -gt 0 && $(( BYTES * 100 / (PW * PH) )) -ge 4 ]] && DENSE=1
+    if [[ -n "$W" && "${W%% *}" -ge "$MINW" && "$W" == "$LAST" && "$OK_ASPECT" == 1 && "$DENSE" == 1 ]]; then break; fi
+    LAST="$W"
+    sleep 0.4
   done
   echo "$FILE"
 done
