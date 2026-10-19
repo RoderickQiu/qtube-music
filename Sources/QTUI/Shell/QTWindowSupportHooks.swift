@@ -1,39 +1,17 @@
 import AppKit
 import QTCore
 
-/// Space = play/pause anywhere in the main window, except while typing or when a focused control uses Space
-/// (a bare-Space menu key equivalent would fire inside search fields, so it's handled here instead).
+/// Space = play/pause in the main window unless a focused view uses it. The decision is made app-wide by
+/// `QTKeyRouting` (Commands/), so the main window and every other window behave the same.
 @MainActor
 final class QTWindowKeyMonitor {
     static let shared = QTWindowKeyMonitor()
-    private var monitor: Any?
 
     func install(model: QTAppModel) {
-        guard monitor == nil else { return }
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            guard event.keyCode == 49,
-                  event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .function, .numericPad]).isEmpty
-            else { return event }
-            let windowNumber = event.windowNumber
-            let handled = MainActor.assumeIsolated { () -> Bool in
-                guard let window = NSApp.window(withWindowNumber: windowNumber), window.identifier == QTWindowID.main.identifier,
-                      !Self.responderUsesSpace(window.firstResponder) else { return false }
-                model.player.togglePlayPause()
-                return true
-            }
-            return handled ? nil : event
+        QTKeyRouting.install { [weak model] in
+            guard let player = model?.player, player.nowPlaying != nil else { return }
+            player.togglePlayPause()
         }
-    }
-
-    private static func responderUsesSpace(_ responder: NSResponder?) -> Bool {
-        guard let responder else { return false }
-        if responder is NSText || responder is NSTextView { return true }
-        if let view = responder as? NSView {
-            // Full Keyboard Access: Space presses the focused control.
-            if view is NSButton || view is NSSegmentedControl || view is NSPopUpButton || view is NSSlider { return true }
-            if view is NSTextField, (view as? NSTextField)?.isEditable == true { return true }
-        }
-        return false
     }
 }
 

@@ -4,8 +4,9 @@ import QTUI
 import SwiftUI
 
 // Owner: builder "desktop". Scenes: the main Window (⌘0), Settings, Keyboard Shortcuts, and the MenuBarExtra.
-// The app delegate adds the Dock menu, reopen handling and the desktop surfaces. Launch paths never activate
-// the app (no NSApp.activate) — see docs/architecture.md.
+// The app delegate adds the Dock menu, reopen handling, the desktop surfaces and AppleScript's application
+// properties; the app menu gets Check for Updates… (Sparkle, QTUpdater.swift). Launch paths never activate the
+// app (no NSApp.activate) — see docs/architecture.md.
 
 @main
 struct QTubeMusicApp: App {
@@ -24,6 +25,7 @@ struct QTubeMusicApp: App {
         .commands {
             SidebarCommands()
             QTCommands(model: model)
+            QTUpdaterCommands(updater: QTUpdater.shared)
         }
 
         Settings {
@@ -58,6 +60,7 @@ final class QTAppDelegate: NSObject, NSApplicationDelegate {
         let model = QTAppModel.shared
         model.applyAppearance()
         QTDesktopCoordinator.shared.start(model: model)
+        QTUpdater.shared.start()
     }
 
     /// Closing the main window keeps music playing (menu bar, Dock and mini player stay); the "quit instead"
@@ -76,5 +79,22 @@ final class QTAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
         QTDesktopCoordinator.shared.dockMenu()
+    }
+
+    // MARK: AppleScript (QTubeMusic.sdef › application properties; Cocoa Scripting reads them through KVC)
+
+    func application(_ sender: NSApplication, delegateHandlesKey key: String) -> Bool {
+        QTScripting.handles(key)
+    }
+
+    @objc var playerState: NSNumber { QTScripting.playerStateValue }
+    @objc var currentTrack: QTScriptTrack? { QTScripting.currentTrack }
+    @objc var playerPosition: Double {
+        get { QTScripting.playerPosition }
+        set { QTScripting.playerPosition = newValue }
+    }
+    @objc var soundVolume: Int {
+        get { QTScripting.soundVolume }
+        set { QTScripting.soundVolume = newValue }
     }
 }

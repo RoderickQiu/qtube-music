@@ -9,9 +9,12 @@ let package = Package(
     products: [
         .executable(name: "QTubeMusic", targets: ["QTubeMusicApp"]),
     ],
-    // No third-party dependencies. QTLyrics has its own LRC/YRC/QRC/KRC/TTML parsers and decrypters
-    // (LyricsKit's are not public API). Sparkle comes later (ask first for anything else).
-    dependencies: [],
+    // One third-party dependency: Sparkle (approved; updates — no feed / automatic checks off until Developer ID).
+    // QTLyrics has its own LRC/YRC/QRC/KRC/TTML parsers and decrypters (LyricsKit's are not public API).
+    // Ask the user before adding anything else.
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.0"),
+    ],
     targets: [
         .target(
             name: "QTCore",
@@ -21,11 +24,20 @@ let package = Package(
         .target(name: "QTAuth", dependencies: ["QTInnerTube"]),
         .target(name: "QTPlayback", dependencies: ["QTCore", "QTInnerTube"]),
         .target(name: "QTLyrics", dependencies: ["QTCore"]),
+        // Opt-in integrations (spec §10): Last.fm scrobbling, Discord Rich Presence. Off by default; nothing is sent
+        // until the user turns one on in Settings › Integrations.
+        .target(name: "QTIntegrations", dependencies: ["QTCore"]),
         .target(
             name: "QTUI",
-            dependencies: ["QTCore", "QTInnerTube", "QTAuth", "QTPlayback", "QTLyrics"]
+            dependencies: ["QTCore", "QTInnerTube", "QTAuth", "QTPlayback", "QTLyrics", "QTIntegrations"]
         ),
-        .executableTarget(name: "QTubeMusicApp", dependencies: ["QTUI"]),
+        // App Intents + AppleScript terminology + Sparkle live in the app target; `Resources/` (sdef, intent
+        // String Catalogs) is copied/compiled into the bundle by Scripts/build-app.sh.
+        .executableTarget(
+            name: "QTubeMusicApp",
+            dependencies: ["QTUI", .product(name: "Sparkle", package: "Sparkle")],
+            exclude: ["Resources"]
+        ),
         // Dev-only harness: drives QTWebPlaybackEngine live (anonymous, silent). `swift run QTPlaybackLab --help`.
         .executableTarget(name: "QTPlaybackLab", dependencies: ["QTPlayback"]),
         // Dev-only (DEBUG): import/inspect the shared dev session (HANDOFF §8). `swift run QTDevSession status`.
@@ -36,6 +48,7 @@ let package = Package(
         .testTarget(name: "QTInnerTubeTests", dependencies: ["QTInnerTube", "QTAuth"], resources: [.copy("Fixtures")]),
         .testTarget(name: "QTPlaybackTests", dependencies: ["QTPlayback"]),
         .testTarget(name: "QTUITests", dependencies: ["QTUI"]),
+        .testTarget(name: "QTIntegrationsTests", dependencies: ["QTIntegrations"]),
     ],
     swiftLanguageModes: [.v6]
 )

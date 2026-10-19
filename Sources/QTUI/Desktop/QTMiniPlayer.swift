@@ -208,6 +208,13 @@ public struct QTMiniPlayerView: View {
         .qtArtworkTint(model.palette)
         .ignoresSafeArea()
         .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text(QTLoc.tr("Mini Player")))
+        .accessibilityValue(Text(verbatim: titlesAccessibilityLabel))
+        // Close and Show Main Window are hover-only buttons, and the size switch is a double-click: VoiceOver
+        // (and Full Keyboard Access via the actions menu) gets them as named actions on the panel.
+        .accessibilityAction(named: Text(QTLoc.tr("Show Main Window"))) { QTDesktopCoordinator.shared.showMainWindow() }
+        .accessibilityAction(named: Text(QTLoc.tr("Close Mini Player", table: .desktop))) { QTDesktopCoordinator.shared.closeMiniPlayer() }
+        .accessibilityAction(named: Text(QTLoc.tr("Switch Size", table: .desktop))) { QTDesktopCoordinator.shared.toggleMiniMode() }
         .accessibilityIdentifier("qt.miniPlayer.\(prefs.mode.rawValue)")
     }
 
@@ -258,6 +265,17 @@ public struct QTMiniPlayerView: View {
                 Text(QTLoc.tr("Not Playing", table: .desktop)).font(.headline).foregroundStyle(.secondary)
             }
         }
+        // One readable element ("Title, Artist") instead of two unlabeled marquee views.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: titlesAccessibilityLabel))
+        .accessibilityAddTraits(.isStaticText)
+        .accessibilityIdentifier("qt.miniPlayer.titles")
+    }
+
+    private var titlesAccessibilityLabel: String {
+        if player.ad != nil { return [QTLoc.tr("Advertisement"), QTLoc.tr("Then: %@", player.nowPlaying?.title ?? "")].joined(separator: ", ") }
+        guard let track = player.nowPlaying else { return QTLoc.tr("Not Playing", table: .desktop) }
+        return [track.title, track.artistLine].filter { !$0.isEmpty }.joined(separator: ", ")
     }
 
     static var titleFont: NSFont { NSFont.preferredFont(forTextStyle: .headline) }

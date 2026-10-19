@@ -1,0 +1,166 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "Adds the current song to Liked Songs in QTube Music." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将当前歌曲加入 QTube Music 的“喜欢的音乐”。"
+          }
+        }
+      }
+    },
+    "Get Current Song" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "获取当前歌曲"
+          }
+        }
+      }
+    },
+    "Like Current Song" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "喜欢当前歌曲"
+          }
+        }
+      }
+    },
+    "Liked “%@”." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已喜欢“%@”。"
+          }
+        }
+      }
+    },
+    "Next Song" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "下一首"
+          }
+        }
+      }
+    },
+    "Nothing is playing." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前没有播放。"
+          }
+        }
+      }
+    },
+    "Pause" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂停"
+          }
+        }
+      }
+    },
+    "Play" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "播放"
+          }
+        }
+      }
+    },
+    "Play ${playlist}" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "播放${playlist}"
+          }
+        }
+      }
+    },
+    "Play Playlist" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "播放歌单"
+          }
+        }
+      }
+    },
+    "Play or Pause" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "播放或暂停"
+          }
+        }
+      }
+    },
+    "Playlist" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "歌单"
+          }
+        }
+      }
+    },
+    "Plays or pauses the current song." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "播放或暂停当前歌曲。"
+          }
+        }
+      }
+    },
+    "Previous Song" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上一首"
+          }
+        }
+      }
+    },
+    "Returns the title and artist of what is playing." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "返回正在播放的歌曲名和艺人。"
+          }
+        }
+      }
+    },
+    "Shuffle" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "随机播放"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

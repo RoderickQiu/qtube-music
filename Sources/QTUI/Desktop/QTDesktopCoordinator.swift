@@ -20,7 +20,7 @@ public enum QTDesktopLaunchKey {
     public static let lyricsUnlocked = "qt.desktop.lyricsUnlocked"
     /// bool — scroll the menu bar title.
     public static let menuBarScroll = "qt.desktop.menuBarScroll"
-    /// `general` | `playback` | `lyrics` | `account` | `advanced` — Settings tab to open on.
+    /// `general` | `playback` | `lyrics` | `account` | `integrations` | `advanced` — Settings tab to open on.
     public static let settingsTab = "qt.settingsTab"
     /// Desktop lyrics size in points (screenshots).
     public static let lyricsSize = "qt.desktop.lyricsSize"
@@ -30,6 +30,10 @@ public enum QTDesktopLaunchKey {
     public static let popUpMenu = "qt.desktop.popUpMenu"
     /// DEBUG: bool — open Help › Keyboard Shortcuts at launch (screenshots).
     public static let showShortcuts = "qt.desktop.showShortcuts"
+    /// DEBUG: bool — Settings › General shows Relaunch as if the system menus were in another language (screenshots).
+    public static let staleMenus = "qt.desktop.staleMenus"
+    /// DEBUG: path — run the AppleScript self-test (`QTScriptingProbe`) once ready and write its results there.
+    public static let scriptProbe = "qt.desktop.scriptProbe"
 }
 
 @MainActor
@@ -51,12 +55,17 @@ public final class QTDesktopCoordinator {
         guard self.model == nil else { return }
         self.model = model
         applyLaunchOverrides(model)
-        QTKeyRouting.install()
+        QTInterfaceLanguageSync.syncAtLaunch(launch: model.launch)
+        QTKeyRouting.install { [weak model] in
+            guard let player = model?.player, player.nowPlaying != nil else { return }
+            player.togglePlayPause()
+        }
         observeMainWindowClose()
         observeMainWindowKey()
         observeMainWindowFrame()
         observe()
         observeScreens()
+        QTIntegrationsCoordinator.shared.start(model: model)
         if model.launch.surface == .mini { hideMainWindowAfterLaunch() }
         #if DEBUG
         if let lang = model.launch.string(QTDesktopLaunchKey.switchLanguage).flatMap(QTInterfaceLanguage.init(argument:)) {
@@ -73,6 +82,13 @@ public final class QTDesktopCoordinator {
                 if let w = NSApp.windows.first(where: { $0.identifier?.rawValue.contains(QTKeyboardShortcutsView.sceneID) == true }) {
                     QTWindowPlacement.center(w, screenName: model.launch.effectiveScreenName)
                 }
+            }
+        }
+        if let path = model.launch.string(QTDesktopLaunchKey.scriptProbe) {
+            Task { @MainActor in
+                while !QTReadiness.shared.isReady { try? await Task.sleep(for: .milliseconds(100)) }
+                try? await Task.sleep(for: .milliseconds(500))
+                await QTScriptingProbe.run(writingTo: path)
             }
         }
         if let index = model.launch.double(QTDesktopLaunchKey.popUpMenu).map(Int.init) {

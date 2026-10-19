@@ -200,7 +200,7 @@ struct QTPlayerBarTools: View {
                 .frame(width: 28, height: 28)
             QTVolumeControl(showsSlider: showsVolumeSlider)
                 .padding(.horizontal, 4)
-            toolButton(QTLoc.tr("Mini player"), icon: .mini, shortcut: "⇧⌘M", id: "mini") {
+            toolButton(QTLoc.tr("Mini Player"), icon: .mini, shortcut: "⇧⌘M", id: "mini") {
                 model.surface = model.surface == .mini ? .window : .mini
             }
             toolButton(QTLoc.tr("Stage"), icon: .expand, shortcut: "⇧⌘F", id: "stage") {

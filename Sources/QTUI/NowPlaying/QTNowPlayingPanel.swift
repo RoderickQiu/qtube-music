@@ -62,10 +62,10 @@ struct QTPanelHeader: View {
                     model.isPanelShown = false
                 }
             } label: {
-                Label(QTLoc.tr("Hide panel"), systemImage: QTIcon.sidebar.systemName)
+                Label(QTLoc.tr("Hide Panel", table: .desktop), systemImage: QTIcon.sidebar.systemName)
             }
             .qtGlassButton(.secondary, iconOnly: true)
-            .help("\(QTLoc.tr("Hide panel"))  ⌥⌘N")
+            .help("\(QTLoc.tr("Hide Panel", table: .desktop))  ⌥⌘N")
             .accessibilityIdentifier("qt.player.panel.hide")
         }
         .padding(.leading, 24)

@@ -39,6 +39,60 @@ MIN_OS="$(otool -l "$APP/Contents/MacOS/QTubeMusic" | awk '/LC_BUILD_VERSION/{f=
 xcrun vtool -set-build-version macos "${MIN_OS:-15.0}" "$SDK_VERSION" -replace \
   -output "$APP/Contents/MacOS/QTubeMusic.stamped" "$APP/Contents/MacOS/QTubeMusic" 2>/dev/null
 mv "$APP/Contents/MacOS/QTubeMusic.stamped" "$APP/Contents/MacOS/QTubeMusic"
+
+# Sparkle.framework (approved dependency) goes in Contents/Frameworks; the executable finds it through
+# @executable_path/../Frameworks instead of the build folder's PackageFrameworks rpath.
+SPARKLE_FW=""
+for f in "$BIN/Sparkle.framework" "$BIN/PackageFrameworks/Sparkle.framework"; do
+  [[ -d "$f" ]] && { SPARKLE_FW="$f"; break; }
+done
+if [[ -n "$SPARKLE_FW" ]]; then
+  mkdir -p "$APP/Contents/Frameworks"
+  ditto "$SPARKLE_FW" "$APP/Contents/Frameworks/Sparkle.framework"
+  install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP/Contents/MacOS/QTubeMusic" 2>/dev/null || true
+  for rp in "$BIN/PackageFrameworks" "$BIN"; do
+    install_name_tool -delete_rpath "$rp" "$APP/Contents/MacOS/QTubeMusic" 2>/dev/null || true
+  done
+else
+  echo "warning: Sparkle.framework not found in $BIN; the app won't launch" >&2
+fi
+
+# App resources from Sources/QTubeMusicApp/Resources (excluded from SwiftPM): AppleScript terminology, and the
+# App Intents String Catalogs compiled to .strings (Shortcuts reads them from the bundle, out of process).
+APP_RES="$QT_REPO/Sources/QTubeMusicApp/Resources"
+cp "$APP_RES/QTubeMusic.sdef" "$APP/Contents/Resources/QTubeMusic.sdef"
+for cat in AppIntents AppShortcuts; do
+  xcrun xcstringstool compile "$APP_RES/$cat.xcstrings" --output-directory "$APP/Contents/Resources" >/dev/null \
+    || echo "warning: couldn't compile $cat.xcstrings" >&2
+done
+
+# App Intents metadata (Metadata.appintents) — what Xcode's "Extract App Intents Metadata" phase does: Swift const
+# values for the app module, then appintentsmetadataprocessor. Without it Shortcuts doesn't list the intents.
+intents_metadata() {
+  local work sdk toolchain xcv
+  work="$(mktemp -d -t qtintents)"
+  sdk="$(xcrun --sdk macosx --show-sdk-path)"
+  toolchain="$(dirname "$(dirname "$(dirname "$(xcrun --find swiftc)")")")"
+  xcv="$(xcodebuild -version 2>/dev/null | awk '/Build version/{print $3}')"
+  printf '%s' '["AppIntent","EntityQuery","AppEntity","TransientEntity","AppEnum","AppShortcutProviding","AppShortcutsProvider","AnyResolverProviding","AppIntentsPackage","DynamicOptionsProvider","EntityStringQuery","EntityPropertyQuery","IntentValueQuery","_IntentValueRepresentable","_AssistantIntentsProvider","_GenerativeFunctionExtractable"]' > "$work/protocols.json"
+  ls "$QT_REPO"/Sources/QTubeMusicApp/*.swift > "$work/sources.txt"
+  # shellcheck disable=SC2046
+  xcrun swiftc -typecheck -parse-as-library -swift-version 6 -module-name QTubeMusicApp -target "arm64-apple-macos${MIN_OS:-15.0}" \
+    -sdk "$sdk" -I "$BIN" -F "$BIN" -F "$BIN/PackageFrameworks" -wmo $(cat "$work/sources.txt") \
+    -emit-const-values-path "$work/QTubeMusicApp.swiftconstvalues" \
+    -Xfrontend -const-gather-protocols-file -Xfrontend "$work/protocols.json" >/dev/null 2>&1 || { rm -rf "$work"; return 1; }
+  echo "$work/QTubeMusicApp.swiftconstvalues" > "$work/consts.txt"
+  xcrun appintentsmetadataprocessor --output "$APP/Contents/Resources" --toolchain-dir "$toolchain" \
+    --module-name QTubeMusicApp --sdk-root "$sdk" --xcode-version "${xcv:-17A1}" --platform-family macOS \
+    --deployment-target "${MIN_OS:-15.0}" --target-triple "arm64-apple-macos${MIN_OS:-15.0}" \
+    --source-file-list "$work/sources.txt" --swift-const-vals-list "$work/consts.txt" \
+    --binary-file "$APP/Contents/MacOS/QTubeMusic" >/dev/null 2>&1
+  local rc=$?
+  rm -rf "$work"
+  [[ $rc -eq 0 && -d "$APP/Contents/Resources/Metadata.appintents" ]]
+}
+intents_metadata || echo "warning: App Intents metadata not extracted; Shortcuts won't list QTube Music's actions" >&2
+
 # SwiftPM resource bundles (Bundle.module looks in Contents/Resources first).
 for b in "$BIN"/*.bundle; do
   [[ -e "$b" && "$b" != *Tests.bundle ]] && cp -R "$b" "$APP/Contents/Resources/"
@@ -109,11 +163,27 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>NSSupportsAutomaticTermination</key><false/>
   <key>NSSupportsSuddenTermination</key><false/>
   <key>NSHumanReadableCopyright</key><string>QTube Music</string>
+  <key>NSAppleScriptEnabled</key><true/>
+  <key>OSAScriptingDefinition</key><string>QTubeMusic.sdef</string>
+  <!-- Sparkle: dormant until there is a Developer ID (no SUFeedURL, no SUPublicEDKey → never checks, and would
+       refuse unsigned updates). See docs/architecture.md › Updates. -->
+  <key>SUEnableAutomaticChecks</key><false/>
+  <key>SUAutomaticallyUpdate</key><false/>
+  <key>SUAllowsAutomaticUpdates</key><false/>
+  <key>SUEnableSystemProfiling</key><false/>
   $ICON_KEY
 </dict>
 </plist>
 PLIST
 plutil -lint "$APP/Contents/Info.plist" >/dev/null
 
-codesign --force --deep -s - "$APP" >&2
+# Ad-hoc signing, inside out: Sparkle's helpers (XPC services, Autoupdate, Updater.app), the framework, the app.
+if [[ -d "$APP/Contents/Frameworks/Sparkle.framework" ]]; then
+  FW="$APP/Contents/Frameworks/Sparkle.framework/Versions/B"
+  for nested in "$FW"/XPCServices/*.xpc "$FW/Autoupdate" "$FW/Updater.app"; do
+    [[ -e "$nested" ]] && codesign --force -s - "$nested" >&2
+  done
+  codesign --force -s - "$APP/Contents/Frameworks/Sparkle.framework" >&2
+fi
+codesign --force -s - "$APP" >&2
 echo "$APP"

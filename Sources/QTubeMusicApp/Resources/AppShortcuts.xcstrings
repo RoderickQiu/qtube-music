@@ -1,0 +1,169 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "Like this song in ${applicationName}" : {
+      "localizations" : {
+        "en" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Like this song in ${applicationName}"
+            ]
+          }
+        },
+        "zh-Hans" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "在${applicationName}中喜欢这首歌"
+            ]
+          }
+        }
+      }
+    },
+    "Next song in ${applicationName}" : {
+      "localizations" : {
+        "en" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Next song in ${applicationName}"
+            ]
+          }
+        },
+        "zh-Hans" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${applicationName}下一首",
+              "在${applicationName}中播放下一首"
+            ]
+          }
+        }
+      }
+    },
+    "Pause ${applicationName}" : {
+      "localizations" : {
+        "en" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Pause ${applicationName}"
+            ]
+          }
+        },
+        "zh-Hans" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "暂停${applicationName}"
+            ]
+          }
+        }
+      }
+    },
+    "Play ${playlist} in ${applicationName}" : {
+      "localizations" : {
+        "en" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Play ${playlist} in ${applicationName}"
+            ]
+          }
+        },
+        "zh-Hans" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "在${applicationName}中播放${playlist}"
+            ]
+          }
+        }
+      }
+    },
+    "Play or pause ${applicationName}" : {
+      "localizations" : {
+        "en" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Play or pause ${applicationName}"
+            ]
+          }
+        },
+        "zh-Hans" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "在${applicationName}中播放或暂停",
+              "${applicationName}播放或暂停"
+            ]
+          }
+        }
+      }
+    },
+    "Previous song in ${applicationName}" : {
+      "localizations" : {
+        "en" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Previous song in ${applicationName}"
+            ]
+          }
+        },
+        "zh-Hans" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${applicationName}上一首",
+              "在${applicationName}中播放上一首"
+            ]
+          }
+        }
+      }
+    },
+    "Skip this song in ${applicationName}" : {
+      "localizations" : {
+        "en" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Skip this song in ${applicationName}"
+            ]
+          }
+        },
+        "zh-Hans" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "在${applicationName}中跳过这首歌"
+            ]
+          }
+        }
+      }
+    },
+    "What’s playing in ${applicationName}" : {
+      "localizations" : {
+        "en" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "What’s playing in ${applicationName}"
+            ]
+          }
+        },
+        "zh-Hans" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${applicationName}正在播放什么"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

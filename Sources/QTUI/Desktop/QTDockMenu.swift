@@ -23,20 +23,29 @@ enum QTDockMenuBuilder {
             }
             menu.addItem(.separator())
         }
-        menu.addItem(QTClosureMenuItem(QTLoc.tr(player.isPlaying ? "Pause" : "Play")) { player.togglePlayPause() })
-        menu.addItem(QTClosureMenuItem(QTLoc.tr("Next"), enabled: player.ad.map(\.canSkip) ?? true) {
+        // Same enabling rules as the Controls menu: nothing loaded → no transport.
+        let loaded = player.nowPlaying != nil
+        menu.addItem(QTClosureMenuItem(QTLoc.tr(player.isPlaying ? "Pause" : "Play"), enabled: loaded) { player.togglePlayPause() })
+        menu.addItem(QTClosureMenuItem(QTLoc.tr(player.ad?.canSkip == true ? "Skip" : "Next"),
+                                       enabled: player.ad.map(\.canSkip) ?? loaded) {
             if player.ad != nil { player.skipAd() } else { Task { await player.next() } }
         })
-        menu.addItem(QTClosureMenuItem(QTLoc.tr("Previous"), enabled: player.ad == nil) { Task { await player.previous() } })
+        menu.addItem(QTClosureMenuItem(QTLoc.tr("Previous"), enabled: player.ad == nil && loaded) { Task { await player.previous() } })
         if let track = player.nowPlaying {
             menu.addItem(.separator())
             menu.addItem(QTClosureMenuItem(QTLoc.tr(player.isLiked(track) ? "Remove from Liked Songs" : "Like")) { player.toggleLike(track) })
         }
         menu.addItem(.separator())
         menu.addItem(QTClosureMenuItem(QTLoc.tr("Shuffle"), state: player.isShuffleOn) { player.isShuffleOn.toggle() })
-        menu.addItem(QTClosureMenuItem(QTLoc.tr("Repeat"), state: player.repeatMode != .off) {
-            player.repeatMode = player.repeatMode == .off ? .all : .off
-        })
+        // Repeat: the Controls menu's three modes, as radio items in a submenu.
+        let repeatItem = NSMenuItem(title: QTLoc.tr("Repeat"), action: nil, keyEquivalent: "")
+        let repeatMenu = NSMenu()
+        repeatMenu.autoenablesItems = false
+        for (mode, title) in repeatModes {
+            repeatMenu.addItem(QTClosureMenuItem(title, state: player.repeatMode == mode) { player.repeatMode = mode })
+        }
+        repeatItem.submenu = repeatMenu
+        menu.addItem(repeatItem)
         menu.addItem(.separator())
         menu.addItem(QTClosureMenuItem(QTLoc.tr("Mini Player"), state: model.surface == .mini) {
             QTDesktopCoordinator.shared.toggleMiniPlayer()
@@ -45,6 +54,11 @@ enum QTDockMenuBuilder {
             QTDesktopCoordinator.shared.toggleDesktopLyrics()
         })
         return menu
+    }
+
+    /// Off · Repeat All · Repeat One, titled like the Controls menu.
+    static var repeatModes: [(QTRepeatMode, String)] {
+        [(.off, QTLoc.tr("Off")), (.all, QTLoc.tr("Repeat All", table: .desktop)), (.one, QTLoc.tr("Repeat One", table: .player))]
     }
 }
 

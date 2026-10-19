@@ -94,19 +94,11 @@ final class Fired: @unchecked Sendable { var value = false }
         let sources = Fixture.repoRoot.appendingPathComponent("Sources")
         let files = FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil)?
             .compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" } ?? []
-        let call = try Regex(#"QTLoc\.tr\(([^()]*?)(?:,\s*table:\s*\.(\w+))?\s*[,)]"#)
-        let literal = try Regex(#""((?:[^"\\]|\\.)+)""#)
         let localized = try Regex(#"\.localized\("((?:[^"\\]|\\.)+)"\)"#)
         var checked = 0
         for file in files {
             let text = try String(contentsOf: file, encoding: .utf8)
-            var uses: [(String, QTStringTable)] = []
-            for m in text.matches(of: call) {
-                let table = m.output[2].substring.flatMap { name in QTStringTable.allCases.first { "\($0)" == name } } ?? .shared
-                for l in String(m.output[1].substring ?? "").matches(of: literal) {
-                    uses.append((String(l.output[1].substring ?? ""), table))
-                }
-            }
+            var uses: [(String, QTStringTable)] = QTSwiftCallScanner.locKeys(in: text)
             for m in text.matches(of: localized) { uses.append((String(m.output[1].substring ?? ""), .shared)) }
             for (key, table) in uses {
                 checked += 1

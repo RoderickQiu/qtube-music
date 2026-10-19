@@ -11,6 +11,26 @@
         }
       }
     },
+    "API Key" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "API 密钥"
+          }
+        }
+      }
+    },
+    "Account" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "账户"
+          }
+        }
+      }
+    },
     "Acoustic" : {
       "localizations" : {
         "zh-Hans" : {
@@ -27,6 +47,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "高级"
+          }
+        }
+      }
+    },
+    "Allow access on last.fm first" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请先在 last.fm 上允许访问"
           }
         }
       }
@@ -61,6 +91,16 @@
         }
       }
     },
+    "Application ID" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "应用 ID"
+          }
+        }
+      }
+    },
     "Artwork" : {
       "localizations" : {
         "zh-Hans" : {
@@ -91,6 +131,26 @@
         }
       }
     },
+    "Check for Updates…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "检查更新…"
+          }
+        }
+      }
+    },
+    "Check the API key and secret" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请检查 API 密钥和共享密钥"
+          }
+        }
+      }
+    },
     "Close Mini Player" : {
       "localizations" : {
         "zh-Hans" : {
@@ -111,12 +171,52 @@
         }
       }
     },
+    "Close Window" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭窗口"
+          }
+        }
+      }
+    },
     "Compact" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "紧凑"
+          }
+        }
+      }
+    },
+    "Connect…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "连接…"
+          }
+        }
+      }
+    },
+    "Couldn’t connect to Last.fm" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未能连接 Last.fm"
+          }
+        }
+      }
+    },
+    "Create a Discord application" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "创建 Discord 应用"
           }
         }
       }
@@ -141,6 +241,16 @@
         }
       }
     },
+    "Disconnect" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "断开连接"
+          }
+        }
+      }
+    },
     "Electronic" : {
       "localizations" : {
         "zh-Hans" : {
@@ -157,6 +267,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "均衡器"
+          }
+        }
+      }
+    },
+    "Finish Connecting" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "完成连接"
           }
         }
       }
@@ -191,6 +311,36 @@
         }
       }
     },
+    "Get an API key" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "获取 API 密钥"
+          }
+        }
+      }
+    },
+    "Hide Panel" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "隐藏面板"
+          }
+        }
+      }
+    },
+    "Integrations" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "集成"
+          }
+        }
+      }
+    },
     "Keep playing" : {
       "localizations" : {
         "zh-Hans" : {
@@ -217,6 +367,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "放大"
+          }
+        }
+      }
+    },
+    "Last.fm can’t be reached" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法连接到 Last.fm"
+          }
+        }
+      }
+    },
+    "Last.fm disconnected. Connect again in Settings." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Last.fm 已断开连接，请在设置中重新连接。"
           }
         }
       }
@@ -301,12 +471,42 @@
         }
       }
     },
+    "Notify when the song changes" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "切换歌曲时发送通知"
+          }
+        }
+      }
+    },
     "One" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "一行"
+          }
+        }
+      }
+    },
+    "Open Notification Settings" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开通知设置"
+          }
+        }
+      }
+    },
+    "Open in YouTube Music" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在 YouTube Music 中打开"
           }
         }
       }
@@ -401,12 +601,42 @@
         }
       }
     },
+    "Relaunch" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重新启动"
+          }
+        }
+      }
+    },
+    "Relaunch to switch the system menus too" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重新启动后，系统菜单也会切换语言"
+          }
+        }
+      }
+    },
     "Repeat All" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "列表循环"
+          }
+        }
+      }
+    },
+    "Required" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "必填"
           }
         }
       }
@@ -481,6 +711,26 @@
         }
       }
     },
+    "Saved" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已保存"
+          }
+        }
+      }
+    },
+    "Scrobble to Last.fm" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "向 Last.fm 记录播放"
+          }
+        }
+      }
+    },
     "Scroll long titles" : {
       "localizations" : {
         "zh-Hans" : {
@@ -521,12 +771,42 @@
         }
       }
     },
+    "Shared Secret" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "共享密钥"
+          }
+        }
+      }
+    },
     "Show Lyric Line" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "显示歌词行"
+          }
+        }
+      }
+    },
+    "Show Panel" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示面板"
+          }
+        }
+      }
+    },
+    "Show album art" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示专辑封面"
           }
         }
       }
@@ -547,6 +827,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "显示歌曲标题"
+          }
+        }
+      }
+    },
+    "Show what I’m listening to" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示我正在听的歌"
           }
         }
       }
@@ -651,6 +941,16 @@
         }
       }
     },
+    "Switch Size" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "切换尺寸"
+          }
+        }
+      }
+    },
     "System" : {
       "localizations" : {
         "zh-Hans" : {
@@ -721,6 +1021,16 @@
         }
       }
     },
+    "Update “Now Playing”" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更新“正在播放”"
+          }
+        }
+      }
+    },
     "Version" : {
       "localizations" : {
         "zh-Hans" : {
@@ -787,6 +1097,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "YouTube Music Premium"
+          }
+        }
+      }
+    },
+    "YouTube’s player, which plays your music for now, doesn’t support these." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "目前播放音乐所用的 YouTube 播放器不支持这些功能。"
           }
         }
       }

@@ -131,6 +131,16 @@
         }
       }
     },
+    "Unofficial, may stop working": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非官方，可能失效"
+          }
+        }
+      }
+    },
     "Wrong lyrics?": {
       "localizations": {
         "zh-Hans": {

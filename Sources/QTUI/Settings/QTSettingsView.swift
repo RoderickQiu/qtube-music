@@ -1,11 +1,12 @@
 import QTCore
+import QTPlayback
 import SwiftUI
 
 // Owner: builder "desktop". Native Settings window: toolbar tabs + grouped Forms (General, Playback, Lyrics,
-// Account, Advanced). Every control writes through `QTSettingsStore`, so changes apply live (language too).
+// Account, Integrations, Advanced). Every control writes through `QTSettingsStore`, so changes apply live (language too).
 
 public enum QTSettingsTab: String, CaseIterable, Hashable, Sendable {
-    case general, playback, lyrics, account, advanced
+    case general, playback, lyrics, account, integrations, advanced
 }
 
 public struct QTSettingsView: View {
@@ -22,6 +23,7 @@ public struct QTSettingsView: View {
             Tab(QTLoc.tr("Playback", table: .desktop), systemImage: "play.circle", value: QTSettingsTab.playback) { QTPlaybackSettings().qtSettingsPane() }
             Tab(QTLoc.tr("Lyrics"), systemImage: QTIcon.lyrics.systemName, value: QTSettingsTab.lyrics) { QTLyricsSettings().qtSettingsPane() }
             Tab(QTLoc.tr("Account"), systemImage: "person.crop.circle", value: QTSettingsTab.account) { QTAccountSettings().qtSettingsPane() }
+            Tab(QTLoc.tr("Integrations", table: .desktop), systemImage: "puzzlepiece.extension", value: QTSettingsTab.integrations) { QTIntegrationsSettingsPane().qtSettingsPane() }
             Tab(QTLoc.tr("Advanced", table: .desktop), systemImage: "gearshape.2", value: QTSettingsTab.advanced) { QTAdvancedSettings().qtSettingsPane() }
         }
         .frame(width: 560)
@@ -67,17 +69,39 @@ private func setting<T>(_ store: QTSettingsStore, _ keyPath: WritableKeyPath<QTS
 struct QTGeneralSettings: View {
     @Environment(QTAppModel.self) private var model
 
+    private var staleMenus: Bool {
+        #if DEBUG
+        if model.launch.bool(QTDesktopLaunchKey.staleMenus) == true { return true }
+        #endif
+        return QTInterfaceLanguageSync.menusAreStale(interface: QTLoc.language, launch: model.launch)
+    }
+
     var body: some View {
         let store = model.settings
         Form {
             Section {
-                Picker(QTLoc.tr("Interface language"), selection: setting(store, \.interfaceLanguage)) {
-                    Text(QTLoc.tr("Auto")).tag(QTInterfaceLanguage.automatic)
-                    Divider()
-                    Text(verbatim: "English").tag(QTInterfaceLanguage.enUS)
-                    Text(verbatim: "简体中文").tag(QTInterfaceLanguage.zhCN)
+                LabeledContent(QTLoc.tr("Interface language")) {
+                    HStack(spacing: QTTheme.Spacing.s) {
+                        // The app switches at once; AppKit's own menu items follow the next launch.
+                        if staleMenus {
+                            Button(QTLoc.tr("Relaunch", table: .desktop)) { QTInterfaceLanguageSync.relaunch() }
+                                .controlSize(.small)
+                                .help(QTLoc.tr("Relaunch to switch the system menus too", table: .desktop))
+                                .accessibilityIdentifier("qt.settings.relaunch")
+                        }
+                        Picker(QTLoc.tr("Interface language"),
+                               selection: Binding(get: { store.settings.interfaceLanguage },
+                                                  set: { QTInterfaceLanguageSync.choose($0, store: store) })) {
+                            Text(QTLoc.tr("Auto")).tag(QTInterfaceLanguage.automatic)
+                            Divider()
+                            Text(verbatim: "English").tag(QTInterfaceLanguage.enUS)
+                            Text(verbatim: "简体中文").tag(QTInterfaceLanguage.zhCN)
+                        }
+                        .labelsHidden()
+                        .fixedSize()
+                        .accessibilityIdentifier("qt.settings.interfaceLanguage")
+                    }
                 }
-                .accessibilityIdentifier("qt.settings.interfaceLanguage")
                 Picker(QTLoc.tr("Theme"), selection: Binding(get: { model.theme }, set: { model.theme = $0 })) {
                     Text(QTLoc.tr("Auto")).tag(QTThemePreference.automatic)
                     Text(QTLoc.tr("Light")).tag(QTThemePreference.light)
@@ -85,6 +109,7 @@ struct QTGeneralSettings: View {
                 }
                 .pickerStyle(.segmented)
             }
+            QTNotificationsSettingsSection()
             Section(QTLoc.tr("Menu Bar", table: .desktop)) {
                 Toggle(QTLoc.tr("Show song title", table: .desktop), isOn: setting(store, \.showsTitleInMenuBar))
                 Toggle(QTLoc.tr("Scroll long titles", table: .desktop), isOn: setting(store, \.menuBarScrollsTitle))
@@ -108,22 +133,27 @@ struct QTPlaybackSettings: View {
 
     var body: some View {
         let store = model.settings
-        let isFree = model.account == .free
+        // Gated on what the engine playing right now can do, not on the account tier: Premium accounts also play
+        // through YouTube's web player until the native engine ships (M5), and it supports none of these.
+        let caps = model.player.capabilities
+        let gapless = caps.contains(.gapless)
+        let crossfades = caps.contains(.crossfade)
+        let equalizes = caps.contains(.equalizer)
+        let crossfade = crossfades ? store.settings.playbackEffects.crossfadeSeconds : 0
         Form {
             Section {
                 Toggle(QTLoc.tr("Prefer videos when available"), isOn: setting(store, \.preferVideos))
             }
             Section {
-                // Controls show what is in effect: with the free engine none of these apply, so they read off
-                // (the saved Premium choices come back when the engine does).
-                let effects = store.settings.playbackEffects
-                let crossfade = isFree ? 0 : effects.crossfadeSeconds
+                // Controls show what is in effect: an engine without a feature reads "off" (the saved choices
+                // come back with an engine that has it).
                 Toggle(QTLoc.tr("Gapless playback", table: .desktop),
-                       isOn: Binding(get: { !isFree && store.settings.playbackEffects.gapless },
+                       isOn: Binding(get: { gapless && store.settings.playbackEffects.gapless },
                                      set: { v in store.update { $0.playbackEffects.gapless = v } }))
+                    .disabled(!gapless)
                 LabeledContent(QTLoc.tr("Crossfade", table: .desktop)) {
                     HStack(spacing: QTTheme.Spacing.s) {
-                        Slider(value: Binding(get: { isFree ? 0 : store.settings.playbackEffects.crossfadeSeconds },
+                        Slider(value: Binding(get: { crossfades ? store.settings.playbackEffects.crossfadeSeconds : 0 },
                                               set: { v in store.update { $0.playbackEffects.crossfadeSeconds = v } }),
                                in: 0...12, step: 1)
                             .frame(width: 200)
@@ -134,28 +164,37 @@ struct QTPlaybackSettings: View {
                             .frame(minWidth: 40, alignment: .trailing)
                     }
                 }
+                .disabled(!crossfades)
                 Picker(QTLoc.tr("Equalizer", table: .desktop),
-                       selection: Binding(get: { isFree ? .off : store.settings.playbackEffects.equalizer },
+                       selection: Binding(get: { equalizes ? store.settings.playbackEffects.equalizer : .off },
                                           set: { v in store.update { $0.playbackEffects.equalizer = v } })) {
                     ForEach(QTEqualizerPreset.allCases, id: \.self) { p in
                         Text(Self.name(p)).tag(p)
                         if p == .off { Divider() }
                     }
                 }
+                .disabled(!equalizes)
             } header: {
                 Text(QTLoc.tr("Premium engine"))
             } footer: {
-                if isFree {
-                    Text(QTLoc.tr("Free accounts play through YouTube’s own player, which doesn’t support these.", table: .desktop))
+                if let note = Self.unsupportedNote(capabilities: caps, account: model.account) {
+                    Text(note)
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .padding(.leading, 10)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            .disabled(isFree)
         }
         .formStyle(.grouped)
+    }
+
+    /// Why the section is off, or nil when the playing engine supports all of it.
+    static func unsupportedNote(capabilities: QTPlaybackCapabilities, account: QTAccountKind) -> String? {
+        guard !capabilities.isSuperset(of: [.gapless, .crossfade, .equalizer]) else { return nil }
+        return account == .free
+            ? QTLoc.tr("Free accounts play through YouTube’s own player, which doesn’t support these.", table: .desktop)
+            : QTLoc.tr("YouTube’s player, which plays your music for now, doesn’t support these.", table: .desktop)
     }
 
     private func crossfadeLabel(_ seconds: Double) -> String {
@@ -302,6 +341,7 @@ struct QTAdvancedSettings: View {
         .formStyle(.grouped)
         .confirmationDialog(QTLoc.tr("Reset all settings?", table: .desktop), isPresented: $confirmReset) {
             Button(QTLoc.tr("Reset", table: .desktop), role: .destructive) {
+                QTInterfaceLanguageSync.write(.automatic)
                 model.settings.update { $0 = QTSettings() }
                 model.applyAppearance()
             }

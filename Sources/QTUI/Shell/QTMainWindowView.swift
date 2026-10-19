@@ -72,9 +72,9 @@ public struct QTMainWindowView: View {
                                     model.isPanelShown = true
                                 }
                             } label: {
-                                Label(QTLoc.tr("Show panel"), systemImage: QTIcon.sidebar.systemName)
+                                Label(QTLoc.tr("Show Panel", table: .desktop), systemImage: QTIcon.sidebar.systemName)
                             }
-                            .help("\(QTLoc.tr("Show panel"))  ⌥⌘N")
+                            .help("\(QTLoc.tr("Show Panel", table: .desktop))  ⌥⌘N")
                             .accessibilityIdentifier("qt.window.showPanel")
                         }
                     }

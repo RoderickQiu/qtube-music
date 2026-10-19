@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE dictionary SYSTEM "file://localhost/System/Library/DTDs/sdef.dtd">
+<!-- QTube Music scripting terminology. Implementation: Sources/QTUI/Desktop/QTScripting.swift (+ the app
+     delegate's application(_:delegateHandlesKey:)). Read-only toward YouTube Music. -->
+<dictionary title="QTube Music Terminology" xmlns:xi="http://www.w3.org/2003/XInclude">
+    <xi:include href="file:///System/Library/ScriptingDefinitions/CocoaStandard.sdef"
+                xpointer="xpointer(/dictionary/suite)"/>
+
+    <suite name="QTube Music Suite" code="QTMu" description="Control playback in QTube Music.">
+        <enumeration name="player state" code="QTps">
+            <enumerator name="stopped" code="QTsS" description="Nothing is loaded."/>
+            <enumerator name="playing" code="QTsP" description="Playing (including an ad)."/>
+            <enumerator name="paused" code="QTsp" description="Paused."/>
+        </enumeration>
+
+        <class name="track" code="QTtr" description="A song or music video." plural="tracks">
+            <cocoa class="QTScriptTrack"/>
+            <property name="name" code="pnam" type="text" access="r" description="The title.">
+                <cocoa key="name"/>
+            </property>
+            <property name="artist" code="QTar" type="text" access="r" description="The artists.">
+                <cocoa key="artist"/>
+            </property>
+            <property name="album" code="QTal" type="text" access="r" description="The album, if any.">
+                <cocoa key="album"/>
+            </property>
+            <property name="duration" code="QTdu" type="real" access="r" description="Length in seconds.">
+                <cocoa key="duration"/>
+            </property>
+            <property name="video id" code="QTid" type="text" access="r" description="The YouTube video id.">
+                <cocoa key="videoID"/>
+            </property>
+        </class>
+
+        <class-extension extends="application" description="QTube Music’s top-level scripting object.">
+            <property name="player state" code="QTpS" type="player state" access="r"
+                      description="Is QTube Music stopped, playing or paused?">
+                <cocoa key="playerState"/>
+            </property>
+            <property name="current track" code="QTcT" type="track" access="r" description="The current track.">
+                <cocoa key="currentTrack"/>
+            </property>
+            <property name="player position" code="QTpP" type="real" access="rw"
+                      description="The position in the current track, in seconds.">
+                <cocoa key="playerPosition"/>
+            </property>
+            <property name="sound volume" code="QTsV" type="integer" access="rw" description="0 to 100.">
+                <cocoa key="soundVolume"/>
+            </property>
+        </class-extension>
+
+        <command name="play" code="QTMuPlay" description="Resume playback.">
+            <cocoa class="QTScriptPlayCommand"/>
+        </command>
+        <command name="pause" code="QTMuPaus" description="Pause playback.">
+            <cocoa class="QTScriptPauseCommand"/>
+        </command>
+        <command name="playpause" code="QTMuPlPs" description="Toggle play/pause.">
+            <cocoa class="QTScriptPlayPauseCommand"/>
+        </command>
+        <command name="next track" code="QTMuNext" description="Skip to the next track (or a skippable ad).">
+            <cocoa class="QTScriptNextTrackCommand"/>
+        </command>
+        <command name="previous track" code="QTMuPrev" description="Go back to the previous track.">
+            <cocoa class="QTScriptPreviousTrackCommand"/>
+        </command>
+    </suite>
+</dictionary>

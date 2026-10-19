@@ -3,8 +3,8 @@ import QTCore
 import SwiftUI
 
 // Owner: builder "desktop". The full menu bar (draft §8, HANDOFF §5 keyboard map):
-//   QTube Music (system) · File (system Close) · Edit (+ Search Music ⌘K, Filter ⌘F) · View (panel ⌥⌘N,
-//   sections ⌘1–4 in sidebar order, Back ⌘[ / Forward ⌘] through QTNavigator, system sidebar / full screen) · Controls (Space, ⌘←/→, ⌘L, shuffle, repeat, ⌘↑/↓ volume,
+//   QTube Music (system + Check for Updates… from the app target) · File (Close Window ⌘W) · Edit (+ Search Music ⌘K, Filter ⌘F) · View (panel ⌥⌘N,
+//   sections ⌘1–7 in sidebar order, Back ⌘[ / Forward ⌘] through QTNavigator, system sidebar / full screen) · Controls (Space, ⌘←/→, ⌘L, shuffle, repeat, ⌘↑/↓ volume,
 //   ⇧⌘V, ⇧⌘P, ⇧⌘F, ⇧⌘M, ⇧⌘L, ⌥↑/↓) · Window (system + "QTube Music" ⌘0) · Help (Keyboard Shortcuts ⌘/).
 // Esc closes the Stage / its drawer inside the Stage view (`.cancelAction`), not as a menu item, so popovers and
 // sheets keep their own Esc. Text-editing collisions (Space, ⌘←…) are routed to the text field (QTKeyRouting).
@@ -25,8 +25,13 @@ public struct QTCommands: Commands {
     public var body: some Commands {
         let _ = desktop.register(openWindow: openWindow)
 
-        // File: no document model; keep the system Close, drop New/Print.
+        // File: no document model, so no New/Open/Print — but keep the menu with Close Window ⌘W, like Music.
+        // (An empty File menu makes SwiftUI drop it and move Close into the Window menu.)
         CommandGroup(replacing: .newItem) {}
+        CommandGroup(replacing: .saveItem) {
+            Button(QTLoc.tr("Close Window", table: .desktop)) { NSApp.keyWindow?.performClose(nil) }
+                .keyboardShortcut("w", modifiers: .command)
+        }
         CommandGroup(replacing: .printItem) {}
 
         // Edit
@@ -40,8 +45,9 @@ public struct QTCommands: Commands {
 
         // View
         CommandGroup(after: .sidebar) {
-            Button(QTLoc.tr(model.isPanelShown ? "Hide panel" : "Show panel")) { model.isPanelShown.toggle() }
+            Button(QTLoc.tr(model.isPanelShown ? "Hide Panel" : "Show Panel", table: .desktop)) { model.isPanelShown.toggle() }
                 .keyboardShortcut("n", modifiers: [.command, .option])
+            // An inline picker brings its own separators — no Divider next to it (that doubled them).
             Picker(QTLoc.tr("Panel", table: .desktop), selection: Binding(get: { model.panelTab }, set: { tab in
                 model.panelTab = tab
                 model.isPanelShown = true
@@ -50,11 +56,9 @@ public struct QTCommands: Commands {
                 Text(QTLoc.tr("Queue")).tag(QTPanelTab.queue)
             }
             .pickerStyle(.inline)
-            Divider()
-            section(.home, title: QTLoc.tr("Home"), key: "1")
-            section(.explore, title: QTLoc.tr("Explore"), key: "2")
-            section(.songs, title: QTLoc.tr("Songs"), key: "3")
-            section(.liked, title: QTLoc.tr("Liked Songs"), key: "4")
+            ForEach(Array(Self.sidebarShortcutOrder.enumerated()), id: \.offset) { index, item in
+                section(item, title: QTSidebarView.title(for: item), key: KeyEquivalent(Character("\(index + 1)")))
+            }
             Divider()
             Button(QTLoc.tr("Back")) { navigator.goBack() }
                 .keyboardShortcut("[", modifiers: .command)
@@ -138,6 +142,10 @@ public struct QTCommands: Commands {
         }
     }
 
+    /// ⌘1… follow the sidebar from the top: Home, Explore, then Library (Songs, Albums, Artists, Liked Songs,
+    /// History). Playlists have no number.
+    static let sidebarShortcutOrder: [QTSidebarItem] = [.home, .explore, .songs, .albums, .artists, .liked, .history]
+
     private func section(_ item: QTSidebarItem, title: String, key: KeyEquivalent) -> some View {
         Button(title) {
             bringUpBrowsing()
@@ -214,13 +222,12 @@ public struct QTKeyboardShortcutsView: View {
                 Row(title: QTLoc.tr("Filter"), keys: "⌘F"),
                 Row(title: QTLoc.tr("Play"), keys: "↩"),
                 Row(title: QTLoc.tr("Play Next"), keys: "⌥↩"),
-                Row(title: QTLoc.tr("Home"), keys: "⌘1"),
-                Row(title: QTLoc.tr("Explore"), keys: "⌘2"),
-                Row(title: QTLoc.tr("Songs"), keys: "⌘3"),
-                Row(title: QTLoc.tr("Liked Songs"), keys: "⌘4"),
+            ] + QTCommands.sidebarShortcutOrder.enumerated().map { i, item in
+                Row(title: QTSidebarView.title(for: item), keys: "⌘\(i + 1)")
+            } + [
                 Row(title: QTLoc.tr("Back"), keys: "⌘["),
                 Row(title: QTLoc.tr("Forward"), keys: "⌘]"),
-                Row(title: QTLoc.tr("Show panel"), keys: "⌥⌘N"),
+                Row(title: QTLoc.tr("Show Panel", table: .desktop), keys: "⌥⌘N"),
                 Row(title: QTLoc.tr("Show Main Window"), keys: "⌘0"),
             ]),
         ]
@@ -240,7 +247,7 @@ public struct QTKeyboardShortcutsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 420, height: 680)
+        .frame(width: 420, height: 760)
         .accessibilityIdentifier("qt.keyboardShortcuts")
     }
 }

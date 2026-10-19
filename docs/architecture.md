@@ -17,15 +17,16 @@ SwiftPM package `QTubeMusic` (`Package.swift`, tools 6.2, Swift 6 language mode,
 | `QTDevSession` | QTAuth | DEBUG-only executable: import the dev session from CDP cookie JSON on stdin; read-only `status` / `summary` / `probe` / `ytcfg` (never prints cookie values) | data-live |
 | `QTPlaybackLab` | QTPlayback | dev-only executable: drives the web engine live, muted and anonymous (`swift run --scratch-path .build/<you> QTPlaybackLab --scenario basic`) | playback |
 | `QTLyrics` | QTCore | `QTLyricsResolver` (actor, `QTLyricsProviding`): parsers (LRC, YRC, QRC, KRC, TTML), QRC/KRC decryption, providers (YouTube Music, LRCLIB, AMLL; NetEase/Kugou/QQ opt-in), matcher, `QTLyricsCache` (SQLite), romanization, translation (selector, coordinator, Apple Intelligence + Translation framework engines); `QTMockLyricsProvider` | lyrics |
+| `QTIntegrations` | QTCore | Opt-in integrations, all off by default: Last.fm (`QTLastFMRequest` signing/requests, `QTLastFMClient`, `QTScrobbleRules`, `QTListenTracker`, `QTScrobbleQueue` offline queue, `QTScrobbler` actor), Discord Rich Presence (`QTDiscordIPC` framing, `QTDiscordActivity`, `QTDiscordPresence` socket actor), `QTIntegrationsSettings` + `QTIntegrationsStore` (defaults `qt.integrations.v1`; secrets in the Keychain via `QTKeychainSecretStore`) | desktop |
 | `QTUI` | all | SwiftUI/AppKit UI, app model, theme | per folder, below |
-| `QTubeMusicApp` (product `QTubeMusic`) | QTUI | `@main` app: `Window` (main), `Settings`, `MenuBarExtra`, `QTCommands`, app delegate | desktop |
+| `QTubeMusicApp` (product `QTubeMusic`) | QTUI, Sparkle | `@main` app: `Window` (main), `Settings`, `MenuBarExtra`, `QTCommands`, app delegate (Dock menu, AppleScript application properties), `QTAppIntents.swift` (App Intents + App Shortcuts), `QTUpdater.swift` (Sparkle, dormant); `Resources/` (sdef, intent String Catalogs — excluded from SwiftPM, put in the bundle by build-app.sh) | desktop |
 
 Spec names → types: PlaybackEngine = `QTPlaybackEngine`, QueueController = `QTQueueController`,
 NowPlayingController = `QTNowPlayingController`, WebPlaybackEngine = `QTWebPlaybackEngine`.
 
-**No third-party dependencies.** LyricsKit was dropped at integration: its QRC/KRC/YRC parsers and decrypters
-are not public, so `QTLyrics` has its own (zlib and sqlite3 come from the system). Do not add any dependency
-without asking the user (Sparkle comes later).
+**One third-party dependency: Sparkle** (approved; only the app target links it). LyricsKit was dropped at
+integration: its QRC/KRC/YRC parsers and decrypters are not public, so `QTLyrics` has its own (zlib and sqlite3 come
+from the system). Do not add any other dependency without asking the user.
 
 ### What runs today (after integration)
 
@@ -147,7 +148,7 @@ given. Read-only: account writes stay disabled; likes / playlist edits remain se
 | `NowPlaying/`, `PlayerBar/`, `Queue/` | player | docked inspector, player bar, `QTScrubber`, `QTTransportControls`, `QTQueueList` |
 | `Lyrics/` | lyrics-ui | `QTLyricsView`, `QTLyricsOptionsButton` / `QTLyricsOptionsPopover` |
 | `Stage/` | stage | `QTStageView` (layouts × backgrounds, chrome, drawer) |
-| `Desktop/`, `Commands/`, `Settings/`, `Sources/QTubeMusicApp`, `Assets/AppIcon.icns` | desktop | mini player, desktop lyrics, menu bar, `QTDesktopCoordinator`, menus, Settings, app icon |
+| `Desktop/`, `Commands/`, `Settings/`, `Sources/QTubeMusicApp`, `Assets/AppIcon.icns` | desktop | mini player, desktop lyrics, menu bar, `QTDesktopCoordinator`, Dock menu, sidebar playlist context menu (`QTSidebarContextMenu`), `QTIntegrationsCoordinator` (Last.fm / Discord / notifications), `QTScripting` (AppleScript), menus + key routing, Settings (incl. Integrations, `QTInterfaceLanguageSync`), app icon |
 | `Theme/`, `Shared/`, `AppModel/` | shared | builders may **add**; don't rename, repurpose or break existing API |
 | `AppModel/QTLiveCatalogStore.swift`, `AppModel/Live/` | data-live | live catalog wiring, signed-out / skeleton / failure states, live Home, live library pages (browse pages are window's shared set) |
 
@@ -268,9 +269,13 @@ Coordinators (one per process, `@MainActor`):
   translation target, interface language) by itself. All network/SQLite work is off the main actor.
 
 Keyboard ownership: `QTCommands` (Commands/) is the only menu definition — every shortcut is bound once there
-(navigation items call `QTNavigator`). Space in the main window is consumed by `QTWindowKeyMonitor` (Shell/);
-elsewhere the Controls menu's Space fires. `QTKeyRouting` hands Space / ⌘←→ / ⌘↑↓ / ⌥↑↓ to a text field being
-edited, and bare Space to a focused control. Esc is handled inside the Stage (`.cancelAction`), not in menus.
+(navigation items call `QTNavigator`); ⌘1–7 follow the sidebar (Home … History). **Space** in any of our windows is
+decided by `QTKeyRouting` (Commands/; `QTWindowKeyMonitor` in Shell/ only forwards to it): with nothing focused, a
+table/outline (track lists, sidebar) or a scroll view focused, it plays/pauses at once; otherwise the focused view gets
+it first (text fields, every `NSControl` incl. switches/steppers, SwiftUI-focused controls via their focus proxy) and
+only a Space that falls off the end of the responder chain unused (`QTUnusedKeyCatcher`) plays/pauses. The menu's
+Space key equivalent is display-only. ⌘←→ / ⌘↑↓ / ⌥↑↓ go to a text field being edited, else the menu. Esc is handled
+inside the Stage (`.cancelAction`), not in menus. File keeps one item, Close Window ⌘W (no Close in Window).
 
 Core:
 - `QTPlaybackEngine` (`@MainActor`): `capabilities`, `state`, `stateUpdates()` (new `AsyncStream` per subscriber,
@@ -351,8 +356,16 @@ The prototype defines layout, hierarchy, copy and states; the app must look like
   en-US strings; `%@` text, `%lld` integers; positional `%1$@` in translations. Never `Text("literal")` with a
   localizable string — use `Text(QTLoc.tr(…))`; use `Text(verbatim:)` for non-translatable text (language names).
 - Runtime switching without restart: `QTLocalizer` resolves the chosen `.lproj` and is `Observable`; bodies that
-  call `QTLoc.tr` re-render when `settings.interfaceLanguage` changes. System-provided menu items follow the
-  launch language only.
+  call `QTLoc.tr` re-render when `settings.interfaceLanguage` changes. System-provided menu items (Edit › Undo,
+  Window › Minimize, Hide, Quit…) are localized by AppKit at launch from the app's `AppleLanguages`: picking a
+  language in Settings writes it (`QTInterfaceLanguageSync`: English → `["en"]`, 简体中文 → `["zh-Hans"]`, Auto removes
+  the key — the same key System Settings' per-app language uses; at launch only an explicit choice is re-applied, never
+  cleared), and General shows a quiet **Relaunch** button beside
+  the picker while the menus are still in the launch language. Launch arguments (`-qt.lang`, `-AppleLanguages`,
+  scripted runs) never write it.
+- App Intents strings live in the app target: `Sources/QTubeMusicApp/Resources/AppIntents.xcstrings` (titles,
+  `LocalizedStringResource(…, table: "AppIntents")`) and `AppShortcuts.xcstrings` (Siri/Spotlight phrases); a
+  QTCoreTests check keeps both translated.
 - Catalogs live in `Sources/QTCore/Resources/Localization/` (one bundle for every module):
 
   | Table (`QTStringTable`) | File | Who adds keys |
@@ -411,7 +424,7 @@ Builders add their own as `qt.<area>.<name>` (e.g. `qt.stage.chrome hidden`, `qt
 | lyrics-ui | `qt.lyrics.scrolled` · `qt.lyrics.options` · `qt.lyrics.demoVersions` · `qt.lyrics.translationState same\|translating\|download\|unavailable\|onDevice\|appleIntelligence` · `qt.lyrics.lab` · `qt.lyrics.debug` |
 | stage | `qt.stage.chrome hidden` · `qt.stage.queue YES` · `qt.stage.popover appearance` · `qt.stage.window YES` (detached window) · `qt.stage.reduceMotion YES` · `qt.stage.visualizerOnBattery YES` · `qt.stage.closeAfter <s>` · `qt.stage.noAd YES` (free account without the simulated pre-roll, e.g. the visualizer fallback) |
 | glass | DEBUG `qt.reduceTransparency YES` (every glass primitive draws its Reduce Transparency solid) |
-| desktop | `qt.desktop.miniMode compact\|art` · `qt.desktop.miniLyric` · `qt.desktop.miniHover` · `qt.desktop.lyricsUnlocked` · `qt.desktop.menuBarScroll` · `qt.desktop.lyricsSize <pt>` · `qt.settingsTab general\|playback\|lyrics\|account\|advanced`; DEBUG: `qt.desktop.switchLanguage`, `qt.desktop.popUpMenu <index>`, `qt.desktop.showShortcuts`, `qt.desktop.accountPreview signedIn\|premium\|signingIn\|expired\|signedOut` (Settings › Account without Keychain access) |
+| desktop | `qt.desktop.miniMode compact\|art` · `qt.desktop.miniLyric` · `qt.desktop.miniHover` · `qt.desktop.lyricsUnlocked` · `qt.desktop.menuBarScroll` · `qt.desktop.lyricsSize <pt>` · `qt.settingsTab general\|playback\|lyrics\|account\|integrations\|advanced`; DEBUG: `qt.desktop.switchLanguage`, `qt.desktop.popUpMenu <index>` (1 = File, 3 = View, 4 = Controls), `qt.desktop.showShortcuts`, `qt.desktop.accountPreview signedIn\|premium\|signingIn\|expired\|signedOut` (Settings › Account without Keychain access), `qt.desktop.staleMenus YES` (General shows Relaunch), `qt.desktop.scriptProbe <path>` (runs AppleScript against the app from inside it — no Automation prompt — and writes the results as JSON) |
 | lyrics-live | `qt.lyrics.unofficial all\|none\|netease,kugou,qq` (session-only Settings override) · `qt.lyrics.engine live\|mock` (default live) · `qt.lyrics.cache memory\|<path>` (fresh lookup; default Application Support/<bundle id>/Lyrics.sqlite) · `qt.lyrics.offline YES` (every source unreachable → fallback path) |
 | data-live | `qt.live.open album:<id\|title>` · `artist:<id\|name>` · `playlist:<id>` (once the library has loaded) · `qt.live.state skeleton\|offline\|unavailable\|expired` (pins every live page's state) · `qt.live.signedOut YES` (signed-out screen, no Keychain read) · with it `qt.live.signIn YES` (Google sign-in window in a throwaway WebKit store; a login there is never kept) |
 | stage-video | DEBUG `qt.video.debugVisibleHost YES` (orders the web engine's host window onto U270CA, alpha 1 — page diagnostics only) |
@@ -436,6 +449,12 @@ InnerTube fixtures), `QT_DUMP=1` (print parser output), `QT_KEYCHAIN_TEST=1` (Ke
   executable with `xcrun vtool -set-build-version macos <minos> <sdk>` before signing; check with
   `otool -l <app>/Contents/MacOS/QTubeMusic | grep -A4 LC_BUILD_VERSION` (`minos 15.0`, `sdk 27.0`). Binaries run
   straight from `swift run` keep the 15.0 stamp (old look).
+- `build-app.sh` also: embeds **Sparkle.framework** in `Contents/Frameworks` (rpath `@executable_path/../Frameworks`,
+  build-folder rpaths removed); copies `QTubeMusic.sdef` (`NSAppleScriptEnabled`, `OSAScriptingDefinition`);
+  compiles `AppIntents.xcstrings` / `AppShortcuts.xcstrings` to `.lproj/*.strings`; extracts **App Intents metadata**
+  like Xcode does (`swiftc -typecheck -emit-const-values-path` for the app module, then `appintentsmetadataprocessor`
+  → `Contents/Resources/Metadata.appintents`; a warning, not a failure, if it can't); signs ad hoc inside out
+  (Sparkle's XPC services, Autoupdate, Updater.app, the framework, then the app).
 - `Scripts/shoot.sh <outname> [--window main|mini|desktopLyrics|menuBarPopover|settings]… [launch args]` —
   quits that variant, `open -g -n` with `-qt.screen U270CA -qt.readyFile …`, waits for the ready file, finds window
   ids with `Scripts/tools/qt-window-id.swift` (compiled to `.build/qt-tools/`, CGWindowList by pid + title; Settings
@@ -470,6 +489,45 @@ InnerTube fixtures), `QT_DUMP=1` (print parser output), `QT_KEYCHAIN_TEST=1` (Ke
 - `Scripts/contact-sheet.sh <outname> [--title T] [--columns N] <img> <caption>…` — one captioned PNG in
   `screenshots/` (AppKit, offline).
 
+## System integrations (spec §8, §10)
+
+- **Dock menu** (`QTDockMenuBuilder`): now playing, transport (disabled with nothing loaded, like Controls), like,
+  shuffle, Repeat submenu (Off / Repeat All / Repeat One), mini player, desktop lyrics.
+- **Sidebar context menu** on Liked Songs and playlists: Play, Shuffle, Play Next, Copy Link (live lists load first).
+- **Mini player accessibility**: the panel is one labelled element ("Mini Player", value = title, artist) with named
+  actions Show Main Window, Close Mini Player, Switch Size, so the hover-only controls are reachable without a mouse.
+- **Settings › Playback** effects (gapless, crossfade, EQ) are gated on the *playing engine's* capabilities
+  (`player.capabilities`), not the account tier: the web engine (free and Premium today) shows them off + a note.
+- **Shortcuts / App Intents** (app target): Play or Pause, Play, Pause, Next Song, Previous Song, Like Current Song
+  (in-app only — nothing is written to YouTube Music), Play Playlist (Liked Songs + library playlists as an
+  `AppEntity`), Get Current Song (returns "Title — Artist"); App Shortcuts phrases in en + zh-Hans. None open the app.
+- **AppleScript**: `play`, `pause`, `playpause`, `next track`, `previous track`; application properties `player state`
+  (stopped/playing/paused), `current track` (name, artist, album, duration, video id), `player position` (rw),
+  `sound volume` (0–100, rw). `QTScripting` (Desktop/) + the app delegate's KVC properties.
+- **Notifications**: General › "Notify when the song changes" (off; permission is requested only when turned on).
+  Posted by `QTTrackChangeNotifier` when the song changes while the app isn't active (not for the paused launch
+  track, never for ads), artwork attached, one at a time.
+- **Last.fm** (Settings › Integrations, off): the app has no registered Last.fm API account yet, so the user enters
+  their own API key + shared secret (https://www.last.fm/api/account/create), presses Connect… (auth.getToken →
+  last.fm approval page in their browser) and Finish Connecting (auth.getSession). Shared secret and session key are
+  Keychain items (service `com.roderickqiu.qtube.integrations`); only the key and user name are in defaults.
+  Scrobbles follow Last.fm's rules (> 30 s; half the track or 4 min of *listening*), now-playing updates are
+  optional, unsent plays wait in `Application Support/<bundle id>/Scrobbles.json` (14-day limit) and go out 50 at a
+  time; error 9 (revoked session) disconnects with a toast. When the app gets its own key, ship it instead of the
+  fields.
+- **Discord Rich Presence** (Settings › Integrations, off): needs the user's Discord application ID; talks only to
+  the local Discord client over `$TMPDIR/discord-ipc-N` (handshake, `SET_ACTIVITY` "Listening to": title, artist,
+  album art by its https URL, elapsed/remaining, "Open in YouTube Music" button). Paused/stopped clears it.
+- Tests use stub transports and local frames only — never real Last.fm/Discord accounts.
+
+## Updates (Sparkle)
+
+Sparkle 2 is linked (app target only) and embedded, but **dormant** until there is a Developer ID: Info.plist has no
+`SUFeedURL` and no `SUPublicEDKey`; `SUEnableAutomaticChecks` / `SUAutomaticallyUpdate` / `SUAllowsAutomaticUpdates`
+are NO; `QTUpdater` never starts the updater without a feed, and the app menu's **Check for Updates…** stays
+disabled. Without an EdDSA key Sparkle would refuse unsigned updates anyway. Turning it on (user-gated): Developer ID
+signing + notarization, an appcast URL in `SUFeedURL`, `SUPublicEDKey` from Sparkle's `generate_keys`, signed archives.
+
 ## Rules for every builder
 
 - Never take focus or the main screen: only `open -g` (`-n`), no `NSApp.activate` in launch paths, panels are
@@ -489,8 +547,12 @@ InnerTube fixtures), `QT_DUMP=1` (print parser output), `QT_KEYCHAIN_TEST=1` (Ke
 ## Tests
 
 Swift Testing (`import Testing`, `@Test`, `#expect`). One test target per module:
-`QTCoreTests` (models, queue, lyrics, settings, catalog, localization + catalog coverage), `QTPlaybackTests`
+`QTCoreTests` (models, queue, lyrics, settings, catalog, localization + catalog coverage — a quote-aware scan of
+every `QTLoc.tr(…)` call, plus the App Intents catalogs), `QTIntegrationsTests` (Last.fm signing/requests, scrobble
+rules and queue, Discord framing — no network), `QTPlaybackTests`
 (simulated engine with an injected clock — no sleeps), `QTLyricsTests` and `QTInnerTubeTests` (recorded fixtures
 go in their `Fixtures/` folders, accessed with `Bundle.module.url(forResource: "Fixtures", withExtension: nil)`;
-record only anonymous public responses, no user data), `QTUITests` (launch options, SF Symbols, theme).
+record only anonymous public responses, no user data), `QTUITests` (launch options, SF Symbols, theme, key routing,
+Dock menu, `QTLiveCatalogStore` transitions and the auth restore → WebKit cookie sync with an in-memory Keychain/jar
+and a stub transport).
 Tests must pass offline and without the git-ignored catalog. Run: `swift test --scratch-path .build/<you>`.

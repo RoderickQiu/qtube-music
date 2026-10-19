@@ -95,6 +95,7 @@ struct QTSidebarRow: View {
         }
         .tag(item)
         .accessibilityIdentifier("qt.sidebar.\(item.argument)")
+        .qtSidebarContextMenu(for: item, playlist: playlist) // Desktop/QTSidebarContextMenu.swift
         if acceptsDrops {
             label
                 .dropDestination(for: String.self) { items, _ in drop(items) } isTargeted: { isTargeted = $0 }
