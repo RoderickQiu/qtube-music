@@ -13,7 +13,9 @@ public struct QTSongVideoToggle: View {
     }
 
     public var body: some View {
-        Picker(selection: Binding(get: { isVideo && hasVideo }, set: { isVideo = $0 })) {
+        // On macOS 26 the segmented control sends its action on every frame while the thumb slides (one click
+        // logged ~18 actions); only a real change may reach the binding, or each one re-asks for a switch.
+        Picker(selection: Binding(get: { isVideo && hasVideo }, set: { if $0 != (isVideo && hasVideo) { isVideo = $0 } })) {
             Text(QTLoc.tr("Song")).tag(false)
             Text(QTLoc.tr("Video")).tag(true)
         } label: {

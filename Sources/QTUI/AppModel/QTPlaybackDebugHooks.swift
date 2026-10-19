@@ -14,6 +14,7 @@ import QTPlayback
 //   info   {"command": "<name>[:<arg>]"}
 //
 // Commands: play · pause · toggle · next · previous · skipAd · seek:<s> · seekEnd:<s before end> · mode:song|video
+//           · playID:<videoId> — play one track looked up read-only in the live catalog
 //           · surface:window|stage · panel:now-playing|queue · offline · online
 //           · window:close|reopen — close the main window / bring it back the way a Dock click does (without
 //             activating the app), to check that reopening never disturbs playback
@@ -70,6 +71,14 @@ final class QTPlaybackDebugHooks {
         case "seek": player.seek(to: Double(arg) ?? 0)
         case "seekEnd": player.seek(to: max(0, player.duration - (Double(arg) ?? 4)))
         case "mode": model.isVideoMode = arg == "video"
+        case "playID":   // play one track by video id (read-only lookup in the live catalog)
+            Task { @MainActor in
+                guard let track = try? await QTLiveCatalogStore.shared.service.track(videoId: arg) else {
+                    self.log.append(["at": ProcessInfo.processInfo.systemUptime, "command": "playID-result", "result": "not found"])
+                    return
+                }
+                await player.play([track], startingAt: 0, mode: model.isVideoMode ? .video : .song)
+            }
         case "surface": model.surface = QTSurface(argument: arg) ?? .window
         case "panel":
             model.isPanelShown = true
@@ -137,6 +146,8 @@ final class QTPlaybackDebugHooks {
             "mode": player.mode.rawValue,
             "surface": model.surface.rawValue,
             "videoID": player.nowPlaying?.videoId ?? "",
+            "hasVideo": player.nowPlaying?.hasVideo ?? false,
+            "videoMode": model.isVideoMode,
             "title": player.nowPlaying?.title ?? "",
             "historyCount": queue.history.count,
             "upNextCount": queue.upNext.count,

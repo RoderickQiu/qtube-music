@@ -392,8 +392,10 @@ public struct QTStageView: View {
 
     private func topBar(_ a: QTStageResolvedAppearance) -> some View {
         @Bindable var model = model
-        // Liquid Glass on macOS 26 (QTGlass): the close button is its own glass circle, the trailing controls
-        // share one capsule; one container so the shapes blend.
+        // Liquid Glass on macOS 26 (QTGlass): the close button is its own glass circle, the two icon buttons share
+        // one capsule, and the Song | Video switch sits beside it on its own — a segmented control brings its own
+        // track, and nested inside the capsule it read as a box in a box with a barely visible selection.
+        // One container so the shapes blend.
         return QTGlassGroup {
             HStack(spacing: 6) {
                 Button(action: closeOrDismissDrawer) {
@@ -411,14 +413,14 @@ public struct QTStageView: View {
                     QTLyricsOptionsButton(overArt: true)
                         .frame(width: 34, height: 34)
                     QTStageAppearanceButton(isPresented: $isAppearanceOpen, appearance: a)
-                    QTSongVideoToggle(isVideo: songVideoBinding, hasVideo: player.nowPlaying?.hasVideo ?? false)
-                        .controlSize(.regular)
-                        .padding(.leading, 6)
-                        .padding(.trailing, 2)
                 }
                 .padding(.horizontal, 4)
                 .frame(height: 40)
                 .qtGlass(.overArt, in: Capsule())
+
+                QTSongVideoToggle(isVideo: songVideoBinding, hasVideo: player.nowPlaying?.hasVideo ?? false)
+                    .controlSize(.large)
+                    .padding(.leading, 4)
             }
         }
         .frame(height: 40)
