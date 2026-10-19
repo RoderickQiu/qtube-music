@@ -33,7 +33,7 @@ let package = Package(
 
         .testTarget(name: "QTCoreTests", dependencies: ["QTCore"], resources: [.copy("Fixtures")]),
         .testTarget(name: "QTLyricsTests", dependencies: ["QTLyrics"], resources: [.copy("Fixtures")]),
-        .testTarget(name: "QTInnerTubeTests", dependencies: ["QTInnerTube"], resources: [.copy("Fixtures")]),
+        .testTarget(name: "QTInnerTubeTests", dependencies: ["QTInnerTube", "QTAuth"], resources: [.copy("Fixtures")]),
         .testTarget(name: "QTPlaybackTests", dependencies: ["QTPlayback"]),
         .testTarget(name: "QTUITests", dependencies: ["QTUI"]),
     ],
