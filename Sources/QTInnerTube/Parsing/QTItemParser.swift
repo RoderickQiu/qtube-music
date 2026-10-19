@@ -79,8 +79,10 @@ enum QTItemParser {
             .navigation("playNavigationEndpoint")
         let itemNav = r.navigation("navigationEndpoint")
         let titleNav = titleRuns.first?.navigation
+        // A greyed-out row (not available here, removed) may come without any playable id: it stays in the list as a
+        // greyed row, like on YouTube Music, so playlist and Liked counts agree with it.
         let videoId = r[path: "playlistItemData", "videoId"].string ?? titleNav?.videoId ?? overlayNav?.videoId
-            ?? itemNav?.videoId
+            ?? itemNav?.videoId ?? (availability(r).isPlayable ? nil : unavailableRowID(r, title: title))
 
         let primaryNav: QTNavigation? = {
             if let itemNav, case .browse = itemNav { return itemNav }
@@ -225,6 +227,15 @@ enum QTItemParser {
         (r["badges"].array + r["subtitleBadges"].array).contains {
             $0[path: "musicInlineBadgeRenderer", "icon", "iconType"].string == "MUSIC_EXPLICIT_BADGE"
         }
+    }
+
+    /// A stable id for a greyed-out row without a playable video id: the video id its menu still names, else the
+    /// playlist entry id, else its title. Never well-formed as a video id, so nothing tries to play it.
+    static func unavailableRowID(_ r: QTJSON, title: String) -> String? {
+        guard !title.isEmpty else { return nil }
+        let menuID = r["menu"].first("removedVideoId")?.string ?? r["menu"].first("videoId")?.string
+        let entry = r[path: "playlistItemData", "playlistSetVideoId"].string
+        return "unavailable:" + (menuID ?? entry ?? title)
     }
 
     static func availability(_ r: QTJSON) -> QTAvailability {

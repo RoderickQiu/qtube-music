@@ -223,6 +223,32 @@ class Run:
                    and drift < 1.5, f"“{meta.get('title')}” elapsed {elapsed:.1f} vs app {app_time:.1f} (drift {drift:.2f}s), "
                    f"rate {rate}, artwork {meta.get('artworkAvailable')}")
 
+    def check_mode_switch(self, s):
+        """Song → Video → Song on the playing track (the first one with a music video): each switch seamless (gap 0,
+        |offset| ≤ 0.5 s), with how long the other rendition took. False when this track has no video."""
+        before = len(self.status().get("modeSwitches", []))
+        send("mode:video")
+        if not self.wait(3, "video mode", lambda x: x.get("mode") == "video"):
+            send("mode:song")
+            self.log(f"“{s['title']}” has no music video; the switch check tries the next track")
+            return False
+        reports = []
+        for to in ("video", "song"):
+            if to == "song":
+                send("mode:song")
+            r = self.wait(25, f"switch to {to}", lambda x: len(x.get("modeSwitches", [])) > before + len(reports))
+            if not r:
+                self.check(f"Song⇄Video: switch to {to} lands", False, f"fallback={self.status().get('seamlessFallback')}")
+                return True
+            reports.append(r["modeSwitches"][-1])
+            time.sleep(3)
+        for rep in reports:
+            self.check(f"Song⇄Video {rep['from']}→{rep['to']}: seamless, same position",
+                       rep.get("seamless") and rep.get("gap", 1) == 0 and abs(rep.get("offset", 9)) <= 0.5,
+                       f"offset {rep.get('offset', 0):+.3f} s, gap {rep.get('gap')}, latency {rep.get('latency', 0):.2f} s, "
+                       f"fallback={self.status().get('seamlessFallback') or '-'}")
+        return True
+
     def wait_for_content(self, timeout=100):
         """Content (not an ad) playing with time advancing; skips ads as soon as allowed."""
         end = time.time() + timeout
@@ -255,7 +281,7 @@ class Run:
     def run(self):
         self.launch()
         plays, distinct, transitions = [], set(), []
-        system_routed = in_process = False
+        system_routed = in_process = switched = False
         while len(plays) < self.args.plays:
             t_start = time.time()
             s, saw_ad = self.wait_for_content()
@@ -270,7 +296,10 @@ class Run:
                      + (" incl. ad" if saw_ad else ""))
             n = len(plays)
             if n == 1:
-                media = s.get("media") or {}
+                # The app reads the page's media element every 2 s (QTPlaybackDebugHooks), so right after the first
+                # play the status may not carry it yet: wait for a reading instead of failing on an empty dict.
+                st = self.wait(8, "page media reading", lambda x: "volume" in (x.get("media") or {})) or self.status()
+                media = st.get("media") or {}
                 self.check("silent: page media volume is 0", media.get("volume") == 0, f"media={media}")
                 if self.args.signed_in:
                     st = self.wait(10, "page account", lambda x: "page" in x) or self.status()
@@ -318,6 +347,8 @@ class Run:
                 continue
             if n == 5:
                 self.check_now_playing("track 5", s)
+            if self.args.signed_in and not switched and 4 <= n < self.args.plays:
+                switched = self.check_mode_switch(s)
             if n >= self.args.plays:
                 break
             before = s.get("historyCount", 0)

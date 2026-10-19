@@ -66,7 +66,13 @@ public actor QTInnerTubeClient {
     private var cache = QTResponseCache()
     private var clientConfigValue: QTInnerTubeClientConfig?
     private var clientConfigTask: Task<QTInnerTubeClientConfig, Never>?
-    private var visitorData: String?
+    /// Two visitor ids that are never mixed, so an anonymous request can't be tied to the account:
+    /// - `anonymousVisitorData`: from the signed-out `ytcfg` scrape (or a signed-out answer); sent only on requests
+    ///   without the session.
+    /// - `sessionVisitorData`: from signed-in answers only; sent only with the session. Cleared when the session
+    ///   provider changes (sign-in, sign-out, account switch).
+    private var anonymousVisitorData: String?
+    private var sessionVisitorData: String?
     /// The last session-loss probe (see `confirmSessionLoss`): when, and whether it found the session gone.
     private var lastLossProbe: (date: Date, lost: Bool)?
     private var lossProbeTask: Task<Bool, Never>?
@@ -107,6 +113,7 @@ public actor QTInnerTubeClient {
 
     public func setCredentialsProvider(_ provider: (any QTInnerTubeCredentialsProvider)?) {
         credentialsProvider = provider
+        sessionVisitorData = nil
         lastLossProbe = nil
         cache.removeAll()
     }
@@ -153,7 +160,7 @@ public actor QTInnerTubeClient {
         let value = await task.value
         clientConfigValue = value
         clientConfigTask = nil
-        if visitorData == nil { visitorData = value.visitorData }
+        if anonymousVisitorData == nil { anonymousVisitorData = value.visitorData }
         return value
     }
 
@@ -176,6 +183,7 @@ public actor QTInnerTubeClient {
     ///   - requiresAuth: refuse with `.notSignedIn` when there's no session.
     ///   - identity: `.session` (default) sends the session when there is one; `.anonymous` never does — no cookies,
     ///     no SAPISIDHASH, no brand account, and only the anonymous visitor id from the signed-out `ytcfg` scrape.
+    ///     A request with the session carries only the visitor id signed-in answers gave (none until the first one).
     public func send(_ endpoint: String, body: [String: QTJSON], ttl: TimeInterval? = nil,
                      requiresAuth: Bool = false, identity: QTRequestIdentity = .session) async throws -> QTJSON {
         if Self.writeEndpoints.contains(endpoint), !allowsAccountWrites { throw QTInnerTubeError.writesDisabled }
@@ -189,18 +197,30 @@ public actor QTInnerTubeClient {
         let cacheKey = try ttl.map { _ in try cacheKey(endpoint: endpoint, body: body, credentials: credentials) }
         if let cacheKey, let hit = cache.value(for: cacheKey, now: now()) { return hit }
 
-        let visitor = identity == .anonymous ? client.visitorData : visitorData
+        let visitor = visitorData(signedIn: credentials != nil)
         let request = try makeRequest(endpoint: endpoint, body: body, client: client, credentials: credentials,
                                       visitorData: visitor)
         let json = try await perform(request, authenticated: credentials != nil, endpoint: endpoint)
-        if identity == .session, visitorData == nil, let v = QTInnerTubeParser.visitorData(json) { visitorData = v }
+        if let v = QTInnerTubeParser.visitorData(json) {
+            if credentials != nil {
+                if sessionVisitorData == nil { sessionVisitorData = v }
+            } else if anonymousVisitorData == nil {
+                anonymousVisitorData = v
+            }
+        }
         if let cacheKey, let ttl { cache.store(json, for: cacheKey, ttl: ttl, now: now()) }
         return json
     }
 
+    /// The visitor id for a request with (`signedIn`) or without the session — never the other one's.
+    func visitorData(signedIn: Bool) -> String? {
+        signedIn ? sessionVisitorData : anonymousVisitorData
+    }
+
     func makeRequest(endpoint: String, body: [String: QTJSON], client: QTInnerTubeClientConfig,
                      credentials: QTInnerTubeCredentials?) throws -> URLRequest {
-        try makeRequest(endpoint: endpoint, body: body, client: client, credentials: credentials, visitorData: visitorData)
+        try makeRequest(endpoint: endpoint, body: body, client: client, credentials: credentials,
+                        visitorData: visitorData(signedIn: credentials != nil))
     }
 
     func makeRequest(endpoint: String, body: [String: QTJSON], client: QTInnerTubeClientConfig,
@@ -243,7 +263,7 @@ public actor QTInnerTubeClient {
     }
 
     func context(client: QTInnerTubeClientConfig, credentials: QTInnerTubeCredentials?) -> QTJSON {
-        context(client: client, credentials: credentials, visitorData: visitorData)
+        context(client: client, credentials: credentials, visitorData: visitorData(signedIn: credentials != nil))
     }
 
     func context(client: QTInnerTubeClientConfig, credentials: QTInnerTubeCredentials?, visitorData: String?) -> QTJSON {

@@ -2,7 +2,7 @@
 // YouTube Music web player. Anonymous (non-persistent data store) and silent (media volume pinned to 0).
 // Never activates: no Dock icon, no windows on screen, no focus change.
 //
-//   swift run --scratch-path .build/playback QTPlaybackLab [--ids a,b,c] [--scenario basic|advance|cue|power|errors|switch|spectrum] [--queries "a|b|c"] [--count N]
+//   swift run --scratch-path .build/playback QTPlaybackLab [--ids a,b,c] [--scenario basic|advance|cue|power|errors|switch|spectrum|memory] [--queries "a|b|c"] [--count N]
 //
 // Prints one line per engine state change and a PASS/FAIL summary per check.
 
@@ -31,7 +31,7 @@ struct LabOptions {
             case "--count": count = Int(it.next() ?? "") ?? count
             case "--queries": queries = (it.next() ?? "").split(separator: "|").map(String.init)
             case "--help", "-h":
-                print("QTPlaybackLab [--ids a,b,c] [--scenario basic|advance|cue|power|errors|switch|spectrum] [--queries a|b|c] [--count N]")
+                print("QTPlaybackLab [--ids a,b,c] [--scenario basic|advance|cue|power|errors|switch|spectrum|memory] [--queries a|b|c] [--count N]")
                 exit(0)
             default: break
             }
@@ -276,6 +276,60 @@ final class Lab {
               "transitions " + transitions.map { String(format: "%.1f", $0) }.joined(separator: ", ") + " s")
     }
 
+    /// web-audio memory: plays `--count` tracks (at most 6) for 20 s each (`QT_LAB_LISTEN_SECONDS`) with no visualizer, logging the bytes the
+    /// spectrum tap keeps and the WebContent process's RSS, then checks a visualizer opened afterwards still gets
+    /// spectra right away (the idle trimming keeps the playhead's audio).
+    func memoryScenario() async {
+        let ids = Array(options.ids.prefix(min(options.count, 6)))
+        await controller.play(ids.map(track), startingAt: 0)
+        var kept: [Int] = []
+        var rss: [Int] = []
+        for i in ids.indices {
+            guard await waitForContent() else { return check("track \(i + 1) plays", false, ids[i]) }
+            let listen = Double(ProcessInfo.processInfo.environment["QT_LAB_LISTEN_SECONDS"] ?? "") ?? 20
+            try? await Task.sleep(for: .seconds(listen))
+            let info = await engine.debugAudioInfo()
+            let tracks = info?["tracks"] as? [[String: Any]] ?? []
+            let bytes = tracks.reduce(0) { $0 + ($1["bytes"] as? Int ?? 0) }
+            let appended = tracks.reduce(0) { $0 + ($1["appended"] as? Int ?? 0) }
+            let dropped = (info?["stats"] as? [String: Any])?["dropped"] as? Int ?? 0
+            let kb = engine.webContentProcessIdentifier.flatMap(residentKB) ?? -1
+            kept.append(bytes)
+            rss.append(kb)
+            log(String(format: "track %d %@: tap keeps %.2f MB in %d track(s) (appended %.2f MB, dropped %.2f MB so far); WebContent RSS %.0f MB",
+                       i + 1, ids[i], Double(bytes) / 1_048_576, tracks.count, Double(appended) / 1_048_576,
+                       Double(dropped) / 1_048_576, Double(kb) / 1024))
+            if i + 1 < ids.count { await controller.next() }
+        }
+        check("idle tap holds only the current track's read-ahead", (kept.max() ?? 0) < 6 << 20,
+              "max " + String(format: "%.2f MB", Double(kept.max() ?? 0) / 1_048_576))
+        log("WebContent RSS per track (MB): " + rss.map { String(format: "%.0f", Double($0) / 1024) }.joined(separator: ", "))
+
+        var frames = 0
+        let poller = Task { @MainActor [engine] in
+            while !Task.isCancelled {
+                if let b = engine.spectrum(bandCount: 96), b.contains(where: { $0 > 0.05 }) { frames += 1 }
+                try? await Task.sleep(for: .milliseconds(16))
+            }
+        }
+        try? await Task.sleep(for: .seconds(3))
+        poller.cancel()
+        check("a visualizer opened after idle listening gets spectra", engine.audio.status == .ok && frames > 60,
+              "status \(engine.audio.status.rawValue), \(frames) frames with signal in 3 s")
+    }
+
+    func residentKB(of pid: pid_t) -> Int? {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/ps")
+        p.arguments = ["-o", "rss=", "-p", "\(pid)"]
+        let out = Pipe()
+        p.standardOutput = out
+        try? p.run()
+        p.waitUntilExit()
+        return String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)
+            .flatMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+    }
+
     /// Restore path: a paused first load (fresh page) and a paused load on a ready page, then play.
     func cued() async {
         let ids = options.ids
@@ -468,6 +522,7 @@ final class Lab {
         switch options.scenario {
         case "probe": await probe()
         case "spectrum": await spectrumScenario()
+        case "memory": await memoryScenario()
         case "power": await power()
         case "errors": await errors()
         case "cue": await cued()

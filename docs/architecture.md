@@ -109,7 +109,11 @@ given. Read-only: account writes stay disabled; likes / playlist edits remain se
 
 **Signed-in requests (privacy audit).** `QTInnerTubeClient.send(…, identity:)` sends the session (cookies +
 SAPISIDHASH + brand account) with `.session` (the default) and never with `.anonymous` (no cookies, no auth headers,
-no brand account, only the visitor id of the signed-out `ytcfg` scrape). What the app sends on its own, and as whom:
+no brand account, only the visitor id of the signed-out `ytcfg` scrape). The client keeps **two visitor ids that are
+never mixed**: the signed-out scrape's (or a signed-out answer's) goes only on requests without the session, the one
+signed-in answers give only on signed-in requests (none until the first answer; dropped when the session provider
+changes) — so an anonymous search can't be tied to the account through `X-Goog-Visitor-Id` / `context.client.visitorData`.
+What the app sends on its own, and as whom:
 
 | Request | When | Identity | Why |
 |---|---|---|---|
@@ -120,7 +124,8 @@ no brand account, only the visitor id of the signed-out `ytcfg` scrape). What th
 | Timed lyrics (`QTInnerTubeLyricsClient`, ANDROID_MUSIC) | track change | anonymous | Follows the client's hl / gl and anonymous visitor id only. |
 | Playback (the web engine's player page) | play | session (approved) | Plays are recorded in the user's YouTube Music history; `-qt.playback.anonymous YES` opts out. |
 
-Tests: `Tests/QTInnerTubeTests/PrivacyTests.swift` (the counterpart fallback, plain searches, the visitor id).
+Tests: `Tests/QTInnerTubeTests/PrivacyTests.swift` (the counterpart fallback, plain searches, the visitor ids — with
+the `ytcfg` scrape on and across a session change).
 
 **Session storage.** The session lives in the Keychain and, in memory only, in WebKit:
 - **Never a persistent WebKit store.** WebKit saves `WKWebsiteDataStore.default()` cookies in plain text
@@ -270,13 +275,20 @@ Coordinators (one per process, `@MainActor`):
   (`togglePictureInPicture()`, `canTogglePictureInPicture`, `isPictureInPictureActive`). `QTQueueController.preferredMode`
   carries the choice across tracks; `setMode` loads the counterpart at the current position (queue untouched).
   **Seamless switch (video-polish):** while content plays, `QTWebPlaybackEngine` prepares the counterpart in a second,
-  muted standby page a little ahead of the current position (`QTWebPlaybackEngine+ModeSwitch.swift`,
-  `QTWebStandbySwitch`), holds it once buffered, plays it when the old page's clock gets there and crossfades the two
-  (equal power, 0.4 s, bridge `fade`), then promotes it to the engine's page (`QTWebVideoOutput.engineDidSwapPage`) and
-  closes the old one — no gap, measured drift ≤ 0.08 s, handover 2–4 s after the click (the Song | Video switch and the
-  slots' placeholder change at once; the old rendition keeps playing until then). Paused, ads on the standby (free
-  accounts), errors, a 12 s timeout, near the end, offline, pause/seek mid-switch → the old in-page reload (short gap).
-  `Configuration.seamlessModeSwitch` (default on); `lastSeamlessFallback` says why one fell back.
+  muted standby page from about where the old page will be once it has loaded (`QTWebPlaybackEngine+ModeSwitch.swift`,
+  `QTWebStandbySwitch`), holds it once buffered, lines it up with one short seek inside its buffer, plays it when the
+  old page's clock gets there and crossfades the two (equal power, 0.4 s, bridge `fade`), then promotes it to the
+  engine's page (`QTWebVideoOutput.engineDidSwapPage`) and closes the old one — no gap, measured drift ≤ 0.07 s,
+  handover 1.3–1.9 s after the click (R5: lab anonymous; 2.4 s signed in, was 2.3–4.6 s; the Song | Video switch and the slots' placeholder change at once; the
+  old rendition keeps playing until then). Paused, an ad on the standby, errors, a 12 s timeout, less than
+  timeout + 10 s left in the track, offline, pause/seek mid-switch → the old in-page reload (short gap). Never for a
+  **signed-in free account** (`pageAccount`, from the page's own `ytcfg`): a standby watch page can roll a pre-roll,
+  which would be an ad served muted in a hidden page and, after a fallback, a second play report. The track **ending
+  or the page failing mid-switch** drops the standby and restores the old item; `QTQueueController.loadCurrent`
+  re-checks the engine after any load returns or is cancelled, so the queue still advances / skips (it ignores engine
+  states while a load is in flight). Behaviour tests with fake pages behind `QTWebPageIO`:
+  `Tests/QTPlaybackTests/ModeSwitchTests.swift`. `Configuration.seamlessModeSwitch` (default on);
+  `lastSeamlessFallback` says why one fell back.
 - **Live video:** `QTLiveVideoView(kind: .panel | .stage, cornerRadius:) { placeholder }` (NowPlaying/) shows the web
   engine's real video with the placeholder (artwork / MV still) on top until the first frame, then crossfades
   (0.32 s); ads, PiP and the simulated engine show the placeholder (PiP adds a quiet `pip` glyph).
@@ -598,8 +610,10 @@ InnerTube fixtures), `QT_DUMP=1` (print parser output), `QT_KEYCHAIN_TEST=1` (Ke
   (Premium) player page, no ads, closing/reopening the main window keeps playback, and the queue survives a graceful
   relaunch (`-qt.playback.persist YES`; the variant's saved queue is cleared first). While it runs the test app is
   the system's Now Playing app.
-- `swift run --scratch-path .build/<you> QTPlaybackLab --scenario basic|advance|cue|power|errors|probe|switch|spectrum` — the engine
-  alone, headless. `spectrum` (web-audio): polls `spectrum(bandCount: 96)` at 60 fps like the visualizer — signal, motion,
+- `swift run --scratch-path .build/<you> QTPlaybackLab --scenario basic|advance|cue|power|errors|probe|switch|spectrum|memory` — the engine
+  alone, headless. `memory` (web-audio): plays up to 6 tracks (`QT_LAB_LISTEN_SECONDS`, default 20 s each) with no
+  visualizer, logging the bytes the spectrum tap keeps and the WebContent RSS, then checks a visualizer opened
+  afterwards gets spectra. `spectrum` (web-audio): polls `spectrum(bandCount: 96)` at 60 fps like the visualizer — signal, motion,
   mute, seek, release — and logs WebContent + app CPU with the visualizer hidden / visible / hidden again. `switch` (M5 acceptance): for each of `--queries "a|b|c"` (default Ed Sheeran Perfect, Adele Hello,
   Coldplay Yellow) finds the song + music video anonymously, plays muted from 0:30 and switches Song → Video → Song,
   logging asked / requested / landed position, offset, latency, gap and seamless/in-page of every switch (pass:
@@ -618,7 +632,9 @@ InnerTube fixtures), `QT_DUMP=1` (print parser output), `QT_KEYCHAIN_TEST=1` (Ke
   forward for the measurement (clock-driven views pause while covered) and hands focus back; warns when other
   QTube instances run (they pollute the numbers). Appends a JSON line to `.build/perf-cpu.jsonl`; `--trace` writes
   `.build/perf-<label>.trace` (Instruments traces embed the process environment — keep them out of git and delete
-  them after use). See `docs/perf.md`.
+  them after use). One-string launch arguments (an unsplit shell variable) are split; a run where the app didn't do
+  what the arguments asked (not playing with `-qt.paused NO`, another engine than `-qt.engine`) is logged with
+  `"valid": false` + `"invalid": <why>` and exits 1 — ignore such rows. See `docs/perf.md`.
 - `Scripts/contact-sheet.sh <outname> [--title T] [--columns N] <img> <caption>…` — one captioned PNG in
   `screenshots/` (AppKit, offline).
 

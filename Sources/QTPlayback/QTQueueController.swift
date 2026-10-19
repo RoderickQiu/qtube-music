@@ -510,13 +510,37 @@ public final class QTQueueController {
             consecutiveFailures = 0
             lastFailure = nil
             prefetchContinuationIfNeeded()
+            handleEndOrFailureDuringLoad()
         } catch is CancellationError {
-            return
+            // Not replaced by a newer load: the engine dropped this one itself (the track ended or failed while a
+            // Song⇄Video switch was preparing, or a stop). Whatever the engine reported meanwhile was ignored.
+            guard token == loadToken else { return }
+            handleEndOrFailureDuringLoad()
         } catch {
             guard token == loadToken else { return }
             let failure = (error as? QTPlaybackError) ?? .engine(String(describing: error))
             lastFailure = failure
             await skipAfterFailure(track, failure)
+        }
+    }
+
+    /// `receive` ignores engine states while a load is in flight, and a load can be long (a seamless Song⇄Video
+    /// switch waits for a second page). If the current track ended or failed meanwhile, act on it now — otherwise the
+    /// queue would sit at the end of the track. The engine may also have put the old rendition back (an abandoned
+    /// switch): the queue's mode follows it.
+    private func handleEndOrFailureDuringLoad() {
+        let s = engine.state
+        guard let item = s.item, let track = queue.nowPlaying?.track, item.track.videoId == track.videoId else { return }
+        if item.mode != mode { mode = item.mode }
+        state = s
+        switch s.status {
+        case .ended:
+            Task { await self.handleEnded() }
+        case .failed(let error):
+            lastFailure = error
+            Task { await self.skipAfterFailure(track, error) }
+        default:
+            break
         }
     }
 

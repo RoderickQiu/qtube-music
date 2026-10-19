@@ -58,6 +58,55 @@ import Testing
         #expect(search.jsonBody[path: "context", "client", "visitorData"].isNull)
     }
 
+    /// With the real `ytcfg` scrape: the signed-out page's visitor id goes only on anonymous requests, the one
+    /// signed-in answers give only on signed-in ones — the two are never mixed, so Google can't tie an "anonymous"
+    /// search to the account through a shared X-Goog-Visitor-Id.
+    @Test func anonymousAndSignedInRequestsKeepSeparateVisitorIDsWithTheScrapeOn() async throws {
+        let html = """
+        <script>ytcfg.set({"INNERTUBE_API_KEY":"AIzaFAKEKEY","INNERTUBE_CLIENT_VERSION":"1.20261013.15.00",\
+        "VISITOR_DATA":"ANON-SCRAPED-VISITOR"});</script>
+        """
+        let t = FakeTransport()
+        t.enqueue("/", data: Data(html.utf8))
+        t.enqueue("browse", json: ["responseContext": ["visitorData": "SIGNED-IN-VISITOR"]])
+        t.enqueue("browse", json: [:])
+        t.enqueue("search", json: ["responseContext": ["visitorData": "OTHER-ANON-VISITOR"]])
+        t.enqueue("search", json: [:])
+        let client = QTInnerTubeClient(configuration: QTInnerTubeConfiguration(hl: "en", gl: "US"), transport: t,
+                                       credentials: FakeCredentials(ClientTests.fakeCredentials), scrapesClientConfig: true,
+                                       sleep: { _ in }, now: { ClientTests.fixedNow })
+        _ = try await client.send("browse", body: ["browseId": "FEmusic_home"])  // first signed-in request: no visitor id yet
+        _ = try await client.send("browse", body: ["browseId": "FEmusic_home"])  // later: the signed-in answer's id
+        _ = try await client.search("x")      // anonymous: the scraped signed-out id
+        _ = try await client.search("y")
+        let api = t.recorded.filter { $0.httpMethod == "POST" }
+        #expect(api.count == 4)
+        func visitor(_ r: URLRequest) -> String? { r.value(forHTTPHeaderField: "X-Goog-Visitor-Id") }
+        func bodyVisitor(_ r: URLRequest) -> String? { r.jsonBody[path: "context", "client", "visitorData"].string }
+        #expect(isSignedIn(api[0]) && visitor(api[0]) == nil && bodyVisitor(api[0]) == nil)
+        #expect(isSignedIn(api[1]) && visitor(api[1]) == "SIGNED-IN-VISITOR" && bodyVisitor(api[1]) == "SIGNED-IN-VISITOR")
+        for search in api.dropFirst(2) {
+            #expect(!isSignedIn(search))
+            #expect(visitor(search) == "ANON-SCRAPED-VISITOR" && bodyVisitor(search) == "ANON-SCRAPED-VISITOR")
+        }
+        // No request ever carried the other identity's id.
+        for r in api where isSignedIn(r) { #expect(visitor(r) != "ANON-SCRAPED-VISITOR") }
+        for r in api where !isSignedIn(r) { #expect(visitor(r) != "SIGNED-IN-VISITOR") }
+    }
+
+    /// A new session (sign-in, account switch) never inherits the previous account's visitor id.
+    @Test func changingTheSessionDropsTheSignedInVisitorID() async throws {
+        let t = FakeTransport()
+        t.enqueue("browse", json: ["responseContext": ["visitorData": "ACCOUNT-A-VISITOR"]])
+        t.enqueue("browse", json: [:])
+        let client = makeClient(t)
+        _ = try? await client.home()
+        await client.setCredentialsProvider(FakeCredentials(ClientTests.fakeCredentials))
+        _ = try? await client.home()
+        let last = try #require(t.recorded.last)
+        #expect(last.value(forHTTPHeaderField: "X-Goog-Visitor-Id") == nil)
+    }
+
     @Test func anonymousIdentityRefusesSignedInOnlyEndpoints() async throws {
         let client = makeClient(FakeTransport())
         await #expect(throws: QTInnerTubeError.notSignedIn) {

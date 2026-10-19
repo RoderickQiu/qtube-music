@@ -18,8 +18,11 @@ import Foundation
 /// process). Since those samples are already there, each pull returns the FFTs for the playhead *and the next
 /// display frames* (0…1, low → high, log-spaced 40 Hz–12 kHz), so ~10 pulls a second drive a 60 fps visualizer;
 /// or it says why there are none (`paused`, `pending`, `nodata`, `protected`, `undecodable`).
-/// `release()` drops the decoded audio once nobody asks. Otherwise the script only keeps the copies (a few MB,
-/// oldest dropped), so a hidden visualizer costs nothing.
+/// `release()` drops the decoded audio once nobody asks. Otherwise the script only keeps copies of what is still
+/// to play: while no visualizer asks, bytes more than a few seconds behind the playhead are dropped at every append
+/// (and at `release()`), a track's copies go as soon as its MediaSource closes (the next song, a reload), and at most
+/// `KEEP_TRACKS` open tracks are watched — so a hidden visualizer holds about the page's own read-ahead (< 1 MB measured),
+/// not every song's audio. While a visualizer asks, a track keeps up to `KEEP_BYTES` (seeking back stays instant).
 ///
 /// Decoded from the stream itself, the spectrum sits before every gain stage: the element's volume and mute (and
 /// the engine's silent test mode) don't affect it. Encrypted (EME) or undecodable media make the app's visualizer
@@ -121,9 +124,10 @@ enum QTWebAudioScript {
     (() => {
       if (window.__qtAudio || !window.MediaSource || !window.__qtAudioParse) return;
       const X = window.__qtAudioParse;
-      const KEEP_BYTES = 12 << 20, RATE = 24000, N = 2048, WINDOW = 6;
+      // KEEP_BYTES: per track while a visualizer asks. Idle, only what is still to play (minus BEHIND s) is kept.
+      const KEEP_BYTES = 12 << 20, KEEP_TRACKS = 2, BEHIND = 3, RATE = 24000, N = 2048, WINDOW = 6;
       const A = { tracks: [], on: false, lastAsk: 0, ctx: null, state: '', edges: null,
-                  stats: { appends: 0, marks: 0, decodes: 0, failures: 0, decodeMs: 0, frames: 0, frameMs: 0 } };
+                  stats: { appends: 0, marks: 0, decodes: 0, failures: 0, decodeMs: 0, frames: 0, frameMs: 0, dropped: 0 } };
       const view = (d) => d instanceof ArrayBuffer ? new Uint8Array(d) : new Uint8Array(d.buffer, d.byteOffset, d.byteLength);
       const video = () => { const p = document.getElementById('movie_player'); return (p && p.querySelector('video')) || document.querySelector('video'); };
 
@@ -131,7 +135,11 @@ enum QTWebAudioScript {
       function watch(sb, mime, ms) {
         const T = { sb, mime, ms, init: null, kind: '', scale: 0, chunks: [], size: 0, tail: new Uint8Array(0), lastAt: -1,
                     marks: [], windows: [], protected: false };
-        A.tracks.push(T); if (A.tracks.length > 6) A.tracks.shift();
+        // A closed MediaSource (the next song, a reload) never plays again: forget it and its copies at once.
+        const forget = () => { const i = A.tracks.indexOf(T); if (i >= 0) A.tracks.splice(i, 1); T.chunks = []; T.marks = []; T.windows = []; };
+        try { ms.addEventListener('sourceclose', forget, { once: true }); } catch (_) {}
+        A.tracks = A.tracks.filter((x) => x.ms.readyState !== 'closed');
+        A.tracks.push(T); while (A.tracks.length > KEEP_TRACKS) A.tracks.shift();
         const append = sb.appendBuffer;
         sb.appendBuffer = function (data) {
           try { ingest(T, view(data)); } catch (_) {}
@@ -157,8 +165,23 @@ enum QTWebAudioScript {
           T.lastAt = at; T.marks.push({ at, time: m.ticks * T.scale + tso, init: T.init }); A.stats.marks++;
         }
         T.tail = scan.slice(Math.max(0, scan.length - 64));
-        let bytes = T.size - (T.chunks.length ? T.chunks[0].off : 0);
-        while (bytes > KEEP_BYTES && T.chunks.length > 1) { bytes -= T.chunks.shift().bytes.length; }
+        trim(T);
+      }
+      // Drops copies nobody will decode: over KEEP_BYTES (oldest first) and, while no visualizer asks, what played
+      // more than BEHIND s ago — the leading run of marks (in append order) behind the playhead. A first pull then
+      // still finds the playhead's cluster and everything the page has read ahead.
+      function trim(T) {
+        if (!T.chunks.length) return;
+        let cut = T.chunks[0].off;
+        const v = A.on ? null : video();
+        if (v && T.ms.readyState !== 'closed') {
+          const t = v.currentTime - BEHIND;
+          for (let i = 0; i + 1 < T.marks.length && T.marks[i + 1].time <= t && T.marks[i].time <= t; i++) cut = T.marks[i + 1].at;
+        }
+        let bytes = T.size - T.chunks[0].off;
+        while (T.chunks.length > 1 && (T.chunks[0].off + T.chunks[0].bytes.length <= cut || bytes > KEEP_BYTES)) {
+          const c = T.chunks.shift(); bytes -= c.bytes.length; A.stats.dropped += c.bytes.length;
+        }
         const first = T.chunks[0].off; while (T.marks.length && T.marks[0].at < first) T.marks.shift();
       }
       const addSourceBuffer = MediaSource.prototype.addSourceBuffer;
@@ -278,7 +301,7 @@ enum QTWebAudioScript {
         A.stats.frames += out.length; A.stats.pulls = (A.stats.pulls || 0) + 1; A.stats.frameMs += performance.now() - f0;
         return out;
       }
-      function release() { A.on = false; A.state = ''; for (const T of A.tracks) T.windows = []; }
+      function release() { A.on = false; A.state = ''; for (const T of A.tracks) { T.windows = []; trim(T); } }
       window.__qtAudio = {
         // Pulled by the app (about ten times a second) only while a visualizer is on screen and playing.
         frames,
@@ -289,7 +312,7 @@ enum QTWebAudioScript {
           return { on: A.on, state: A.state, mime: A.mime || '', stats: A.stats, t,
                    tracks: A.tracks.map((x) => ({ mime: x.mime, open: x.ms.readyState, kind: x.kind, protected: x.protected,
                      marks: x.marks.length, first: x.marks.length ? x.marks[0].time : null, last: x.marks.length ? x.marks[x.marks.length - 1].time : null,
-                     bytes: x.size - (x.chunks.length ? x.chunks[0].off : 0), windows: x.windows.map((w) => [w.start, w.end, !!w.pcm, w.failed]) })),
+                     bytes: x.size - (x.chunks.length ? x.chunks[0].off : 0), appended: x.size, windows: x.windows.map((w) => [w.start, w.end, !!w.pcm, w.failed]) })),
                    current: T ? T.mime : null };
         },
       };

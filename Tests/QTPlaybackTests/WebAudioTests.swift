@@ -15,6 +15,8 @@ import Testing
     var document = { getElementById: () => null, querySelector: () => video };
     var performance = { now: () => Date.now() };
     function MediaSource() { this.readyState = 'open'; }
+    MediaSource.prototype.addEventListener = function (n, f) { (this.l = this.l || {})[n] = f; };
+    MediaSource.prototype.close = function () { this.readyState = 'closed'; if (this.l && this.l.sourceclose) this.l.sourceclose(); };
     MediaSource.prototype.addSourceBuffer = function () { return { timestampOffset: 0, appendBuffer() {} }; };
     // Decodes to a 1 kHz sine at 24 kHz, as long as the clusters' span says.
     var decoded = 0;
@@ -112,6 +114,46 @@ import Testing
         eval(js, "video.paused = false; __qtAudio.release()")
         #expect(eval(js, "__qtAudio.info().on").toBool() == false)
         #expect(eval(js, "__qtAudio.info().tracks[0].windows.length").toInt32() == 0)
+    }
+
+    /// With no visualizer on screen the tap keeps only what is still to play (plus a few seconds), so a long listening
+    /// session doesn't pile up every song's audio; a first pull still decodes at the playhead.
+    @Test func idleTapDropsPlayedAudioButStillServesThePlayhead() throws {
+        let js = try context()
+        eval(js, """
+        var ms = new MediaSource(), sb = ms.addSourceBuffer('audio/webm; codecs="opus"');
+        sb.appendBuffer(webmInit);
+        sb.appendBuffer(bytes(cluster(0), cluster(2000), cluster(4000)));
+        video.currentTime = 9.0;
+        sb.appendBuffer(bytes(cluster(6000), cluster(8000), cluster(10000)));
+        """)
+        // 0–6 s played more than 3 s ago: its copy is gone; 6 s onwards stays.
+        #expect(eval(js, "JSON.stringify(__qtAudio.info().tracks.map(t => [t.first, t.last, t.bytes, t.appended]))").toString()
+                == "[[6,10,78,156]]")
+        #expect(eval(js, "__qtAudio.info().stats.dropped").toInt32() == 78)
+        #expect(eval(js, "__qtAudio.frames(48, 1, 1 / 60)").toString() == "pending")
+        #expect(eval(js, "Array.isArray(__qtAudio.frames(48, 1, 1 / 60))").toBool(), "the playhead's cluster decodes")
+
+        // While a visualizer asks, played audio stays (seeking back stays instant).
+        eval(js, "video.currentTime = 30; sb.appendBuffer(bytes(cluster(12000), cluster(14000)))")
+        #expect(eval(js, "__qtAudio.info().tracks[0].first").toInt32() == 6)
+        // Once it is released, the copy shrinks to what is still to play.
+        eval(js, "__qtAudio.release()")
+        #expect(eval(js, "__qtAudio.info().tracks[0].first").toInt32() == 12)
+    }
+
+    /// A track's copies go when its MediaSource closes (next song, reload), and only a couple of open tracks are kept.
+    @Test func tapForgetsClosedTracksAndKeepsFewOpenOnes() throws {
+        let js = try context()
+        eval(js, """
+        var add = () => { const m = new MediaSource(), b = m.addSourceBuffer('audio/webm; codecs="opus"');
+                          b.appendBuffer(bytes(webmInit, cluster(0), cluster(2000))); return m; };
+        var first = add();
+        first.close();
+        """)
+        #expect(eval(js, "__qtAudio.info().tracks.length").toInt32() == 0)
+        eval(js, "add(); add(); add(); add()")
+        #expect(eval(js, "__qtAudio.info().tracks.length").toInt32() == 2)
     }
 
     @Test func tapReportsMissingAndProtectedMedia() throws {

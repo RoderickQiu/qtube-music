@@ -40,7 +40,11 @@ So a Web Audio graph can neither analyse nor equalise the page's audio, in eithe
   Cluster/Timecode, TimestampScale) and MP4 (moof/tfdt, mdhd timescale), and detects encryption.
 - `QTWebAudioScript.tap`: the page side. It is installed at document start, before the bridge.
   - It wraps `MediaSource.prototype.addSourceBuffer`, for audio SourceBuffers only.
-  - It keeps a copy of every byte the page appends, at most 12 MB per track, oldest dropped.
+  - It keeps a copy of the bytes the page appends. While no visualizer asks, only what is still to play: at every
+    append (and at `release()`) the leading run of clusters that ended more than 3 s behind the playhead is dropped,
+    so it holds about the page's read-ahead (measured 0.4–0.9 MB; R5 lab, 6 tracks × 50 s: 10.0 MB kept before, 0.86 MB after). While a visualizer asks, up to 12 MB per track
+    (seeking back stays instant). A track is forgotten as soon as its MediaSource closes (next song, reload), and at
+    most 2 open tracks are watched. Before R5 it kept up to 12 MB for each of the last 6 tracks, visualizer or not.
   - It indexes each cluster or fragment start by its **container timestamp** plus `timestampOffset`. YouTube
     slices its appends anywhere, often through a cluster header. Indexing by timestamp means the slicing doesn't
     matter, and neither do seeks.

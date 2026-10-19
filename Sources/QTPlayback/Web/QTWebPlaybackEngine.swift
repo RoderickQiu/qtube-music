@@ -136,6 +136,13 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
     var modeSwitchPlayLatency: TimeInterval = 0.04
     /// Why the last seamless Song⇄Video switch fell back to an in-page reload (diagnostics; nil = it didn't).
     public internal(set) var lastSeamlessFallback: String?
+    /// The standby gives up (in-page reload instead) after this long without a playable, buffered rendition.
+    var modeSwitchStandbyTimeout: TimeInterval = 12
+    /// Who the player page plays as (its own `ytcfg`), read when it becomes ready; nil = not known yet.
+    /// Seamless switches never run for a signed-in free account (see `canSwitchSeamlessly`).
+    var pageAccount: QTWebPageAccount?
+    /// How the engine talks to its pages (WebKit; tests drive fake pages through it).
+    var pageIO = QTWebPageIO.webKit
 
     /// - Parameters:
     ///   - dataStore: the app passes QTAuth's non-persistent session jar for signed-in playback; tests and the lab
@@ -394,6 +401,7 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         guard webView != nil else { return }
         cancelStandby(.superseded)
         needsFreshPage = true
+        pageAccount = nil
         guard let item = state.item, pendingLoads.isEmpty else { return }
         switch state.status {
         case .playing, .paused, .loading: break
@@ -522,7 +530,7 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         var query = [URLQueryItem(name: "v", value: videoID)]
         if start >= 1 { query.append(URLQueryItem(name: "t", value: "\(Int(start))s")) }
         components.queryItems = query
-        view.load(URLRequest(url: components.url!))
+        pageIO.load(view, URLRequest(url: components.url!))
     }
 
     /// Calls `window.__qtBridge.<name>(…args)` in the page world. Returns the command's boolean result.
@@ -530,15 +538,7 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
     func command(_ name: String, _ args: Any...) async -> Bool {
         guard let webView, isPageReady else { return false }
         if name != "freeze" { stopThrottlingHiddenPage() }
-        var arguments: [String: Any] = [:]
-        var list: [String] = []
-        for (i, a) in args.enumerated() {
-            arguments["a\(i)"] = a
-            list.append("a\(i)")
-        }
-        let js = "return window.__qtBridge ? window.__qtBridge.\(name)(\(list.joined(separator: ", "))) : false"
-        let result = try? await webView.callAsyncJavaScript(js, arguments: arguments, in: nil, contentWorld: .page)
-        return (result as? Bool) ?? false
+        return (await pageIO.call(webView, name, args) as? Bool) ?? false
     }
 
     // MARK: Spectrum (web-audio)
@@ -582,6 +582,7 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         case "ready":
             isPageReady = true
             video.pageDidBecomeReady()
+            readPageAccount()
             if let intent = playIntentBeforeReady {
                 playIntentBeforeReady = nil
                 Task { await command(intent ? "play" : "pause") }
@@ -596,7 +597,8 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
             state.status = .ended
             state.isBuffering = false
             stopWatchdog()
-            cancelStandby(.superseded)
+            // A Song⇄Video switch still preparing is dropped: the track is over, the queue moves on.
+            abandonStandbyForOldPage()
             publish()
         case "error":
             guard (dict["gen"] as? Int) == generation, state.item != nil else { return }
@@ -606,6 +608,8 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
             state.ad = nil
             state.isBuffering = false
             stopWatchdog()
+            // The page that failed is the one playing: a switch in flight can't hand over from it.
+            abandonStandbyForOldPage()
             publish()
             pendingLoads.removeValue(forKey: generation)?.resume(throwing: error)
         default:
@@ -857,12 +861,23 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
     /// Whether the player page is signed in, and Premium, as its own `ytcfg` says (acceptance runs). Never cookies.
     public func debugPageAccount() async -> [String: Any]? {
         guard let webView, isPageReady else { return nil }
-        let body = """
+        return await pageIO.evaluate(webView, Self.pageAccountScript) as? [String: Any]
+    }
+
+    static let pageAccountScript = """
         const c = window.ytcfg && window.ytcfg.get ? window.ytcfg : null;
         if (!c) return null;
         return {loggedIn: c.get('LOGGED_IN') ?? null, premium: c.get('IS_SUBSCRIBER') ?? null};
         """
-        return try? await webView.callAsyncJavaScript(body, arguments: [:], in: nil, contentWorld: .page) as? [String: Any]
+
+    /// Reads who the page plays as once it is ready (a page swap keeps the same store, so the same account).
+    private func readPageAccount() {
+        guard let view = webView else { return }
+        Task { @MainActor [weak self] in
+            guard let self, let info = await self.pageIO.evaluate(view, Self.pageAccountScript) as? [String: Any],
+                  self.webView === view else { return }
+            self.pageAccount = QTWebPageAccount(ytcfg: info)
+        }
     }
 
     /// Raw page sample (lab).
@@ -874,6 +889,52 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
 }
 
 // MARK: - Support types
+
+/// How the engine talks to a player page. The app uses WebKit; tests put a fake page behind the same calls, so the
+/// engine's own logic (loads, Song⇄Video switches, cancellation) runs unchanged.
+struct QTWebPageIO {
+    /// Navigates a page.
+    var load: @MainActor (WKWebView, URLRequest) -> Void
+    /// `window.__qtBridge.<name>(…args)` in the page world; nil when the page has no bridge (or the call failed).
+    var call: @MainActor (WKWebView, String, [Any]) async -> Any?
+    /// A raw function body in the page world (diagnostics, the page's account).
+    var evaluate: @MainActor (WKWebView, String) async -> Any?
+
+    static var webKit: QTWebPageIO {
+        QTWebPageIO(
+            load: { view, request in view.load(request) },
+            call: { view, name, args in
+                var arguments: [String: Any] = [:]
+                var list: [String] = []
+                for (i, a) in args.enumerated() {
+                    arguments["a\(i)"] = a
+                    list.append("a\(i)")
+                }
+                let js = "return window.__qtBridge ? window.__qtBridge.\(name)(\(list.joined(separator: ", "))) : null"
+                return try? await view.callAsyncJavaScript(js, arguments: arguments, in: nil, contentWorld: .page)
+            },
+            evaluate: { view, body in
+                try? await view.callAsyncJavaScript(body, arguments: [:], in: nil, contentWorld: .page)
+            })
+    }
+}
+
+/// Who a player page plays as, from its own `ytcfg` (`LOGGED_IN`, `IS_SUBSCRIBER`).
+enum QTWebPageAccount: Equatable {
+    case signedOut, free, premium
+
+    init?(ytcfg info: [String: Any]) {
+        func flag(_ key: String) -> Bool? {
+            if let b = info[key] as? Bool { return b }
+            if let n = info[key] as? NSNumber { return n.boolValue }
+            if let s = info[key] as? String { return s == "true" || s == "1" }
+            return nil
+        }
+        guard let loggedIn = flag("loggedIn") else { return nil }
+        if !loggedIn { self = .signedOut; return }
+        self = flag("premium") == true ? .premium : .free
+    }
+}
 
 /// One `state` message from the bridge.
 struct QTWebPlaybackSample: Equatable {

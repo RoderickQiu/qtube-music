@@ -215,7 +215,14 @@ enum QTParse {
 
     static func musicVideoType(_ raw: String?) -> QTMusicVideoType {
         guard let raw else { return .atv }
-        return QTMusicVideoType(rawValue: raw) ?? .other
+        if let known = QTMusicVideoType(rawValue: raw) { return known }
+        switch raw {
+        // Music a label uploads as a video on its channel (YouTube's "official source" program): a music video.
+        case "MUSIC_VIDEO_TYPE_OFFICIAL_SOURCE_MUSIC": return .ugc
+        // A song the user uploaded to their own library: audio.
+        case "MUSIC_VIDEO_TYPE_PRIVATELY_OWNED_TRACK": return .atv
+        default: return .other
+        }
     }
 
     // MARK: Music-only filter

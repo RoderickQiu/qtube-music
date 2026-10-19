@@ -30,6 +30,48 @@ import Testing
         #expect(QTInnerTubeClient.channelId("UCL2MDNdwEtV6aYUgNjFQGZA") == "UCL2MDNdwEtV6aYUgNjFQGZA")
     }
 
+    /// Liked / playlist rows are all kept, so counts agree with YouTube Music: official-source uploads are music, and a
+    /// greyed-out row without a playable id stays as a greyed (unplayable) row. Podcast episodes are still dropped.
+    @Test func playlistKeepsOfficialSourceAndGreyedOutRows() throws {
+        func row(_ title: String, video: String?, type: String?, greyed: Bool = false, setID: String? = nil) -> String {
+            let nav = video.map { v in
+                #","navigationEndpoint":{"watchEndpoint":{"videoId":"\#(v)","watchEndpointMusicSupportedConfigs":{"watchEndpointMusicConfig":{"musicVideoType":"\#(type ?? "MUSIC_VIDEO_TYPE_ATV")"}}}}"#
+            } ?? ""
+            var data: [String] = []
+            if let video { data.append(#""videoId":"\#(video)""#) }
+            if let setID { data.append(#""playlistSetVideoId":"\#(setID)""#) }
+            return """
+            {"musicResponsiveListItemRenderer":{"flexColumns":[
+              {"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"\(title)"\(nav)}]}}},
+              {"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Someone"}]}}}
+            ],"fixedColumns":[{"musicResponsiveListItemFixedColumnRenderer":{"text":{"runs":[{"text":"3:30"}]}}}],
+            "playlistItemData":{\(data.joined(separator: ","))}\(greyed ? #","musicItemRendererDisplayPolicy":"MUSIC_ITEM_RENDERER_DISPLAY_POLICY_GREY_OUT""# : "")}}
+            """
+        }
+        let rows = [
+            row("Song", video: "aaaaaaaaaaa", type: "MUSIC_VIDEO_TYPE_ATV"),
+            row("Official source", video: "bbbbbbbbbbb", type: "MUSIC_VIDEO_TYPE_OFFICIAL_SOURCE_MUSIC"),
+            row("Upload", video: "ccccccccccc", type: "MUSIC_VIDEO_TYPE_PRIVATELY_OWNED_TRACK"),
+            row("Gone here", video: nil, type: nil, greyed: true, setID: "SETID1"),
+            row("Greyed with id", video: "ddddddddddd", type: "MUSIC_VIDEO_TYPE_ATV", greyed: true),
+            row("Episode", video: "eeeeeeeeeee", type: "MUSIC_VIDEO_TYPE_PODCAST_EPISODE"),
+            row("No id, not greyed", video: nil, type: nil),
+        ]
+        let json = """
+        {"contents":{"singleColumnBrowseResultsRenderer":{"tabs":[{"tabRenderer":{"content":{"sectionListRenderer":{"contents":[
+          {"musicPlaylistShelfRenderer":{"contents":[\(rows.joined(separator: ","))]}}
+        ]}}}}]}},"header":{"musicResponsiveHeaderRenderer":{"title":{"runs":[{"text":"Liked Music"}]}}}}
+        """
+        let page = try #require(QTInnerTubeParser.playlist(try QTJSON(data: Data(json.utf8)), browseId: "VLLM"))
+        let tracks = page.playlist.tracks ?? []
+        #expect(tracks.map(\.title) == ["Song", "Official source", "Upload", "Gone here", "Greyed with id"])
+        #expect(tracks[1].musicVideoType == .ugc && tracks[1].availability == .playable)
+        #expect(tracks[2].musicVideoType == .atv)
+        #expect(tracks[3].videoId == "unavailable:SETID1" && tracks[3].availability == .regionLocked)
+        #expect(tracks[4].videoId == "ddddddddddd" && tracks[4].availability == .regionLocked)
+        #expect(Set(tracks.map(\.videoId)).count == tracks.count)
+    }
+
     /// An artist top-result card lists that artist's songs as "Song • 4:45" with no artist run.
     @Test func artistCardSongsInheritTheArtist() throws {
         func run(_ text: String, browse: String? = nil, pageType: String? = nil, video: String? = nil) -> String {

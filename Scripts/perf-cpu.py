@@ -16,9 +16,15 @@ focus is handed back afterwards; `--background` measures it wherever `open -g` l
 `--shot <name>` captures the main window after the settle (before measuring) into the main checkout's
 screenshots/<name>.png (`$QT_SCREENSHOTS` overrides the folder). Prints one JSON line and appends it to .build/perf-cpu.jsonl.
 Refuses to measure while another QTube Music instance runs (it would pollute Now Playing and CPU numbers).
+
+A launch argument that arrives as one string (an unsplit shell variable: "-qt.engine web -qt.paused NO") is split
+like a shell would. A run whose app didn't do what the arguments asked — not playing with `-qt.paused NO`, another
+engine than `-qt.engine` — is recorded with `"valid": false` and a reason, and the script exits 1: its numbers
+describe an idle app, not the scenario.
 """
 import json
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -86,6 +92,9 @@ def main():
             shot = rest[i + 1]; i += 2
         elif rest[i] == "--background":
             front = False; i += 1
+        elif rest[i].startswith("-") and any(c.isspace() for c in rest[i]):
+            print(f"note: splitting one-string arguments {rest[i]!r}", file=sys.stderr)
+            args += shlex.split(rest[i]); i += 1
         else:
             args.append(rest[i]); i += 1
 
@@ -132,6 +141,11 @@ def main():
     if shot:
         capture(info, shot)
 
+    try:
+        started_status = json.load(open(status)).get("status")
+    except (OSError, ValueError):
+        started_status = None
+
     pids = {"app": pid, "webContent": web_pid()}
     a = {k: cpu_time(p) for k, p in pids.items() if p}
     t0 = time.time()
@@ -154,6 +168,10 @@ def main():
               **{k: round((b[k] - a[k]) / elapsed * 100, 2) for k in a if a[k] is not None and b.get(k) is not None},
               "status": st.get("status"), "engine": st.get("engine"), "surface": st.get("surface"),
               "args": " ".join(args), "at": time.strftime("%Y-%m-%d %H:%M:%S")}
+    problems = expectation_problems(args, st, started_status)
+    result["valid"] = not problems
+    if problems:
+        result["invalid"] = "; ".join(problems)
     if not keep:
         subprocess.run(["kill", str(pid)])
     if front and front_before:
@@ -166,7 +184,36 @@ def main():
     print(line)
     with open(os.path.join(REPO, ".build", "perf-cpu.jsonl"), "a") as f:
         f.write(line + "\n")
+    if problems:
+        print("error: not a valid measurement — " + result["invalid"], file=sys.stderr)
+        return 1
     return 0
+
+
+def arg_value(args, key):
+    """The value after `key` in the launch arguments (last one wins), or None."""
+    value = None
+    for i, a in enumerate(args[:-1]):
+        if a == key:
+            value = args[i + 1]
+    return value
+
+
+def expectation_problems(args, st, started_status):
+    """What the app didn't do that the arguments asked for (empty = the measurement is what it says)."""
+    if not st:
+        return ["no status file (DEBUG build with -qt.playback.statusFile needed)"]
+    problems = []
+    paused = arg_value(args, "-qt.paused")
+    if paused is not None and paused.lower() in ("no", "false", "0"):
+        # Playing scenarios: playing at the start and at the end of the window (an ad counts as playing).
+        for when, value in (("start", started_status), ("end", st.get("status"))):
+            if value != "playing":
+                problems.append(f"expected playing at the {when} of the window, status {value!r}")
+    engine = arg_value(args, "-qt.engine")
+    if engine and engine != "auto" and st.get("engine") != engine:
+        problems.append(f"expected engine {engine!r}, got {st.get('engine')!r}")
+    return problems
 
 
 if __name__ == "__main__":
