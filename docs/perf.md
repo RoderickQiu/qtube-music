@@ -64,6 +64,22 @@ Same method, default debug app, no other QTube instances, signed-out mock catalo
 
 Every budget still passes (web window 4.6 %, Blur Stage 3.8 %, visualizer 12.1 % against 15 %).
 
+## After the R6 integration (main, all R6 branches merged)
+
+Same method, default debug app, no other QTube instances, signed-out mock catalog, web engine (anonymous, muted),
+30 s each (2026-10-19). Every run was recorded `"valid": true`. The Queue row checks the new Core Animation
+now-playing bars.
+
+| Scenario (playing unless noted) | App | WebContent |
+|---|---:|---:|
+| Idle (window, paused) | 0.9 | – |
+| Window, panel on Queue (simulated engine) | 1.9 | – |
+| **Web engine** · window | 2.4 | 1.5 |
+| **Web engine** · Blur Stage | 1.9 | 2.0 |
+| **Web engine** · Visualizer Stage (real spectrum) | 7.7 | 4.8 |
+
+Every budget still passes (web window 3.9 %, Blur Stage 3.9 %, visualizer 12.5 % against 15 %).
+
 ## Causes found (Time Profiler + SwiftUI instrument) and fixes
 
 1. **`TimelineView(.periodic)` drove the whole window at the display's frame rate.** The SwiftUI instrument showed

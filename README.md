@@ -116,14 +116,15 @@ The milestones follow the build plan. The spec's §13 groups the same work sligh
 | **M5** | Song⇄Video at the same position, PiP, native-engine spike | Song⇄Video and PiP are done. On Premium and signed-out pages the switch is seamless: the other version preloads on a muted standby page and crossfades in, with offset ≤ 0.07 s and a hand-over of 1.3–1.9 s in the lab (about 2.4 s signed in). Signed-in free accounts switch inside the page instead, so a hidden standby never plays an ad or reports an extra play. When the video is another cut than the song (the hero's MV is 5:39 against a 4:17 song), the lyrics are looked up again for the video's own length; without a version for that cut they show unsynced, never drifting. When both timings line up at one shift, the switch carries the position across it (R6). The native engine is a spike only and needs a decision (below). |
 | **M6** | Lyric translation (Translation framework and Apple Intelligence), Last.fm, Discord, Sparkle, App Intents, AppleScript | Built. On-device translation is shown in `r4-acceptance-translate-{en,ko}`. A missing language model shows a quiet "Translate to English" cue under the lyrics; clicking it opens the system's download sheet. Chinese→English (Simplified) and English were downloaded on this Mac in R6 (`r6-lyrics-zh-translated`); Traditional lyrics reuse the Simplified model. Pinyin shows only without a translation line unless Pronunciation is switched on in the lyrics options. The Apple Intelligence path has not run on this Mac (below). Last.fm and Discord work only with the user's own credentials. Sparkle is linked but dormant. |
 
-**CPU** (spec §9 budgets; `docs/perf.md`, after the R5 integration, 30 s each, debug build; the video row is from R4):
+**CPU** (spec §9 budgets; `docs/perf.md`, after the R6 integration, 30 s each, debug build; the video row is from R4):
 
 | Scenario | App | WebContent | Budget |
 |---|---:|---:|---|
-| Idle (window, paused) | 0.8 % | – | < 1 % |
-| Web engine, window | 2.5 % | 2.1 % | < 8 % |
-| Web engine, Blur Stage | 1.8 % | 2.0 % | < 8 % |
-| Web engine, Visualizer Stage (real spectrum) | 8.1 % | 4.1 % | < 15 % |
+| Idle (window, paused) | 0.9 % | – | < 1 % |
+| Window, panel on Queue (simulated engine, now-playing bars) | 1.9 % | – | < 8 % |
+| Web engine, window | 2.4 % | 1.5 % | < 8 % |
+| Web engine, Blur Stage | 1.9 % | 2.0 % | < 8 % |
+| Web engine, Visualizer Stage (real spectrum) | 7.7 % | 4.8 % | < 15 % |
 | Web engine, Video Stage (real video, R4) | 6.7 % | 11.0 % | as low as possible |
 
 ## Decisions waiting for the owner

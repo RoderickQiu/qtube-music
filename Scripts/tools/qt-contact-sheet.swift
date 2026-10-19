@@ -31,8 +31,11 @@ let items: [(NSImage, String)] = stride(from: 0, to: argv.count, by: 2).compactM
 }
 guard !items.isEmpty else { exit(1) }
 
-let pad: CGFloat = 40, gap: CGFloat = 32, captionH: CGFloat = 44
-let titleH: CGFloat = title == nil ? 0 : 64
+// Type scales with the cell so captions stay legible on wide sheets (17 / 26 pt at the default 720 px cell).
+let typeScale = max(1, cellWidth / 720)
+let captionSize = 17 * typeScale, titleSize = 26 * typeScale
+let pad: CGFloat = 40 * typeScale, gap: CGFloat = 32 * typeScale, captionH: CGFloat = captionSize * 2.6
+let titleH: CGFloat = title == nil ? 0 : titleSize * 2.5
 func pixelSize(_ img: NSImage) -> CGSize {
     if let rep = img.representations.first, rep.pixelsWide > 0 { return CGSize(width: rep.pixelsWide, height: rep.pixelsHigh) }
     return img.size
@@ -56,8 +59,8 @@ NSColor(calibratedWhite: 0.11, alpha: 1).setFill()
 NSRect(x: 0, y: 0, width: width, height: height).fill()
 let flipped = { (y: CGFloat, h: CGFloat) in height - y - h }
 if let title {
-    let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 26, weight: .bold), .foregroundColor: NSColor.white]
-    (title as NSString).draw(at: NSPoint(x: pad, y: flipped(pad, 32)), withAttributes: attrs)
+    let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: titleSize, weight: .bold), .foregroundColor: NSColor.white]
+    (title as NSString).draw(at: NSPoint(x: pad, y: flipped(pad, titleSize * 1.25)), withAttributes: attrs)
 }
 var y = pad + titleH
 for r in 0..<rows {
@@ -71,9 +74,9 @@ for r in 0..<rows {
         img.draw(in: NSRect(x: x, y: flipped(y, h), width: cellWidth, height: h))
         let style = NSMutableParagraphStyle()
         style.lineBreakMode = .byTruncatingTail
-        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 17, weight: .medium),
+        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: captionSize, weight: .medium),
                                                     .foregroundColor: NSColor(calibratedWhite: 0.88, alpha: 1), .paragraphStyle: style]
-        (caption as NSString).draw(in: NSRect(x: x, y: flipped(y + rowHeights[r] + 10, 26), width: cellWidth, height: 26), withAttributes: attrs)
+        (caption as NSString).draw(in: NSRect(x: x, y: flipped(y + rowHeights[r] + captionSize * 0.6, captionSize * 1.5), width: cellWidth, height: captionSize * 1.5), withAttributes: attrs)
     }
     y += rowHeights[r] + captionH + gap
 }
