@@ -41,6 +41,26 @@ import Testing
         #expect(glyphOnly.size.width < 30)
     }
 
+    /// The title sits on the menu bar's own text line (like the clock): its caps centred in the item, not ~3 pt high.
+    @Test func menuBarTitleIsVerticallyCentred() throws {
+        let image = QTMenuBarLabel.render(title: "HELLO 20", offset: 0)
+        let rep = try #require(image.representations.first as? NSBitmapImageRep)
+        let scale = CGFloat(rep.pixelsHigh) / image.size.height
+        let glyphWidth = QTMenuBarLabel.render(title: nil, offset: 0).size.width
+        func inkCentre(columns: Range<Int>) -> CGFloat? {
+            var rows: [Int] = []
+            for y in 0..<rep.pixelsHigh where columns.contains(where: { (rep.colorAt(x: $0, y: y)?.alphaComponent ?? 0) > 0.5 }) {
+                rows.append(y)
+            }
+            guard let top = rows.first, let bottom = rows.last else { return nil }
+            return CGFloat(top + bottom + 1) / 2 / scale   // from the top, in points
+        }
+        let text = try #require(inkCentre(columns: Int((glyphWidth + 6) * scale)..<rep.pixelsWide))
+        let glyph = try #require(inkCentre(columns: 0..<Int(glyphWidth * scale)))
+        #expect(abs(text - image.size.height / 2) <= 0.75)
+        #expect(abs(glyph - text) <= 1.5)
+    }
+
     @Test func lockedDesktopLyricsDropTheToolbarRow() {
         var p = QTDesktopLyricsPrefs()
         p.isLocked = true

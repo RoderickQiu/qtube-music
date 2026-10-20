@@ -367,6 +367,9 @@ final class QTColumnHeaderView: NSTableHeaderView {
 
     override var isOpaque: Bool { false }
 
+    /// The cell's 12 pt less the header cell's own text padding.
+    static let trailingTextInset: CGFloat = 10
+
     override func draw(_ dirtyRect: NSRect) {
         guard let t = tableView else { return }
         let sort = t.sortDescriptors.first
@@ -379,6 +382,8 @@ final class QTColumnHeaderView: NSTableHeaderView {
             cell.textColor = isSorted ? .labelColor : .tertiaryLabelColor
             let rightAligned = cell.alignment == .right
             var textRect = r
+            // Right-aligned headings end where their cells' text does (`QTTrackTextCell`'s 12 pt inset).
+            if rightAligned { textRect.size.width -= QTColumnHeaderView.trailingTextInset }
             if isSorted { textRect.size.width -= 16; if rightAligned { textRect.origin.x += 16 } }
             cell.drawInterior(withFrame: textRect, in: self)
             if isSorted, let sort {

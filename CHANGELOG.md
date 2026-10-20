@@ -3,6 +3,19 @@
 All notable changes to QTube Music. Versions follow [Semantic Versioning](https://semver.org); `Scripts/release.sh`
 uses the section for a version as its release notes.
 
+## 0.1.1
+
+Fixes.
+
+- **Stage top bar responds again.** Close, Lyrics options, Appearance and Song | Video sit in the window's title
+  bar strip, which was taking clicks for itself. Clicks now go straight to the buttons. Moving the pointer over the
+  Stage no longer redraws the whole Stage on every move.
+- **No stray frame around the lyrics.** Clicking a lyric line no longer draws a focus ring around the lyrics. The
+  ring still shows when you reach the lyrics with Tab.
+- **Library tables.** The time no longer touches the edge of a highlighted row.
+- **Now Playing panel.** The lyrics options button sits next to Song | Video instead of at the panel's edge.
+- **Menu bar.** The song title is vertically centred like the menu bar's own text.
+
 ## 0.1.0
 
 The first public release: a native macOS 15+ client for YouTube Music.

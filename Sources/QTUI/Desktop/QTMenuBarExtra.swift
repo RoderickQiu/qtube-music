@@ -104,10 +104,14 @@ public struct QTMenuBarLabel: View {
         NSGraphicsContext.current = gctx
         let ctx = gctx.cgContext
         ctx.scaleBy(x: scale, y: scale)
-        glyph?.draw(in: NSRect(x: 0, y: ((height - glyphSize.height) / 2).rounded(), width: glyphSize.width, height: glyphSize.height))
+        // `draw(at:)` places the line box's bottom edge, not the baseline: centre the line box (ascender to
+        // descender) like the menu bar's own text, and the glyph on the text's cap height. On half-pixels: @2x.
+        let origin = ((height - (font.ascender - font.descender)) / 2 * scale).rounded() / scale
+        let capMid = origin - font.descender + font.capHeight / 2
+        glyph?.draw(in: NSRect(x: 0, y: ((capMid - glyphSize.height / 2) * scale).rounded() / scale,
+                               width: glyphSize.width, height: glyphSize.height))
         if let title {
             let textRect = NSRect(x: glyphSize.width + spacing, y: 0, width: visibleText, height: height)
-            let baseline = ((height - font.ascender + font.descender) / 2 - font.descender).rounded()
             ctx.saveGState()
             ctx.clip(to: textRect)
             let overflow = textWidth > maxTitleWidth
@@ -116,9 +120,9 @@ public struct QTMenuBarLabel: View {
                 ctx.clip(to: textRect, mask: Self.fadeMask(size: textRect.size, leading: offset > 0))
             }
             let s = title as NSString
-            s.draw(at: NSPoint(x: textRect.minX - offset, y: baseline), withAttributes: attrs)
+            s.draw(at: NSPoint(x: textRect.minX - offset, y: origin), withAttributes: attrs)
             if overflow && offset > 0 {
-                s.draw(at: NSPoint(x: textRect.minX - offset + textWidth + QTMenuBarTicker.gap, y: baseline), withAttributes: attrs)
+                s.draw(at: NSPoint(x: textRect.minX - offset + textWidth + QTMenuBarTicker.gap, y: origin), withAttributes: attrs)
             }
             ctx.restoreGState()
         }

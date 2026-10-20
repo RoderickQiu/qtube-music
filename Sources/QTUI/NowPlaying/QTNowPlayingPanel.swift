@@ -165,12 +165,13 @@ struct QTNowPlayingHero: View {
                     .padding(.top, 3)
                 // Song|Video and lyrics options only with something playing.
                 if track != nil {
-                    HStack(spacing: QTTheme.Spacing.xs) {
+                    // The options icon right after the switch, as one row of controls under the title (pushed to the
+                    // panel's edge it floated apart from everything).
+                    HStack(spacing: QTTheme.Spacing.s) {
                         QTSongVideoToggle(isVideo: Binding(get: { model.isVideoMode }, set: { model.isVideoMode = $0 }),
                                           hasVideo: track?.hasVideo ?? false)
                             // Secondary to the Now Playing | Queue switch above it: a small segmented control under the title.
                             .controlSize(.small)
-                        Spacer(minLength: 0)
                         QTLyricsOptionsButton()
                     }
                     .padding(.top, 12)

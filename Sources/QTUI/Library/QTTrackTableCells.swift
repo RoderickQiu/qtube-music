@@ -249,7 +249,8 @@ final class QTTrackTextCell: NSTableCellView {
         textField = label
         NSLayoutConstraint.activate([
             label.leadingAnchor.constraint(equalTo: leadingAnchor),
-            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: alignment == .right ? 0 : -12),
+            // Right-aligned (Time) too: the row's selection and hover fills end at the cell's edge.
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
     }

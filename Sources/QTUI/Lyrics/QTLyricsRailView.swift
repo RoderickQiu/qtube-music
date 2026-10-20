@@ -93,7 +93,7 @@ final class QTLyricsRailView: NSView, NSMenuItemValidation {
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
     override var canBecomeKeyView: Bool { !rows.isEmpty }
-    /// System focus ring when reached with Tab (Full Keyboard Access).
+    /// System focus ring when reached with Tab (Full Keyboard Access); see `becomeFirstResponder`.
     override var focusRingMaskBounds: NSRect { bounds.insetBy(dx: 6, dy: 6) }
     override func drawFocusRingMask() {
         NSBezierPath(roundedRect: focusRingMaskBounds, xRadius: 10, yRadius: 10).fill()
@@ -686,7 +686,15 @@ final class QTLyricsRailView: NSView, NSMenuItemValidation {
         CATransaction.commit()
     }
 
-    override func becomeFirstResponder() -> Bool { defer { updateSelectionLayers() }; return true }
+    override func becomeFirstResponder() -> Bool {
+        defer { updateSelectionLayers() }
+        // The ring is for Tab focus only. A click (seek, select lines for ⌘C) or AppKit picking a key view on its
+        // own focuses the rail too, and a ring around the whole lyrics then reads as a stray frame.
+        let event = NSApp.currentEvent
+        focusRingType = event?.type == .keyDown && event?.keyCode == 48 ? .default : .none
+        noteFocusRingMaskChanged()
+        return true
+    }
     override func resignFirstResponder() -> Bool { defer { DispatchQueue.main.async { self.updateSelectionLayers() } }; return true }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {

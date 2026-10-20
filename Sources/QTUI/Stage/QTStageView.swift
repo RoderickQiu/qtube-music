@@ -31,7 +31,9 @@ public struct QTStageView: View {
     @State private var chromeVisible = true
     @State private var isQueueOpen = false
     @State private var isAppearanceOpen = false
-    @State private var hideTask: Task<Void, Never>?
+    /// The pending chrome fade-out. A reference, not `@State`: it is replaced on every mouse move, and a new value
+    /// in `@State` re-rendered the whole Stage each time.
+    @State private var hideTimer = QTStageHideTimer()
     @State private var hovering = false
     @State private var menuTracking = false
     @State private var hostWindow = QTStageWeakWindow()
@@ -577,9 +579,9 @@ public struct QTStageView: View {
     }
 
     private func scheduleHide() {
-        hideTask?.cancel()
+        hideTimer.task?.cancel()
         guard player.isPlaying else { return }
-        hideTask = Task { @MainActor in
+        hideTimer.task = Task { @MainActor in
             try? await Task.sleep(for: .seconds(QTTheme.Motion.chromeIdleDelay))
             guard !Task.isCancelled else { return }
             hideChromeIfIdle()
@@ -630,7 +632,7 @@ public struct QTStageView: View {
     }
 
     private func didDisappear() {
-        hideTask?.cancel()
+        hideTimer.task?.cancel()
         chromeVisible = true
         applyTitlebarVisibility(animated: false)
         if presentation == .inline { titlebar.uninstall() }
@@ -720,6 +722,12 @@ enum QTStageLaunchState {
 /// Weak holder so `@State` doesn't retain the window.
 final class QTStageWeakWindow {
     weak var window: NSWindow?
+}
+
+/// Holder for the chrome's fade-out task (see `QTStageView.hideTimer`).
+@MainActor
+final class QTStageHideTimer {
+    var task: Task<Void, Never>?
 }
 
 /// Bottom fall-off under the video lyric: transparent over the upper picture, darkening towards the bottom edge.

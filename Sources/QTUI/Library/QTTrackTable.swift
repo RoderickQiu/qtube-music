@@ -109,7 +109,7 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
             case .heart:
                 col.width = 44; col.minWidth = 44; col.maxWidth = 44; col.resizingMask = []
             case .time:
-                col.width = 60; col.minWidth = 60; col.maxWidth = 60; col.resizingMask = []
+                col.width = 72; col.minWidth = 72; col.maxWidth = 72; col.resizingMask = []
                 col.headerCell.alignment = .right
                 col.sortDescriptorPrototype = NSSortDescriptor(key: QTTrackSort.Key.time.rawValue, ascending: true)
             }

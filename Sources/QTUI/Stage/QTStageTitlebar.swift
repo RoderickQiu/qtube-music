@@ -18,6 +18,7 @@ final class QTStageTitlebar {
     private var hiddenItems: [ObjectIdentifier: NSToolbarItem] = [:]
     private var observers: [NSObjectProtocol] = []
     private var toolbarObservation: NSKeyValueObservation?
+    private var wasTitlebarTransparent = false
 
     private(set) var isInstalled = false
 
@@ -32,6 +33,12 @@ final class QTStageTitlebar {
         self.window = window
         isInstalled = true
         hideItems()
+        // An opaque title bar takes every click in its strip for itself (window drag, double-click zoom), so the
+        // Stage's top row — close, lyrics options, Appearance, Song | Video, all inside that strip — never got
+        // them. A transparent one hands clicks on the content's controls to the content, like the detached
+        // Stage window's.
+        wasTitlebarTransparent = window.titlebarAppearsTransparent
+        window.titlebarAppearsTransparent = true
         observers.append(NotificationCenter.default.addObserver(forName: NSToolbar.willAddItemNotification, object: nil,
                                                                 queue: .main) { [weak self] note in
             let toolbar = note.object as? NSToolbar
@@ -55,6 +62,7 @@ final class QTStageTitlebar {
         toolbarObservation = nil
         for item in hiddenItems.values { item.isHidden = false }
         hiddenItems = [:]
+        if isInstalled { window?.titlebarAppearsTransparent = wasTitlebarTransparent }
         isInstalled = false
         window = nil
     }
