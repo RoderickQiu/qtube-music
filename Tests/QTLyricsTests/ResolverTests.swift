@@ -123,21 +123,23 @@ import Testing
         #expect(second.document == first.document)
         #expect(await http.log.urls.count == requests)
 
-        // Per-track offset (positive = lyrics earlier), rounded to 0.1 s, applied to the document.
-        await resolver.setOffset(0.3000001, for: query.videoId)
+        // Offset per track and version (positive = lyrics earlier), rounded to 0.1 s, applied to the document.
+        let chosen = try #require(first.chosenID)
+        await resolver.setOffset(0.3000001, for: query.videoId, version: chosen)
         #expect(await resolver.resolve(query).document?.offset == 0.3)
 
-        // "Wrong lyrics? / Other versions": pin the LRCLIB version.
+        // "Lyrics Source": pin the LRCLIB version. It is timed on its own, so it doesn't inherit the offset.
         let other = try #require(first.versions.first { $0.source == .lrclib && $0.syncKind == .line })
         let pinned = await resolver.pin(versionID: other.id, for: query)
         #expect(pinned.isPinned)
         #expect(pinned.chosenID == other.id)
         #expect(pinned.document?.source == .lrclib)
-        #expect(pinned.document?.offset == 0.3)
+        #expect(pinned.document?.offset == 0)
         #expect(await resolver.resolve(query).fromCache)
         let unpinned = await resolver.unpin(for: query)
         #expect(unpinned.chosenID == first.chosenID)
         #expect(!unpinned.isPinned)
+        #expect(unpinned.document?.offset == 0.3)
     }
 
     @Test func heroOffersNoBrokenAlternatives() async throws {

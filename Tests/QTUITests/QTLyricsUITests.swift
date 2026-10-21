@@ -255,7 +255,52 @@ import Testing
         store.pin(b, for: "v1")
         #expect(pinned == "lrclib")
         #expect(store.others(for: "v1") == [a])
+        // A report leaves the menu at once and reaches the lyrics session (which keeps it).
+        var reported: String?
+        store.onReport = { _, id in reported = id }
         store.reportWrong("v1")
-        #expect(store.reported.contains("v1|lrclib"))
+        #expect(reported == "lrclib")
+        #expect(store.versions["v1"] == [a])
+        #expect(store.choice(for: "v1") == .automatic)
+    }
+
+    @Test func choicesNotifyTheSession() {
+        let store = QTLyricsVersionStore()
+        var events: [String] = []
+        store.onLyricsOff = { events.append("off:" + $0) }
+        store.onUnpin = { events.append("auto:" + $0) }
+        store.turnOffLyrics("v1")
+        #expect(store.choice(for: "v1") == .off)
+        store.unpin("v1")
+        #expect(store.choice(for: "v1") == .automatic)
+        store.setChoice(.version("lrclib"), for: "v1")
+        #expect(store.choice(for: "v1") == .version("lrclib"))
+        #expect(events == ["off:v1", "auto:v1"])
+    }
+
+    /// Menu rows read plainly: source and timing, then "Best match" / "Possible mismatch" and a noticeable length
+    /// difference — never a raw score.
+    @Test func menuLabelsWithDurationDelta() {
+        let sep = " · "
+        let best = QTLoc.tr("Best match", table: .lyrics), mismatch = QTLoc.tr("Possible mismatch", table: .lyrics)
+        let lrclib = QTLyricsVersion(id: "lrclib:1", source: .lrclib, syncKind: .line, confidence: 0.86, durationDelta: 3.2)
+        #expect(lrclib.menuTitle == QTLoc.tr("LRCLIB") + sep + QTLoc.tr("Line timing"))
+        #expect(lrclib.menuDetail(isBest: true) == best + sep + QTLoc.tr("%lld s longer", table: .lyrics, 3))
+        #expect(lrclib.menuDetail(isBest: false) == QTLoc.tr("%lld s longer", table: .lyrics, 3))
+        let shorter = QTLyricsVersion(id: "netease:1", source: .netease, syncKind: .word, translationLanguage: "zh-Hans",
+                                      confidence: 0.7, durationDelta: -12)
+        #expect(shorter.menuTitle == QTLoc.tr("NetEase") + sep + QTLoc.tr("Word timing") + sep + "简体中文")
+        #expect(shorter.menuDetail(isBest: true) == mismatch + sep + QTLoc.tr("%lld s shorter", table: .lyrics, 12))
+        // Within ±2 s the timing lines up: not worth a mention.
+        let same = QTLyricsVersion(id: "kugou:1", source: .kugou, syncKind: .word, confidence: 0.95, durationDelta: 1.4)
+        #expect(same.menuDetail(isBest: false) == nil)
+        // A failed sanity check is a mismatch whatever the score.
+        let flagged = QTLyricsVersion(id: "amll:1", source: .amll, syncKind: .word, confidence: 0.95, isPossibleMismatch: true)
+        #expect(flagged.menuDetail(isBest: true) == mismatch)
+        // Both languages read plainly.
+        let en = QTLocalizer(preference: .enUS), zh = QTLocalizer(preference: .zhCN)
+        #expect(en.format("%lld s longer", table: .lyrics, arguments: [3]) == "3 s longer")
+        #expect(zh.format("%lld s longer", table: .lyrics, arguments: [3]) == "长 3 秒")
+        #expect(zh.string("No Lyrics for This Song", table: .lyrics) == "此歌曲不显示歌词")
     }
 }

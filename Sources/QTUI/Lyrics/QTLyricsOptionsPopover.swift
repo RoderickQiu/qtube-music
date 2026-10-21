@@ -48,7 +48,7 @@ public struct QTLyricsOptionsButton: View {
 
 /// Lyrics options: source + timing kind of what's showing, translation target (+ engine / download consent /
 /// same-language state), one "Unofficial sources" switch (per-provider switches live in Settings › Lyrics), timing
-/// offset, "Wrong lyrics? / Other versions (n)".
+/// offset, "Lyrics Source" (`QTLyricsSourceMenu`) and a one-click "Wrong lyrics? Report".
 /// Reads `QTAppModel` / `QTPlayerModel` from the environment.
 public struct QTLyricsOptionsPopover: View {
     @Environment(QTAppModel.self) private var model
@@ -125,8 +125,10 @@ public struct QTLyricsOptionsPopover: View {
         }
     }
 
-    /// "No lyrics", or "Offline" while the sources can't be reached (the lookup retries on reconnect).
+    /// "No lyrics", "Lyrics Off" (turned off for this song), or "Offline" while the sources can't be reached (the
+    /// lookup retries on reconnect).
     private var emptyTitle: String {
+        if model.lyricsSession?.isLyricsOff == true { return QTLoc.tr("Lyrics Off", table: .lyrics) }
         guard let session = model.lyricsSession, session.phase == .unreachable else { return QTLoc.tr("No lyrics") }
         return session.isNetworkAvailable ? QTLoc.tr("Can’t reach lyrics", table: .lyrics) : QTLoc.tr("Offline", table: .lyrics)
     }
@@ -274,8 +276,22 @@ public struct QTLyricsOptionsPopover: View {
             }
             .help("\(QTLoc.tr("Lyrics Earlier"))  ⌥↑   ·   \(QTLoc.tr("Lyrics Later"))  ⌥↓")
             .accessibilityIdentifier("qt.lyrics.timingStepper")
+            LabeledContent(QTLoc.tr("Lyrics Source", table: .lyrics)) {
+                Menu {
+                    QTLyricsSourceMenu(model: model, includesReport: false)
+                } label: {
+                    Text(QTLyricsSourceMenu.choiceTitle(for: player.nowPlaying?.videoId ?? ""))
+                }
+                .fixedSize()
+                .disabled(player.nowPlaying == nil)
+                .accessibilityIdentifier("qt.lyrics.sourceMenu")
+            }
+            // Fixing wrong lyrics is one click: the next best version replaces them right away.
             LabeledContent(QTLoc.tr("Wrong lyrics?", table: .lyrics)) {
-                versionsMenu(doc)
+                Button(QTLoc.tr("Report", table: .lyrics)) { QTLyricsSourceMenu.report(model) }
+                    .disabled(doc == nil)
+                    .help(QTLoc.tr("Never show these lyrics for this song; show the next best version instead", table: .lyrics))
+                    .accessibilityIdentifier("qt.lyrics.reportWrong")
             }
         }
     }
@@ -302,52 +318,4 @@ public struct QTLyricsOptionsPopover: View {
             })
     }
 
-    private func versionsMenu(_ doc: QTLyricsDocument?) -> some View {
-        let id = player.nowPlaying?.videoId ?? ""
-        let all = versions.versions[id] ?? []
-        let others = versions.others(for: id)
-        let pinned = isPinned(id)
-        return Menu {
-            if !all.isEmpty {
-                // "Automatic" is the resolver's own pick; choosing it drops a pinned version for this track.
-                Toggle(isOn: Binding(get: { !pinned }, set: { on in if on { unpin(id) } })) {
-                    Text(QTLoc.tr("Automatic", table: .lyrics))
-                }
-                .accessibilityIdentifier("qt.lyrics.versionAutomatic")
-                Divider()
-                ForEach(all) { v in
-                    Toggle(isOn: Binding(get: { pinned && versions.selected[id] == v.id }, set: { _ in versions.pin(v, for: id) })) {
-                        Text(verbatim: versionTitle(v))
-                    }
-                }
-                Divider()
-            }
-            Button(QTLoc.tr("Report Wrong Lyrics", table: .lyrics)) {
-                versions.reportWrong(id)
-                model.showToast(QTLoc.tr("Reported"))
-            }
-            .disabled(doc == nil)
-        } label: {
-            Text(others.isEmpty ? QTLoc.tr("Other versions") : QTLoc.tr("Other versions (%lld)", table: .lyrics, others.count))
-        }
-        .fixedSize()
-        .accessibilityIdentifier("qt.lyrics.versionsMenu")
-    }
-
-    /// The user chose a version for this track (the session's persisted pin; the store's when there is no session).
-    private func isPinned(_ videoId: String) -> Bool {
-        if let session = model.lyricsSession, session.engine == .live, session.track?.videoId == videoId { return session.isPinned }
-        return versions.pinned[videoId] != nil
-    }
-
-    private func unpin(_ videoId: String) {
-        versions.unpin(videoId)
-        if let session = model.lyricsSession, session.track?.videoId == videoId { session.unpin() }
-    }
-
-    private func versionTitle(_ v: QTLyricsVersion) -> String {
-        var parts = [QTLoc.tr(v.source.name), QTLoc.tr(v.syncKind == .word ? "Word timing" : "Line timing")]
-        if let tl = v.translationLanguage { parts.append(QTLyricsTranslationTarget.nativeName(for: tl)) }
-        return parts.joined(separator: " · ")
-    }
 }

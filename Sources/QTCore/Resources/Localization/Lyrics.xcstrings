@@ -11,6 +11,26 @@
         }
       }
     },
+    "%lld s longer": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "长 %lld 秒"
+          }
+        }
+      }
+    },
+    "%lld s shorter": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "短 %lld 秒"
+          }
+        }
+      }
+    },
     "Apple Intelligence": {
       "localizations": {
         "zh-Hans": {
@@ -27,6 +47,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "自动"
+          }
+        }
+      }
+    },
+    "Best match": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最佳匹配"
           }
         }
       }
@@ -61,22 +91,52 @@
         }
       }
     },
+    "Lyrics Off": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "歌词已关闭"
+          }
+        }
+      }
+    },
+    "Lyrics Source": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "歌词来源"
+          }
+        }
+      }
+    },
+    "Never show these lyrics for this song; show the next best version instead": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此歌曲不再显示这份歌词，改为显示下一个最佳版本"
+          }
+        }
+      }
+    },
+    "No Lyrics for This Song": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此歌曲不显示歌词"
+          }
+        }
+      }
+    },
     "Offline": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "离线"
-          }
-        }
-      }
-    },
-    "Other versions (%lld)": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "其他版本（%lld）"
           }
         }
       }
@@ -107,6 +167,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "发音"
+          }
+        }
+      }
+    },
+    "Report": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "报告"
           }
         }
       }

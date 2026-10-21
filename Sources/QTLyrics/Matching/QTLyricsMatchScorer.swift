@@ -13,6 +13,22 @@ public enum QTLyricsMatchThreshold {
     public static let maxDurationDelta: TimeInterval = 20
     /// Reject when the last timestamp runs past the track by more than this (seconds).
     public static let overrunTolerance: TimeInterval = 5
+    /// Synced lyrics that stop before this share of the track are probably for another (shorter) song.
+    public static let minimumCoverage = 0.4
+    /// An unofficial candidate that declares no length must be synced and sung at least this far into the track.
+    public static let undatedCoverage = 0.6
+}
+
+/// Why a fetched version looks doubtful although its title, artist and length match. Each lowers the score
+/// (`QTLyricsMatchScore.sanityPenalty`) and shows "Possible mismatch"; none rejects on its own.
+public enum QTLyricsMatchFlag: String, Sendable, Hashable, Codable, CaseIterable {
+    /// The title is written in a non-Latin script (Chinese, Korean, Cyrillic…) and the lyrics have none of it.
+    case scriptMismatch
+    /// The language recognizer can't tell what language the lyrics are in (keyboard mash, placeholder text).
+    case gibberish
+    /// Synced lyrics end before 40 % of the track while another version of the song goes on (the resolver drops
+    /// the flag when every version ends that early: a long instrumental outro).
+    case lowCoverage
 }
 
 public struct QTLyricsMatchScore: Sendable, Hashable, Codable {
@@ -22,22 +38,31 @@ public struct QTLyricsMatchScore: Sendable, Hashable, Codable {
     /// Penalty subtracted for version mismatches (Live/Remix/… on one side only).
     public var penalty: Double
     public var rejection: Rejection?
+    /// Post-fetch sanity checks (`flags`): lowers the rank and the shown confidence, never the acceptance.
+    public var sanityPenalty: Double = 0
+    public var flags: Set<QTLyricsMatchFlag> = []
 
     public enum Rejection: String, Sendable, Hashable, Codable {
         case durationMismatch, overrunsTrack, belowThreshold, emptyLyrics
+        /// An unofficial source that doesn't say how long its recording is, and whose timing doesn't show it either.
+        case unknownDuration
     }
 
-    /// 0.40 title + 0.40 artist + 0.20 duration − penalty, clamped to 0…1. Rejected scores are 0.
+    /// 0.40 title + 0.40 artist + 0.20 duration − penalties, clamped to 0…1. Rejected scores are 0.
     public var total: Double {
         guard rejection == nil else { return 0 }
-        return min(1, max(0, 0.4 * title + 0.4 * artist + 0.2 * duration - penalty))
+        return min(1, max(0, base - sanityPenalty))
     }
+
+    /// The metadata match alone (before the sanity penalty).
+    var base: Double { 0.4 * title + 0.4 * artist + 0.2 * duration - penalty }
 
     public static let exact = QTLyricsMatchScore(title: 1, artist: 1, duration: 1, penalty: 0, rejection: nil)
 
-    /// Accepted for this source (unofficial sources need ≥ 0.80, safe ones ≥ 0.60).
+    /// Accepted for this source (unofficial sources need ≥ 0.80, safe ones ≥ 0.60). Judged on the metadata match:
+    /// a sanity penalty ranks a version lower but never hides it — it may still be the only lyrics there are.
     public func isAcceptable(for source: QTLyricsSource) -> Bool {
-        rejection == nil && total >= (source.isUnofficial ? QTLyricsMatchThreshold.unofficial : QTLyricsMatchThreshold.possible)
+        rejection == nil && min(1, base) >= (source.isUnofficial ? QTLyricsMatchThreshold.unofficial : QTLyricsMatchThreshold.possible)
     }
 }
 
@@ -119,7 +144,8 @@ public struct QTLyricsMatchScorer: Sendable {
     }
 
     /// Post-fetch checks: lyrics longer than the track (+5 s) are for another recording; re-score with the
-    /// title/artist/length the payload itself declares (Kugou's `[ti:]…Remix` / `[total:]`).
+    /// title/artist/length the payload itself declares (Kugou's `[ti:]…Remix` / `[total:]`); an unofficial version
+    /// must show how long its recording is; then the sanity checks (`QTLyricsSanity`: script, gibberish, coverage).
     public func rescore(_ score: QTLyricsMatchScore, candidate: QTLyricsCandidate, lyrics: QTParsedLyrics,
                         for query: QTLyricsQuery) -> QTLyricsMatchScore {
         var s = score
@@ -129,20 +155,34 @@ public struct QTLyricsMatchScorer: Sendable {
             s.rejection = .overrunsTrack
             return s
         }
-        guard !candidate.isExactMatch else { return s }
-        var declared = candidate
-        var changed = false
-        if let t = lyrics.metadata.title, !t.isEmpty, QTTitleCleaner.clean(t).tags != QTTitleCleaner.clean(candidate.title).tags {
-            declared.title = t
-            changed = true
+        // Unofficial sources match loosely on names, so the length is the evidence that this is the recording. QQ's
+        // search lists none: its synced lyrics must then run most of the way through the track instead.
+        if candidate.source.isUnofficial, (candidate.duration ?? 0) <= 0, (lyrics.metadata.length ?? 0) <= 0 {
+            guard query.duration > 0, lyrics.syncKind != .plain, let last = lyrics.lastTimestamp,
+                  last >= query.duration * QTLyricsMatchThreshold.undatedCoverage else {
+                s.rejection = .unknownDuration
+                return s
+            }
         }
-        if let len = lyrics.metadata.length, len > 30, candidate.duration == nil || abs((candidate.duration ?? 0) - len) > 2 {
-            declared.duration = len
-            changed = true
+        if !candidate.isExactMatch {
+            var declared = candidate
+            var changed = false
+            if let t = lyrics.metadata.title, !t.isEmpty, QTTitleCleaner.clean(t).tags != QTTitleCleaner.clean(candidate.title).tags {
+                declared.title = t
+                changed = true
+            }
+            if let len = lyrics.metadata.length, len > 30, candidate.duration == nil || abs((candidate.duration ?? 0) - len) > 2 {
+                declared.duration = len
+                changed = true
+            }
+            if changed {
+                let again = self.score(declared, for: query)
+                if again.rejection != nil || again.total < s.total { s = again }
+            }
         }
-        guard changed else { return s }
-        let again = self.score(declared, for: query)
-        if again.rejection != nil || again.total < s.total { s = again }
+        guard s.rejection == nil else { return s }
+        s.flags = QTLyricsSanity.flags(lyrics, for: query)
+        s.sanityPenalty = QTLyricsSanity.penalty(for: s.flags)
         return s
     }
 

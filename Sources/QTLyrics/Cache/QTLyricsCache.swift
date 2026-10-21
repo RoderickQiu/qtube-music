@@ -3,7 +3,7 @@ import QTCore
 import SQLite3
 
 /// What the resolver stores per video: the chosen document, the other versions for the
-/// "Wrong lyrics? / Other versions (n)" menu, and the source configuration it was resolved under.
+/// "Lyrics Source" menu, and the source configuration it was resolved under.
 public struct QTLyricsCacheEntry: Sendable, Hashable, Codable {
     public var videoId: String
     /// nil = nothing found (negative cache; shorter lifetime).
@@ -29,9 +29,10 @@ public struct QTLyricsCacheEntry: Sendable, Hashable, Codable {
     }
 }
 
-/// SQLite store (system `sqlite3`, no dependencies) for lyrics keyed by videoId, per-track offsets,
-/// pinned versions, learned aliases, machine translations and small blobs (the AMLL index).
-/// Offsets, pins and aliases are user data, so the default file lives in Application Support, not Caches.
+/// SQLite store (system `sqlite3`, no dependencies) for lyrics keyed by videoId, offsets per track and version,
+/// pinned versions, reported ("wrong") versions, fingerprints of the chosen texts, learned aliases, machine
+/// translations and small blobs (the AMLL index). Offsets, pins, reports and aliases are user data, so the default
+/// file lives in Application Support, not Caches.
 public actor QTLyricsCache {
     private let connection: QTSQLiteConnection
     private var db: OpaquePointer? { connection.handle }
@@ -56,15 +57,69 @@ public actor QTLyricsCache {
         PRAGMA journal_mode=WAL;
         PRAGMA synchronous=NORMAL;
         CREATE TABLE IF NOT EXISTS lyrics (video_id TEXT PRIMARY KEY, entry BLOB NOT NULL, updated REAL NOT NULL);
-        CREATE TABLE IF NOT EXISTS offsets (video_id TEXT PRIMARY KEY, offset REAL NOT NULL);
         CREATE TABLE IF NOT EXISTS pins (video_id TEXT PRIMARY KEY, version_id TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS aliases (a TEXT NOT NULL, b TEXT NOT NULL, origin TEXT, PRIMARY KEY (a, b));
         CREATE TABLE IF NOT EXISTS translations (video_id TEXT NOT NULL, language TEXT NOT NULL, engine TEXT NOT NULL,
             lines BLOB NOT NULL, updated REAL NOT NULL, PRIMARY KEY (video_id, language, engine));
         CREATE TABLE IF NOT EXISTS blobs (name TEXT PRIMARY KEY, data BLOB NOT NULL, updated REAL NOT NULL);
+        CREATE TABLE IF NOT EXISTS version_offsets (video_id TEXT NOT NULL, version_id TEXT NOT NULL, offset REAL NOT NULL,
+            PRIMARY KEY (video_id, version_id));
+        CREATE TABLE IF NOT EXISTS rejections (video_id TEXT NOT NULL, version_id TEXT NOT NULL, updated REAL NOT NULL,
+            PRIMARY KEY (video_id, version_id));
+        CREATE TABLE IF NOT EXISTS fingerprints (hash TEXT NOT NULL, video_id TEXT NOT NULL, title TEXT NOT NULL,
+            PRIMARY KEY (hash, video_id));
         """
         if sqlite3_exec(handle, schema, nil, nil, nil) != SQLITE_OK {
             throw QTLyricsCacheError.sqlite(String(cString: sqlite3_errmsg(handle)))
+        }
+        try Self.migrate(handle)
+    }
+
+    /// `PRAGMA user_version` of the current schema.
+    static let schemaVersion: Int32 = 1
+
+    /// Version 0 → 1: offsets were per track (`offsets`); they are now per track and version, so a newly picked
+    /// version starts at zero. An existing offset was tuned for what was showing: the pinned version, else the cached
+    /// automatic pick; with neither known it is kept under `""` and goes to the first version shown (`offset(for:version:)`).
+    private static func migrate(_ db: OpaquePointer) throws {
+        var stmt: OpaquePointer?
+        var version: Int32 = 0
+        if sqlite3_prepare_v2(db, "PRAGMA user_version", -1, &stmt, nil) == SQLITE_OK, sqlite3_step(stmt) == SQLITE_ROW {
+            version = sqlite3_column_int(stmt, 0)
+        }
+        sqlite3_finalize(stmt)
+        guard version < schemaVersion else { return }
+        let decoder = JSONDecoder()
+        var legacy: [(videoId: String, offset: Double, version: String)] = []
+        if sqlite3_prepare_v2(db, """
+            SELECT o.video_id, o.offset, p.version_id, l.entry FROM offsets o
+            LEFT JOIN pins p ON p.video_id = o.video_id LEFT JOIN lyrics l ON l.video_id = o.video_id
+            """, -1, &stmt, nil) == SQLITE_OK {
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                let pin = sqlite3_column_text(stmt, 2).map { String(cString: $0) }
+                let entry = blob(stmt!, 3)
+                let chosen = entry.isEmpty ? nil : (try? decoder.decode(QTLyricsCacheEntry.self, from: entry))?.chosenID
+                legacy.append((text(stmt!, 0), sqlite3_column_double(stmt, 1),
+                               pin.flatMap { $0 == QTLyricsCache.noLyricsPin ? nil : $0 } ?? chosen ?? ""))
+            }
+        }
+        sqlite3_finalize(stmt)   // a fresh file has no `offsets` table: nothing to carry over
+        guard sqlite3_exec(db, "BEGIN", nil, nil, nil) == SQLITE_OK else { throw QTLyricsCacheError.sqlite(String(cString: sqlite3_errmsg(db))) }
+        for row in legacy {
+            if sqlite3_prepare_v2(db, "INSERT OR REPLACE INTO version_offsets (video_id, version_id, offset) VALUES (?, ?, ?)",
+                                  -1, &stmt, nil) == SQLITE_OK {
+                sqlite3_bind_text(stmt, 1, row.videoId, -1, transient)
+                sqlite3_bind_text(stmt, 2, row.version, -1, transient)
+                sqlite3_bind_double(stmt, 3, row.offset)
+                _ = sqlite3_step(stmt)
+            }
+            sqlite3_finalize(stmt)
+        }
+        let done = "DROP TABLE IF EXISTS offsets; PRAGMA user_version = \(schemaVersion); COMMIT;"
+        if sqlite3_exec(db, done, nil, nil, nil) != SQLITE_OK {
+            let message = String(cString: sqlite3_errmsg(db))
+            sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
+            throw QTLyricsCacheError.sqlite(message)
         }
     }
 
@@ -93,21 +148,35 @@ public actor QTLyricsCache {
         run("DELETE FROM lyrics WHERE video_id = ?", [.text(videoId)])
     }
 
-    // MARK: Offsets (positive = lyrics earlier)
+    // MARK: Offsets (positive = lyrics earlier), per track and version
 
-    public func offset(for videoId: String) -> TimeInterval? {
-        queryDouble("SELECT offset FROM offsets WHERE video_id = ?", [videoId])
+    /// Each version has its own timing, so a newly picked one doesn't inherit another's offset. A migrated offset
+    /// whose version wasn't known (`""`) is claimed by the first version asked for.
+    public func offset(for videoId: String, version: String) -> TimeInterval? {
+        if let v = queryDouble("SELECT offset FROM version_offsets WHERE video_id = ? AND version_id = ?", [videoId, version]) {
+            return v
+        }
+        guard !version.isEmpty,
+              let legacy = queryDouble("SELECT offset FROM version_offsets WHERE video_id = ? AND version_id = ''", [videoId])
+        else { return nil }
+        run("DELETE FROM version_offsets WHERE video_id = ? AND version_id = ''", [.text(videoId)])
+        setOffset(legacy, for: videoId, version: version)
+        return legacy
     }
 
-    public func setOffset(_ offset: TimeInterval, for videoId: String) {
+    public func setOffset(_ offset: TimeInterval, for videoId: String, version: String) {
         if abs(offset) < 0.0001 {
-            run("DELETE FROM offsets WHERE video_id = ?", [.text(videoId)])
+            run("DELETE FROM version_offsets WHERE video_id = ? AND version_id = ?", [.text(videoId), .text(version)])
         } else {
-            run("INSERT OR REPLACE INTO offsets (video_id, offset) VALUES (?, ?)", [.text(videoId), .real(offset)])
+            run("INSERT OR REPLACE INTO version_offsets (video_id, version_id, offset) VALUES (?, ?, ?)",
+                [.text(videoId), .text(version), .real(offset)])
         }
     }
 
     // MARK: Pinned versions
+
+    /// The pin that hides lyrics for a track ("No Lyrics for This Song").
+    public static let noLyricsPin = "none"
 
     public func pinnedVersionID(for videoId: String) -> String? {
         queryBlob("SELECT version_id FROM pins WHERE video_id = ?", [videoId]).flatMap { String(data: $0, encoding: .utf8) }
@@ -119,6 +188,38 @@ public actor QTLyricsCache {
         } else {
             run("DELETE FROM pins WHERE video_id = ?", [.text(videoId)])
         }
+    }
+
+    // MARK: Rejected versions ("Report Wrong Lyrics", kept on this Mac only)
+
+    public func rejectedVersionIDs(for videoId: String) -> Set<String> {
+        var out: Set<String> = []
+        query("SELECT version_id FROM rejections WHERE video_id = ?", [videoId]) { out.insert(Self.text($0, 0)) }
+        return out
+    }
+
+    public func addRejection(_ versionID: String, for videoId: String) {
+        run("INSERT OR REPLACE INTO rejections (video_id, version_id, updated) VALUES (?, ?, ?)",
+            [.text(videoId), .text(versionID), .real(Date().timeIntervalSince1970)])
+    }
+
+    public func removeRejection(_ versionID: String, for videoId: String) {
+        run("DELETE FROM rejections WHERE video_id = ? AND version_id = ?", [.text(videoId), .text(versionID)])
+    }
+
+    // MARK: Text fingerprints (`QTLyricsSanity.fingerprint`) of the lyrics chosen per track
+
+    /// The other tracks (videoId, title) a text with this fingerprint was chosen for.
+    public func fingerprintTracks(_ hash: String, excluding videoId: String) -> [(videoId: String, title: String)] {
+        var out: [(String, String)] = []
+        query("SELECT video_id, title FROM fingerprints WHERE hash = ? AND video_id != ?", [hash, videoId]) { stmt in
+            out.append((Self.text(stmt, 0), Self.text(stmt, 1)))
+        }
+        return out
+    }
+
+    public func recordFingerprint(_ hash: String, videoId: String, title: String) {
+        run("INSERT OR REPLACE INTO fingerprints (hash, video_id, title) VALUES (?, ?, ?)", [.text(hash), .text(videoId), .text(title)])
     }
 
     // MARK: Aliases

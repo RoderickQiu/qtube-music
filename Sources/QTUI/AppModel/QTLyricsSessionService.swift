@@ -46,11 +46,13 @@ public final class QTLyricsSession {
     public private(set) var document: QTLyricsDocument?
     /// The chosen version with every provider lane kept (re-presented instantly when the target changes).
     public private(set) var fullDocument: QTLyricsDocument?
-    /// Every version found ("Other versions (n)" lists all but the chosen one), best first.
+    /// Every version found (the "Lyrics Source" menu), best first.
     public private(set) var versions: [QTResolvedLyricsVersion] = []
     public private(set) var chosenVersionID: String?
-    /// The user pinned `chosenVersionID` for this track (persisted).
+    /// The user pinned `chosenVersionID` for this track, or turned lyrics off for it (persisted).
     public private(set) var isPinned = false
+    /// "No Lyrics for This Song" is chosen for this track (persisted): no document, `versions` still listed.
+    public private(set) var isLyricsOff = false
     /// Provider credit, e.g. "Source: LyricFind" for YouTube Music lyrics.
     public private(set) var attribution: String?
     /// Enabled sources that didn't answer during the last lookup.
@@ -99,6 +101,8 @@ public final class QTLyricsSession {
     public var offset: TimeInterval { document?.offset ?? 0 }
     /// The unofficial sources in effect (settings, or the session-only launch override).
     public var unofficialSources: QTUnofficialLyricsSources { settings.settings.unofficialLyricsSources }
+    /// Offsets are kept per version; the bundled mock lyrics (mock engine, offline fallback) count as one.
+    static let bundledVersionID = "bundled"
 
     // MARK: Dependencies
 
@@ -111,8 +115,10 @@ public final class QTLyricsSession {
     @ObservationIgnored private var lookupTask: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var lastConfiguration: QTLyricsResolverConfiguration?
-    /// Offsets nudged but not yet written (debounced), per videoId.
+    /// Offsets nudged but not yet written (debounced), per `offsetKey` (videoId + version).
     @ObservationIgnored private var pendingOffsets: [String: TimeInterval] = [:]
+    /// The version the track's own lyrics come from (`chosenVersionID`, or `bundledVersionID`): their offset's key.
+    @ObservationIgnored private var baseVersionID: String?
     @ObservationIgnored private var offsetWrites: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private let log = Logger(subsystem: "com.roderickqiu.qtube", category: "lyrics-session")
     @ObservationIgnored private var networkMonitor: QTLyricsNetworkMonitor?
@@ -148,6 +154,18 @@ public final class QTLyricsSession {
         versionStore?.onPin = { [weak self] videoId, version in
             guard let self, self.track?.videoId == videoId else { return }
             self.pin(versionID: version.id)
+        }
+        versionStore?.onUnpin = { [weak self] videoId in
+            guard let self, self.track?.videoId == videoId else { return }
+            self.unpin()
+        }
+        versionStore?.onLyricsOff = { [weak self] videoId in
+            guard let self, self.track?.videoId == videoId else { return }
+            self.turnOffLyrics()
+        }
+        versionStore?.onReport = { [weak self] videoId, versionID in
+            guard let self, self.track?.videoId == videoId else { return }
+            self.reportWrong(versionID: versionID)
         }
         observeSettings()
     }
@@ -216,7 +234,9 @@ public final class QTLyricsSession {
         renditionTiming = .base
         versions = []
         chosenVersionID = nil
+        baseVersionID = nil
         isPinned = false
+        isLyricsOff = false
         attribution = nil
         unreachableSources = []
         isShowingFallback = false
@@ -268,7 +288,7 @@ public final class QTLyricsSession {
 
     // MARK: Versions
 
-    /// "Wrong lyrics? / Other versions": shows `versionID` for this track from now on (persisted).
+    /// "Lyrics Source": shows `versionID` for this track from now on (persisted).
     public func pin(versionID: String) {
         guard let track, engine == .live else { return }
         run(for: track, holdsReadiness: false) { resolver, query, config in
@@ -284,9 +304,26 @@ public final class QTLyricsSession {
         }
     }
 
+    /// "No Lyrics for This Song": hides lyrics for this track from now on (persisted).
+    public func turnOffLyrics() {
+        guard let track, engine == .live else { return }
+        run(for: track, holdsReadiness: false) { resolver, query, config in
+            await resolver.turnOffLyrics(for: query, configuration: config)
+        }
+    }
+
+    /// "Report Wrong Lyrics" (the version showing by default): never shown for this track again — remembered on this
+    /// Mac, never sent anywhere — and the next best version replaces it at once.
+    public func reportWrong(versionID: String? = nil) {
+        guard let track, engine == .live, let id = versionID ?? chosenVersionID else { return }
+        run(for: track, holdsReadiness: false) { resolver, query, config in
+            await resolver.reject(versionID: id, for: query, configuration: config)
+        }
+    }
+
     // MARK: Timing
 
-    /// ⌥↑ (+0.1, earlier) / ⌥↓ (-0.1, later); applied live, saved per track.
+    /// ⌥↑ (+0.1, earlier) / ⌥↓ (-0.1, later); applied live, saved per track and version.
     public func nudgeOffset(by delta: TimeInterval) {
         guard document != nil else { return }
         setOffset(offset + delta)
@@ -296,11 +333,11 @@ public final class QTLyricsSession {
         guard let trackID = track?.videoId, document != nil else { return }
         let rounded = (value * 10).rounded() / 10
         // Lyrics timed for the counterpart keep their own offset (keyed by that cut); unsynced ones have none.
-        let videoId: String
+        let videoId: String, version: String
         switch renditionTiming {
         case .own:
-            guard let key = own?.key else { return }
-            videoId = key
+            guard let key = own?.key, let v = own?.version else { return }
+            (videoId, version) = (key, v)
             own?.shown?.offset = rounded
             own?.full?.offset = rounded
             if var s = shifts[trackID], s.renditionKey == key {
@@ -310,24 +347,28 @@ public final class QTLyricsSession {
         case .unsynced, .lookingUp:
             return
         case .base:
-            videoId = trackID
+            guard let v = baseVersionID else { return }
+            (videoId, version) = (trackID, v)
             baseShown?.offset = rounded
             baseFull?.offset = rounded
         }
         document?.offset = rounded
         fullDocument?.offset = rounded
-        pendingOffsets[videoId] = rounded
-        offsetWrites[videoId]?.cancel()
+        let key = Self.offsetKey(videoId, version)
+        pendingOffsets[key] = rounded
+        offsetWrites[key]?.cancel()
         let resolver = resolver
-        offsetWrites[videoId] = Task { @MainActor [weak self] in
+        offsetWrites[key] = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { return }
-            await resolver.setOffset(rounded, for: videoId)
-            guard let self, self.pendingOffsets[videoId] == rounded else { return }
-            self.pendingOffsets[videoId] = nil
-            self.offsetWrites[videoId] = nil
+            await resolver.setOffset(rounded, for: videoId, version: version)
+            guard let self, self.pendingOffsets[key] == rounded else { return }
+            self.pendingOffsets[key] = nil
+            self.offsetWrites[key] = nil
         }
     }
+
+    private static func offsetKey(_ videoId: String, _ version: String) -> String { videoId + "|" + version }
 
     // MARK: Song⇄Video renditions
 
@@ -386,7 +427,8 @@ public final class QTLyricsSession {
                 lookup.full = full
                 lookup.shown = resolution.document
                 lookup.duration = resolution.versions.first { $0.id == resolution.chosenID }?.candidate.duration
-                if let pending = self.pendingOffsets[key] {
+                lookup.version = resolution.chosenID
+                if let v = resolution.chosenID, let pending = self.pendingOffsets[Self.offsetKey(key, v)] {
                     lookup.full?.offset = pending
                     lookup.shown?.offset = pending
                 }
@@ -448,16 +490,16 @@ public final class QTLyricsSession {
             defer { if let hold { QTReadiness.shared.release(hold) } }
             let resolution: QTLyricsResolution
             if engine == .mock {
-                let offset = await resolver.offset(for: query.videoId)
+                let offset = await resolver.offset(for: query.videoId, version: Self.bundledVersionID)
                 resolution = Self.bundledResolution(self?.bundled[track.videoId], offset: offset, config: config)
             } else {
                 resolution = await body(resolver, query, config)
             }
             guard let self, !Task.isCancelled, token == self.generation, self.track?.videoId == track.videoId else { return }
             var r = resolution
-            if r.document == nil, !r.isComplete, engine == .live, self.isMockTrack(track),
+            if r.document == nil, !r.isComplete, !r.isLyricsOff, engine == .live, self.isMockTrack(track),
                let local = self.bundled[track.videoId], config.isEnabled(local.source) {
-                let offset = await resolver.offset(for: query.videoId)
+                let offset = await resolver.offset(for: query.videoId, version: Self.bundledVersionID)
                 guard token == self.generation else { return }
                 var fallback = Self.bundledResolution(local, offset: offset, config: config)
                 fallback.unreachableSources = r.unreachableSources
@@ -482,8 +524,9 @@ public final class QTLyricsSession {
     private func apply(_ r: QTLyricsResolution, for track: QTTrack, config: QTLyricsResolverConfiguration) {
         var shown = r.document
         var full = r.fullDocument
+        baseVersionID = r.chosenID ?? (full != nil ? Self.bundledVersionID : nil)
         // A nudge that hasn't been written yet wins over the stored offset.
-        if let pending = pendingOffsets[track.videoId] {
+        if let v = baseVersionID, let pending = pendingOffsets[Self.offsetKey(track.videoId, v)] {
             shown?.offset = pending
             full?.offset = pending
         }
@@ -493,6 +536,7 @@ public final class QTLyricsSession {
         versions = r.versions
         chosenVersionID = r.chosenID
         isPinned = r.isPinned
+        isLyricsOff = r.isLyricsOff
         attribution = r.attribution
         unreachableSources = r.unreachableSources
         translationTarget = config.translationLanguage
@@ -505,14 +549,19 @@ public final class QTLyricsSession {
         log.debug("lyrics \(track.videoId, privacy: .public): \(shown?.source.id ?? "none", privacy: .public) \(shown?.syncKind.rawValue ?? "-", privacy: .public) tr \(shown?.translationLanguage ?? "-", privacy: .public)")
     }
 
-    /// Feeds the options popover's "Other versions (n)" menu.
+    /// Feeds the "Lyrics Source" menu (Controls menu and options popover): the versions with how much longer or
+    /// shorter each is timed than the track, and the persisted choice.
     private func publishVersions(for track: QTTrack) {
         guard let versionStore else { return }
-        let rows = versions.map {
-            QTLyricsVersion(id: $0.id, source: $0.source, syncKind: $0.syncKind ?? .line,
-                            translationLanguage: $0.translationLanguage, confidence: $0.score)
+        let rows = versions.map { v in
+            QTLyricsVersion(id: v.id, source: v.source, syncKind: v.syncKind ?? .line,
+                            translationLanguage: v.translationLanguage, confidence: v.score,
+                            durationDelta: track.duration > 0 ? v.duration.map { $0 - track.duration } : nil,
+                            isPossibleMismatch: v.isPossibleMismatch)
         }
         versionStore.publish(rows, for: track.videoId, selected: chosenVersionID)
+        versionStore.setChoice(isLyricsOff ? .off : isPinned ? chosenVersionID.map(QTLyricsSourceChoice.version) ?? .automatic : .automatic,
+                               for: track.videoId)
     }
 
     // MARK: Settings
@@ -577,6 +626,8 @@ struct QTLyricsRenditionLookup {
     var full: QTLyricsDocument?
     /// Length the chosen version declares.
     var duration: TimeInterval?
+    /// The chosen version (its offset's key).
+    var version: String?
 }
 
 /// How a counterpart's own lyrics line up with the track's.

@@ -290,7 +290,7 @@ struct QTFakeTranslationEngine: QTLyricsTranslationEngine {
             let doc = QTLyricsDocument(lines: [QTLyricsLine(start: 1, text: "x", translation: "甲")], syncKind: .line, source: .lrclib)
             await cache.store(QTLyricsCacheEntry(videoId: "v1", document: doc, versions: [], chosenID: "lrclib:1",
                                                  attribution: nil, sourcesKey: "k"))
-            await cache.setOffset(-0.2, for: "v1")
+            await cache.setOffset(-0.2, for: "v1", version: "lrclib:1")
             await cache.setPinnedVersionID("lrclib:1", for: "v1")
             await cache.addAlias("周杰伦", "Jay Chou", origin: "netease")
             await cache.setBlob(Data([1, 2, 3]), named: "b")
@@ -299,12 +299,12 @@ struct QTFakeTranslationEngine: QTLyricsTranslationEngine {
         let entry = try #require(await reopened.entry(for: "v1"))
         #expect(entry.document?.lines.first?.translation == "甲")
         #expect(entry.chosenID == "lrclib:1")
-        #expect(await reopened.offset(for: "v1") == -0.2)
+        #expect(await reopened.offset(for: "v1", version: "lrclib:1") == -0.2)
         #expect(await reopened.pinnedVersionID(for: "v1") == "lrclib:1")
         #expect(await reopened.aliasPairs().first! == ("周杰伦", "Jay Chou"))
         #expect(await reopened.blob(named: "b")?.data == Data([1, 2, 3]))
-        await reopened.setOffset(0, for: "v1")
-        #expect(await reopened.offset(for: "v1") == nil)
+        await reopened.setOffset(0, for: "v1", version: "lrclib:1")
+        #expect(await reopened.offset(for: "v1", version: "lrclib:1") == nil)
         #expect(await reopened.entry(for: "missing") == nil)
     }
 }

@@ -263,8 +263,24 @@ Views:
   music video keeps its translation at ≥ 0.86 (legibility on bright frames, with its shadow and scrim).
 - `QTLyricsOptionsButton(overArt:)` → system popover with `QTLyricsOptionsPopover()` (source + timing kind of what is
   showing, Translate to + status, one "Unofficial sources" switch — per-provider switches live in Settings › Lyrics —,
-  timing stepper, Other versions with an "Automatic" entry that unpins). Opening it re-checks a translation that
+  timing stepper, "Lyrics Source" menu, one-click "Wrong lyrics? Report"). Opening it re-checks a translation that
   waited for a download / Apple Intelligence and retries an unreachable lookup.
+- **Wrong lyrics (prelaunch §8).** `QTLyricsSourceMenu` (Lyrics/) is the one "Lyrics Source" menu, shown in Controls ›
+  Lyrics Source and in the popover: Automatic, the versions best first ("LRCLIB · Line timing" over a plain subtitle,
+  "Best match" / "Possible mismatch · 12 s longer" — no raw scores), No Lyrics for This Song, Report Wrong Lyrics.
+  `QTLyricsVersionStore` holds the rows and the choice; the session persists it through the resolver:
+  `pin` / `unpin` / `turnOffLyrics` (pin `"none"`: no document, versions still listed) / `reject` (the
+  `rejections(video_id, version_id)` table: never fetched or offered again for that track, the next best shows at
+  once; pinning it again takes the report back). Sanity checks in `QTLyricsMatchScorer.rescore` +
+  `QTLyricsSanity` (QTLyrics/Matching): penalties, never rejections, that badge "Possible mismatch" — a non-Latin
+  title over Latin-only lyrics, gibberish (mean per-line `NLLanguageRecognizer` confidence < 0.6), synced lyrics
+  ending before 40 % of the track (dropped when every version does: long outro). Unofficial sources need a declared
+  length, or synced lyrics sung past 60 % of the track (QQ's search lists none). Same text for different songs: the
+  chosen text's fingerprint (first 8 normalised lines) goes into `fingerprints(hash, video_id, title)`; a text
+  already chosen for another song whose title is < 0.9 alike (covers, live cuts, remasters pass) is skipped and not
+  offered, and that song looks again. Offsets are per (videoId, version) in `version_offsets`; schema v1
+  (`PRAGMA user_version`) migrated the old per-track `offsets` to the pinned version, else the cached automatic pick,
+  else the first version shown.
 - Machine translation (M6, `QTLyricsTranslationCenter`, Lyrics/QTLyricsTranslation.swift): provider lane in the
   target → Apple Intelligence (`QTAppleIntelligenceTranslationEngine`, Foundation Models, macOS 26+, only when
   Settings' "Translate lyrics with Apple Intelligence" is on and `SystemLanguageModel` is available and supports the
