@@ -274,6 +274,12 @@ final class QTFakePlayerPages {
     var refusesToStart = StartRefusal.never
     /// The main page's current track is one it won't start.
     private var isRefusingStart = false
+    /// Where the main page's player gets a track but not its stream (its player request hung or failed: the live soak's
+    /// Wi-Fi brownouts, 2026-10-21): it shows the new id paused at 0 with no length, as the bridge reports it, Play
+    /// changes nothing, until `mediaArrives()`. `.inPage`: in-page loads only, a fresh page plays.
+    enum MediaWait { case never, inPage, everywhere }
+    var mediaWait = MediaWait.never
+    private var isWaitingForMedia = false
     /// What the main page's in-page loads show first: a pre-roll that comes up paused and plays on Play, or one that
     /// stays paused whatever is asked (live soak 2026-10-21, Song⇄Video). A fresh page plays the item.
     enum PreRoll { case none, pausedUntilPlay, stuck }
@@ -345,13 +351,17 @@ final class QTFakePlayerPages {
             navigations.append(url)
             let gen = engine.generation
             isRefusingStart = refusesToStart == .everywhere
+            isWaitingForMedia = mediaWait == .everywhere
             mainAd = .none
-            let plays = !isRefusingStart
+            mainLoadStart = start
+            let plays = !isRefusingStart && !isWaitingForMedia
+            let waits = isWaitingForMedia
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(20))
                 self.engine.receive(["type": "ready"])
                 self.main.set(time: start, playing: plays)
-                self.engine.receive(self.sample(gen: gen, videoID: videoID, time: start, paused: !plays))
+                self.engine.receive(waits ? self.waitingSample(gen: gen, videoID: videoID)
+                                          : self.sample(gen: gen, videoID: videoID, time: start, paused: !plays))
             }
         case .standby:
             standbyURLs.append(url)
@@ -389,13 +399,17 @@ final class QTFakePlayerPages {
             let gen = args[3] as? Int ?? engine.generation
             mainLoads.append(Load(videoID: videoID, start: start, autoplay: autoplay))
             isRefusingStart = refusesToStart != .never
+            isWaitingForMedia = mediaWait != .never
             mainAd = preRoll
             mainLoadStart = start
-            let plays = autoplay && !isRefusingStart && mainAd == .none
+            let plays = autoplay && !isRefusingStart && !isWaitingForMedia && mainAd == .none
+            let waits = isWaitingForMedia
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(20))
                 self.main.set(time: start, playing: plays)
-                if self.mainAd != .none {
+                if waits {
+                    self.engine.receive(self.waitingSample(gen: gen, videoID: videoID))
+                } else if self.mainAd != .none {
                     self.engine.receive(self.adSample(gen: gen, paused: true))
                 } else {
                     self.engine.receive(self.sample(gen: gen, videoID: videoID, time: start, paused: !plays))
@@ -418,6 +432,11 @@ final class QTFakePlayerPages {
                 self.main.set(time: start, playing: true)
                 self.engine.receive(self.sample(gen: gen, videoID: videoID, time: start, paused: false))
             }
+            return true
+        case (.main, "play") where isWaitingForMedia:
+            // Taken, but there is nothing to play yet.
+            let gen = engine.generation, videoID = engine.requestedVideoID ?? ""
+            Task { @MainActor in self.engine.receive(self.waitingSample(gen: gen, videoID: videoID)) }
             return true
         case (.main, "play"):
             // Taken, but a track the page won't start stays where it is: paused at its start.
@@ -449,6 +468,22 @@ final class QTFakePlayerPages {
         default:
             return true
         }
+    }
+
+    /// The network answers again: the main page's player gets its stream and plays the track it waited for.
+    func mediaArrives() {
+        guard isWaitingForMedia else { return }
+        isWaitingForMedia = false
+        mediaWait = .never
+        let gen = engine.generation, videoID = engine.requestedVideoID ?? "", start = mainLoadStart
+        main.set(time: start, playing: true)
+        engine.receive(sample(gen: gen, videoID: videoID, time: start, paused: false))
+    }
+
+    /// The bridge's report of a track whose player request hasn't answered: the new id, paused at 0, no length, no media.
+    func waitingSample(gen: Int, videoID: String) -> [String: Any] {
+        ["type": "state", "gen": gen, "vid": videoID, "match": true, "t": 0.0, "d": 0.0, "paused": true, "ps": -1,
+         "buffering": false, "ad": NSNull(), "rs": 0, "pip": pictureInPicture]
     }
 
     /// A 15 s pre-roll at its start.

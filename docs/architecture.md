@@ -125,10 +125,20 @@ Everything is wired (integration of M1 polish + M2–M4):
 - **Reliability (pre-launch §3, `QTQueueController+Reliability`):** the queue reconciles the listener's intent
   (`wantsPlayback`) with the engine once a second while it matters (`superviseTick`; no timer while idle). Silent
   where it can be: a pause nobody asked for ("Still listening?", WebKit) is undone once after 1.5 s; a track that
-  hasn't started since it loaded and sits paused (YouTube's page sometimes brings a new track up paused at 0 and
-  ignores a Play) is starting, not interrupted — Play again after 1.5 s, then the same item on a fresh page at its
+  hasn't started since it loaded and sits paused with its item known to the page (a cued reload, a page that ignores
+  a Play) is starting, not interrupted — Play again after 1.5 s, then the same item on a fresh page at its
   position (`startNextLoadAfresh`; the watch page's own autoplay) after 6 s more, Play once more there, and only then
-  *Playback was interrupted* (`coaxStart`; it never uses up the one silent resume). A paused **ad** goes the same
+  *Playback was interrupted* (`coaxStart`; it never uses up the one silent resume). A next track whose page has the
+  id but no player response (no length, nothing plays) is still **loading** in the web engine, not paused
+  (`isWaitingForMedia`; the load stays in flight, so the watch never coaxes it or calls it interrupted): every
+  "paused at 0" start on the live soaks (2026-10-21, runs 2–3) was a Wi-Fi brownout — RTT ~2 s, DNS timeouts, WebKit's
+  pooled HTTP/3 and HTTP/2 connections to music.youtube.com dead while the path stayed "satisfied" — in which
+  YouTube's player request hung ~9 s, failed (-1005) and was never asked again; the fresh page played ~1 s after the
+  network answered, so the silence was the brownout's (~25–50 s), not the page's. The engine sends Play again after
+  1.5 s online and loads the item on a fresh page after 6 s (then its usual 25 s retry and network failure); a page
+  being replaced is retired first (`__qtBridge.retire`: stopped, held, frozen, its reports ignored), since the old
+  document runs until the new one commits and there YouTube moved on to its own pick and spun on refused loads. A
+  paused **ad** goes the same
   way — ads are played on (the bridge's `play` resumes the ad's own media when YouTube ignores `playVideo`), never
   skipped, never taken for "Still listening?" — and while a track is starting only a PiP pause the bridge actually
   reported is the listener's (`isListenerPauseReported`), not any pause while the PiP window is open; the native
@@ -162,8 +172,8 @@ Everything is wired (integration of M1 polish + M2–M4):
   progress watchdog (6 s) restarts the graph once, then falls back; a failed graph restart falls back; only refusals
   (403/410/401, solver, bot check, SABR) switch native off for the session — 5xx/429 send just that item to the web
   engine. Tests: `PlaybackReliabilityTests`, `PlaybackSoakTests` (seeded 1,000-step chaos soak on `ChaosEngine`),
-  `WebRecoveryTests` (also the live soak's offline → online → natural end, and a new track the page won't start, on
-  fake pages), `QTBridgeKeepAliveTests`, `ListenerIntentTests`, `QTBridgePictureInPictureTests`; the soak also
+  `WebRecoveryTests` (also the live soak's offline → online → natural end, a new track the page won't start, and one
+  waiting out a brownout, on fake pages), `QTBridgeKeepAliveTests`, `QTBridgeTrackChangeTests`, `ListenerIntentTests`, `QTBridgePictureInPictureTests`; the soak also
   checks that nothing plays after a pause until the listener asks; live: `Scripts/playback-soak.py`.
 - **Playback speed (pre-launch §9):** one setting for everything that plays (`QTPlaybackEffectsPrefs.playbackRate`,
   `QTPlaybackSpeed`: 0.5–2× in quarter steps, the rates YouTube's player offers). `QTQueueController.rate` /

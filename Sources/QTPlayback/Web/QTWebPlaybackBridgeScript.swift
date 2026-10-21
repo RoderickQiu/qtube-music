@@ -634,6 +634,8 @@ enum QTWebPlaybackBridgeScript {
           return true;
         },
         isFrozen() { return F.frozen; },
+        // Being replaced by load `gen` (it runs until that commits): stop, hold, freeze, go quiet — no own pick, no retries.
+        retire(gen) { if (S.gen === gen) return false; S.hold = true; S.gen = -1; pauseNow(); try { player().stopVideo(); } catch (_) {} freeze(); return true; },
         media() { const v = video(); return v ? { volume: v.volume, muted: v.muted, surface: window.__qtVideo ? window.__qtVideo.info() : null, width: v.videoWidth, height: v.videoHeight,
                                                   quality: (() => { try { return player().getPlaybackQuality(); } catch (_) { return ''; } })() } : null; },
       };

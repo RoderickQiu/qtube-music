@@ -25,7 +25,8 @@ import WebKit
 /// - **Crashes:** a WebContent process that dies (`webContentProcessDidTerminate`), a page that no longer takes
 ///   commands, or a page left over from a long sleep is replaced by a fresh one at the same position, playing or
 ///   paused as before. A page that won't start a track (paused at its start, Play ignored) gets a fresh one when the
-///   queue asks (`startNextLoadAfresh`).
+///   queue asks (`startNextLoadAfresh`); one that has the id but not its player response (a network brownout) is still
+///   loading, gets Play again, then a fresh page (`isWaitingForMedia`), and the page it replaces is retired first.
 /// - **Power:** lowest video quality while no video is shown, and the page's timers are frozen a few seconds into
 ///   a pause the app asked for (`Configuration.freezeAfterPause`), so a paused engine costs next to nothing. A pause
 ///   the page made itself is never frozen: its "Still listening?" prompt has to stay answerable
@@ -131,6 +132,13 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
     /// An ad whose countdown hasn't moved for this long (while playing) is stuck: the item reloads once.
     static let adStallTimeout: TimeInterval = 10
     private var didRetryStall = false
+    /// The current load's page has nothing to play yet: its player has the item but not its player response (no length
+    /// known), and nothing plays while the app wants it to — YouTube still waiting on the network. Shown as loading.
+    private(set) var isWaitingForMedia = false
+    /// Online seconds a load's page may wait for its media before Play is sent again, and before the item gets a fresh
+    /// page (the old document's player request is lost: YouTube never asks again).
+    var mediaWaitPlay: TimeInterval = 1.5
+    var mediaWaitFreshPage: TimeInterval = 6
     /// play/pause requested before the page's player was ready; applied on `ready`.
     private var playIntentBeforeReady: Bool?
     /// What the app last asked for: play (autoplaying load, play) or not (cued load, pause, stop). A page that pauses
@@ -278,6 +286,7 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         didRetryStall = false
         adProgress = nil
         lastContentTime = nil
+        isWaitingForMedia = false
         playingVideoID = nil
         requestedVideoID = videoID
         video.itemDidChange(isVideo: item.mode == .video)
@@ -312,9 +321,23 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         let limit = Double(configuration.loadTimeout.components.seconds)
         Task { @MainActor [weak self] in
             var online = 0.0
+            var waited = 0.0
+            var mediaSteps = 0
             while true {
                 try? await Task.sleep(for: .milliseconds(500))
                 guard let self, self.pendingLoads[gen] != nil, gen == self.generation else { return }
+                // The page has the item but not its stream: YouTube's player request hung or failed (live soak
+                // 2026-10-21: Wi-Fi brownouts, its pooled connections dead) and it never asks again by itself. Play once
+                // more, then the item on a fresh page — which plays as soon as the network answers again.
+                if self.isWaitingForMedia, self.isNetworkAvailable { waited += 0.5 }
+                if mediaSteps == 0, waited >= self.mediaWaitPlay {
+                    mediaSteps = 1
+                    Task { await self.command("play") }
+                } else if mediaSteps == 1, waited >= self.mediaWaitFreshPage {
+                    mediaSteps = 2
+                    QTWebVideoOutput.log.info("the page has had nothing to play for \(waited, format: .fixed(precision: 1)) s; a fresh page")
+                    self.navigate(videoID: videoID, start: item.startTime, autoplay: true, generation: gen)
+                }
                 // Google's bot check instead of the player: fail now (no retry — a fresh page lands there too).
                 if QTWebPlaybackErrorMapper.isBotCheckPage(self.webView?.url),
                    let c = self.pendingLoads.removeValue(forKey: gen) {
@@ -380,6 +403,7 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         resumeAfterMoveDeadline = nil
         // Recorded whatever the status: a failed item that is paused stays held (no reload when the network returns).
         intendsPlayback = false
+        isWaitingForMedia = false
         pictureInPictureIntent = nil
         cancelStandby(.fallBack)
         guard state.item != nil else { return }
@@ -700,7 +724,9 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
     }
 
     private func navigate(videoID: String, start: TimeInterval, autoplay: Bool, generation gen: Int) {
+        let replacesLivePage = isPageReady
         isPageReady = false
+        isWaitingForMedia = false
         needsFreshPage = false
         playIntentBeforeReady = nil
         audio.itemDidChange()
@@ -713,6 +739,13 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         if let existing = webView {
             installScripts(on: existing.configuration.userContentController, bootstrap: bootstrap)
             view = existing
+            // The old document runs on until the new one commits — on a bad network for many seconds, in which YouTube's
+            // player there moved on to its own pick and kept retrying (live soak 2026-10-21). It stops and holds first;
+            // the new document (load `gen`) ignores the call should it already be there.
+            if replacesLivePage {
+                let io = pageIO
+                Task { _ = await io.call(existing, "retire", [gen]) }
+            }
         } else {
             view = makeWebView(bootstrap: bootstrap)
         }
@@ -835,6 +868,11 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         let now = ProcessInfo.processInfo.systemUptime
         let duration = s.duration > 0 ? s.duration : state.duration
         let before = state
+        // A load the app wants playing whose page doesn't know the item's length (its player response hasn't come) and
+        // plays nothing is still loading, not paused: the page is waiting on the network, not refusing to start. A cued
+        // item (state 5) has its response.
+        isWaitingForMedia = s.ad == nil && s.paused && s.duration <= 0 && s.playerState != 5 && intendsPlayback
+            && pendingLoads[generation] != nil
 
         if let ad = s.ad {
             state.ad = QTAdState(duration: ad.duration, remaining: ad.remaining, skippableIn: ad.skippableIn)
@@ -846,14 +884,17 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
             state.timeline = QTPlaybackTimeline(time: s.time, rate: 0, anchorUptime: now, duration: duration > 0 ? duration : .infinity)
         } else {
             state.ad = nil
-            if state.status != .ended || s.time < duration - 1 {
+            if isWaitingForMedia {
+                state.status = .loading
+            } else if state.status != .ended || s.time < duration - 1 {
                 state.status = s.paused ? .paused : .playing
             }
-            state.isBuffering = s.isBuffering
+            state.isBuffering = s.isBuffering || isWaitingForMedia
             // The speed the page's media actually runs at (the rate script re-asserts the asked one).
             let rate: Double = (state.status == .playing && !s.isBuffering) ? (s.rate > 0 ? s.rate : self.rate) : 0
-            // A cued video reports 0 until it plays; show the position it will start from (restored queue).
-            let time = s.playerState == 5 ? (state.item?.startTime ?? s.time) : s.time
+            // A cued video (or one still waiting for its stream) reports 0 until it plays; show the position it will
+            // start from (restored queue, a reload).
+            let time = s.playerState == 5 || isWaitingForMedia ? (state.item?.startTime ?? s.time) : s.time
             state.timeline = QTPlaybackTimeline(time: time, rate: rate, anchorUptime: now, duration: duration > 0 ? duration : .infinity)
         }
         state.duration = duration
@@ -874,7 +915,7 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
             state.timeline = before.timeline  // keep the anchor views already interpolate from
         }
 
-        if s.ad != nil || duration > 0 || s.playerState == 5 /* cued */ {
+        if s.ad != nil || (duration > 0 && !isWaitingForMedia) || s.playerState == 5 /* cued */ {
             pendingLoads.removeValue(forKey: generation)?.resume()
         }
         trackProgress(s, at: now)
