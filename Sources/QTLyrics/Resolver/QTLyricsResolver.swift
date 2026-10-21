@@ -16,21 +16,28 @@ public struct QTResolvedLyricsVersion: Sendable, Hashable, Codable, Identifiable
     public var translationLanguage: String?
     /// Sanity checks the fetched text failed (nil in entries cached before they existed, and for unfetched versions).
     public var flags: [QTLyricsMatchFlag]?
+    /// The user reported it ("Report Wrong Lyrics"): never chosen automatically, listed last so the report can be
+    /// taken back by picking it (nil = not reported).
+    public var isReported: Bool?
 
     public init(candidate: QTLyricsCandidate, score: Double, syncKind: QTLyricsSyncKind?, hasTranslation: Bool,
-                translationLanguage: String? = nil, flags: [QTLyricsMatchFlag]? = nil) {
+                translationLanguage: String? = nil, flags: [QTLyricsMatchFlag]? = nil, isReported: Bool? = nil) {
         self.candidate = candidate
         self.score = score
         self.syncKind = syncKind
         self.hasTranslation = hasTranslation
         self.translationLanguage = translationLanguage
         self.flags = flags
+        self.isReported = isReported
     }
     public var id: String { candidate.id }
     public var source: QTLyricsSource { candidate.source }
     public var duration: TimeInterval? { candidate.duration }
-    /// Score 0.60–0.80, or a failed sanity check: shown with a "Possible mismatch" badge.
-    public var isPossibleMismatch: Bool { score < QTLyricsMatchThreshold.accept || flags?.isEmpty == false }
+    /// Score 0.60–0.80, or a failed sanity check that counts on its own (`QTLyricsMatchFlag.forcesBadge`): shown with
+    /// a "Possible mismatch" badge.
+    public var isPossibleMismatch: Bool {
+        score < QTLyricsMatchThreshold.accept || flags?.contains(where: \.forcesBadge) == true
+    }
 }
 
 /// The outcome of a lookup.
@@ -42,7 +49,11 @@ public struct QTLyricsResolution: Sendable, Hashable {
     public var fullDocument: QTLyricsDocument?
     public var versions: [QTResolvedLyricsVersion]
     public var chosenID: String?
-    public var isPinned: Bool
+    /// The user's stored choice for this track: a version id, or `QTLyricsCache.noLyricsPin`. It may differ from
+    /// `chosenID` when the pinned version can't be fetched any more (the automatic pick shows meanwhile).
+    public var pinnedID: String?
+    /// A choice is stored (`pinnedID` != nil), so the menu shows it and Automatic can clear it.
+    public var isPinned: Bool { pinnedID != nil }
     /// "Source: LyricFind" for YouTube Music lyrics.
     public var attribution: String?
     public var fromCache: Bool
@@ -54,13 +65,13 @@ public struct QTLyricsResolution: Sendable, Hashable {
     public var isLyricsOff: Bool
 
     public init(document: QTLyricsDocument?, fullDocument: QTLyricsDocument? = nil, versions: [QTResolvedLyricsVersion],
-                chosenID: String?, isPinned: Bool, attribution: String?, fromCache: Bool,
+                chosenID: String?, pinnedID: String? = nil, attribution: String?, fromCache: Bool,
                 unreachableSources: [QTLyricsSource] = [], isLyricsOff: Bool = false) {
         self.document = document
         self.fullDocument = fullDocument ?? document
         self.versions = versions
         self.chosenID = chosenID
-        self.isPinned = isPinned
+        self.pinnedID = pinnedID
         self.attribution = attribution
         self.fromCache = fromCache
         self.unreachableSources = unreachableSources
@@ -181,7 +192,7 @@ public actor QTLyricsResolver: QTLyricsProviding {
         let key = sourcesKey(config) + (pinned.map { "|pin:" + $0 } ?? "")
         if !forceRefresh, let entry = await cache?.entry(for: query.videoId), entry.sourcesKey == key,
            now().timeIntervalSince(entry.updated) < lifetime(of: entry, config) {
-            return await present(entry, pinned: pinned != nil && pinned == entry.chosenID, lyricsOff: lyricsOff, fromCache: true, config)
+            return await present(entry, pin: stored, fromCache: true, config)
         }
         let rejected = await cache?.rejectedVersionIDs(for: query.videoId) ?? []
         var (entry, unreachable) = await lookup(query, pinned: pinned, rejected: rejected, config)
@@ -192,15 +203,14 @@ public actor QTLyricsResolver: QTLyricsProviding {
         if entry.document == nil, !unreachable.isEmpty {
             if let previous = await cache?.entry(for: query.videoId), previous.document != nil,
                !rejected.contains(previous.chosenID ?? "") {
-                var r = await present(previous, pinned: pinned != nil && pinned == previous.chosenID, lyricsOff: lyricsOff,
-                                      fromCache: true, config)
+                var r = await present(previous, pin: stored, fromCache: true, config)
                 r.unreachableSources = unreachable
                 return r
             }
         } else {
             await cache?.store(entry)
         }
-        var r = await present(entry, pinned: pinned != nil && pinned == entry.chosenID, lyricsOff: lyricsOff, fromCache: false, config)
+        var r = await present(entry, pin: stored, fromCache: false, config)
         r.unreachableSources = unreachable
         return r
     }
@@ -224,12 +234,14 @@ public actor QTLyricsResolver: QTLyricsProviding {
         return await resolve(query, configuration: configuration, forceRefresh: true)
     }
 
-    /// "Automatic": back to the resolver's own pick.
+    /// "Automatic": back to the resolver's own pick, whatever was stored (a pinned version that can't be fetched any
+    /// more included).
     public func unpin(for query: QTLyricsQuery, configuration: QTLyricsResolverConfiguration? = nil) async -> QTLyricsResolution {
-        let wasOff = await cache?.pinnedVersionID(for: query.videoId) == QTLyricsCache.noLyricsPin
+        let stored = await cache?.pinnedVersionID(for: query.videoId)
         await cache?.setPinnedVersionID(nil, for: query.videoId)
-        // Lyrics that were only hidden are still cached under the automatic key: no new lookup.
-        return await resolve(query, configuration: configuration, forceRefresh: !wasOff)
+        // Nothing was pinned, or lyrics were only hidden: the automatic pick is still cached, no new lookup.
+        return await resolve(query, configuration: configuration,
+                             forceRefresh: stored != nil && stored != QTLyricsCache.noLyricsPin)
     }
 
     /// "No Lyrics for This Song": hides lyrics for this track from now on (persisted) until a version or Automatic
@@ -239,14 +251,24 @@ public actor QTLyricsResolver: QTLyricsProviding {
         return await resolve(query, configuration: configuration)
     }
 
-    /// "Report Wrong Lyrics": this version is never chosen or offered for this track again (kept on this Mac, never
-    /// sent anywhere), and the next best version is shown at once. A pin on it is dropped.
+    /// "Report Wrong Lyrics": this version is never chosen for this track again (kept on this Mac, never sent
+    /// anywhere; listed last as reported, so picking it takes the report back), and the next best version is shown
+    /// at once. A pin on it is dropped, and so is its text's fingerprint (it was no song's lyrics).
     public func reject(versionID: String, for query: QTLyricsQuery,
                        configuration: QTLyricsResolverConfiguration? = nil) async -> QTLyricsResolution {
         await cache?.addRejection(versionID, for: query.videoId)
         if await cache?.pinnedVersionID(for: query.videoId) == versionID {
             await cache?.setPinnedVersionID(nil, for: query.videoId)
         }
+        await cache?.clearFingerprints(for: query.videoId)
+        return await resolve(query, configuration: configuration, forceRefresh: true)
+    }
+
+    /// Undo for a report: takes it back and restores the pin the report dropped.
+    public func undoReject(versionID: String, wasPinned: Bool, for query: QTLyricsQuery,
+                           configuration: QTLyricsResolverConfiguration? = nil) async -> QTLyricsResolution {
+        await cache?.removeRejection(versionID, for: query.videoId)
+        if wasPinned { await cache?.setPinnedVersionID(versionID, for: query.videoId) }
         return await resolve(query, configuration: configuration, forceRefresh: true)
     }
 
@@ -309,9 +331,13 @@ public actor QTLyricsResolver: QTLyricsProviding {
         }
 
         // 2. Fetch the most promising candidates (pinned first), a few per provider. Versions the user reported are
-        //    never fetched or offered again.
+        //    never fetched or chosen again; they are listed last, so the report can be taken back.
         let acceptable = found.filter {
             ($0.1.isAcceptable(for: $0.0.source) && !rejected.contains($0.0.id)) || $0.0.id == pinned
+        }
+        var reported: [String: (QTLyricsCandidate, QTLyricsMatchScore)] = [:]
+        for (c, s) in found where rejected.contains(c.id) && c.id != pinned && s.isAcceptable(for: c.source) {
+            if reported[c.id].map({ $0.1.total < s.total }) ?? true { reported[c.id] = (c, s) }
         }
         let ordered = acceptable.sorted { a, b in
             if (a.0.id == pinned) != (b.0.id == pinned) { return a.0.id == pinned }
@@ -353,6 +379,11 @@ public actor QTLyricsResolver: QTLyricsProviding {
                 evaluated[i].score.sanityPenalty = QTLyricsSanity.penalty(for: evaluated[i].score.flags)
             }
         }
+        // An unofficial version that can't show its recording's length is kept only when no other version is there
+        // for the song (then it may be all there is: a penalty and a badge, not a rejection).
+        if evaluated.contains(where: { !$0.score.flags.contains(.unknownLength) && $0.score.isAcceptable(for: $0.candidate.source) }) {
+            evaluated.removeAll { $0.score.flags.contains(.unknownLength) && $0.candidate.id != pinned }
+        }
 
         // 3. Pick: pinned (if it fetched) else the best acceptable by tier, sync kind, target translation, score.
         let usable = evaluated.filter { $0.score.isAcceptable(for: $0.candidate.source) || $0.candidate.id == pinned }
@@ -362,22 +393,26 @@ public actor QTLyricsResolver: QTLyricsProviding {
             // Ties go by id, so the automatic pick doesn't depend on which fetch finished first.
             return ka == kb ? a.candidate.id < b.candidate.id : Self.isRankedHigher(ka, kb)
         }
-        var chosen = ranked.first { $0.candidate.id == pinned }
-        if chosen == nil {
-            // Same text for different songs: what a source already served for another song (titles not alike —
-            // covers and re-releases share lyrics) is its filler, not this song's lyrics. Skipped and not offered;
-            // the other songs look again next time.
-            var decoys: Set<String> = []
-            for e in ranked {
-                guard let fingerprint = QTLyricsSanity.fingerprint(e.parsed) else { chosen = e; break }
-                let others = await otherSongs(sharing: fingerprint, with: query, scorer: scorer)
-                await cache?.recordFingerprint(fingerprint, videoId: query.videoId, title: query.title)
-                guard others.count >= 1 else { chosen = e; break }
-                log.debug("same text as \(others.count) other songs: \(e.candidate.id, privacy: .public)")
-                decoys.insert(e.candidate.id)
-                for videoId in others.videoIds { await cache?.removeEntry(for: videoId) }
-            }
-            ranked.removeAll { decoys.contains($0.candidate.id) }
+        // Same text for different songs: a text already chosen for other songs (titles and artists not alike —
+        // covers, re-releases and translated titles share lyrics) is a source's filler, not this song's lyrics. Never
+        // picked automatically; listed after the others with a "Possible mismatch" badge, so it can still be picked.
+        var shared: Set<String> = []
+        for i in ranked.indices {
+            guard let fingerprint = QTLyricsSanity.fingerprint(ranked[i].parsed),
+                  await sharesText(fingerprint, with: query, scorer: scorer) else { continue }
+            log.debug("same text as other songs: \(ranked[i].candidate.id, privacy: .public)")
+            shared.insert(ranked[i].candidate.id)
+            ranked[i].score.flags.insert(.sharedText)
+            ranked[i].score.sanityPenalty = QTLyricsSanity.penalty(for: ranked[i].score.flags)
+        }
+        ranked = ranked.filter { !shared.contains($0.candidate.id) } + ranked.filter { shared.contains($0.candidate.id) }
+        let chosen = ranked.first { $0.candidate.id == pinned } ?? ranked.first { !shared.contains($0.candidate.id) }
+        // Only the text actually shown counts as this song's (one per track). A lookup that couldn't reach every
+        // source leaves the last one alone.
+        if let chosen, let fingerprint = QTLyricsSanity.fingerprint(chosen.parsed) {
+            await cache?.recordFingerprint(fingerprint, videoId: query.videoId, title: query.title, artist: query.artistLine)
+        } else if chosen != nil || unreachable.isEmpty {
+            await cache?.clearFingerprints(for: query.videoId)
         }
 
         var versions = ranked.map { e in
@@ -400,6 +435,9 @@ public actor QTLyricsResolver: QTLyricsProviding {
             perSource[v.source.id] = n + 1
             return n < config.versionsPerSource || v.id == chosen?.candidate.id || v.id == pinned
         }
+        versions += reported.values.sorted { $0.1.total == $1.1.total ? $0.0.id < $1.0.id : $0.1.total > $1.1.total }.map {
+            QTResolvedLyricsVersion(candidate: $0.0, score: $0.1.total, syncKind: $0.0.syncHint, hasTranslation: false, isReported: true)
+        }
 
         guard let chosen else {
             log.debug("no lyrics for \(query.videoId, privacy: .public)")
@@ -407,9 +445,11 @@ public actor QTLyricsResolver: QTLyricsProviding {
                                        attribution: nil, sourcesKey: sourcesKey(config), updated: now()), unreachable)
         }
 
-        // A version the user picked shows no badge; one that failed a sanity check always shows "Possible mismatch".
+        // A version the user picked shows no badge; one that failed a sanity check that counts on its own always
+        // shows "Possible mismatch".
         let confidence = chosen.candidate.id == pinned ? max(chosen.score.total, QTLyricsMatchThreshold.accept)
-            : chosen.score.flags.isEmpty ? chosen.score.total : min(chosen.score.total, QTLyricsMatchThreshold.accept - 0.01)
+            : !chosen.score.flags.contains(where: \.forcesBadge) ? chosen.score.total
+            : min(chosen.score.total, QTLyricsMatchThreshold.accept - 0.01)
         var document = QTLyricsAssembler.document(from: chosen.parsed, source: chosen.candidate.source, confidence: confidence,
                                                   preferredTranslationLanguage: target, romanize: config.romanize)
 
@@ -432,18 +472,19 @@ public actor QTLyricsResolver: QTLyricsProviding {
                                    sourcesKey: sourcesKey(config), updated: now()), unreachable)
     }
 
-    /// Other songs this text was chosen for whose titles aren't alike this one's, counted once per title (two
-    /// uploads of one song are one song) — and every such track, to look again.
-    private func otherSongs(sharing fingerprint: String, with query: QTLyricsQuery,
-                            scorer: QTLyricsMatchScorer) async -> (count: Int, videoIds: [String]) {
+    /// True when this text was chosen for at least `QTLyricsSanity.sharedTextSongs` other songs — other titles than
+    /// this one's, by other artists than this one's and than each other's (counted once per title and per artist:
+    /// two uploads of one song are one song; one artist's song under two titles is one artist).
+    private func sharesText(_ fingerprint: String, with query: QTLyricsQuery, scorer: QTLyricsMatchScorer) async -> Bool {
         var titles: [String] = []
-        var videoIds: [String] = []
+        var artists: [String] = []
         for other in await cache?.fingerprintTracks(fingerprint, excluding: query.videoId) ?? [] {
-            guard !QTLyricsSanity.isSameSong(other.title, query.title, scorer: scorer) else { continue }
-            videoIds.append(other.videoId)
+            guard !QTLyricsSanity.isSameSong(other.title, query.title, scorer: scorer),
+                  !QTLyricsSanity.isSameArtist(other.artist, query.artistLine, scorer: scorer) else { continue }
             if !titles.contains(where: { QTLyricsSanity.isSameSong($0, other.title, scorer: scorer) }) { titles.append(other.title) }
+            if !artists.contains(where: { QTLyricsSanity.isSameArtist($0, other.artist, scorer: scorer) }) { artists.append(other.artist) }
         }
-        return (titles.count, videoIds)
+        return titles.count >= QTLyricsSanity.sharedTextSongs && artists.count >= QTLyricsSanity.sharedTextSongs
     }
 
     private nonisolated func hasLane(_ p: QTParsedLyrics, _ target: String?) -> Bool {
@@ -506,16 +547,17 @@ public actor QTLyricsResolver: QTLyricsProviding {
 
     /// Applies the chosen version's offset and the translation policy for the current target; hides the lyrics when
     /// the user turned them off for this track.
-    private func present(_ entry: QTLyricsCacheEntry, pinned: Bool, lyricsOff: Bool, fromCache: Bool,
+    /// - Parameter pin: the stored choice (a version id, `QTLyricsCache.noLyricsPin`, or nil for Automatic).
+    private func present(_ entry: QTLyricsCacheEntry, pin: String?, fromCache: Bool,
                          _ config: QTLyricsResolverConfiguration) async -> QTLyricsResolution {
-        if lyricsOff {
-            return QTLyricsResolution(document: nil, versions: entry.versions, chosenID: nil, isPinned: true,
+        if pin == QTLyricsCache.noLyricsPin {
+            return QTLyricsResolution(document: nil, versions: entry.versions, chosenID: nil, pinnedID: pin,
                                       attribution: nil, fromCache: fromCache, isLyricsOff: true)
         }
         var full = entry.document
         if full != nil { full?.offset = await cache?.offset(for: entry.videoId, version: entry.chosenID ?? "") ?? 0 }
         let doc = full.map { QTLyricsTranslationPolicy.applyProviderLane(to: $0, target: config.translationLanguage) }
         return QTLyricsResolution(document: doc, fullDocument: full, versions: entry.versions, chosenID: entry.chosenID,
-                                  isPinned: pinned, attribution: entry.attribution, fromCache: fromCache)
+                                  pinnedID: pin, attribution: entry.attribution, fromCache: fromCache)
     }
 }

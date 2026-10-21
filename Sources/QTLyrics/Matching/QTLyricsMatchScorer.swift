@@ -15,12 +15,14 @@ public enum QTLyricsMatchThreshold {
     public static let overrunTolerance: TimeInterval = 5
     /// Synced lyrics that stop before this share of the track are probably for another (shorter) song.
     public static let minimumCoverage = 0.4
-    /// An unofficial candidate that declares no length must be synced and sung at least this far into the track.
+    /// An unofficial candidate that declares no length is taken for this recording when it is synced and sung at
+    /// least this far into the track; otherwise it is flagged `unknownLength`.
     public static let undatedCoverage = 0.6
 }
 
 /// Why a fetched version looks doubtful although its title, artist and length match. Each lowers the score
-/// (`QTLyricsMatchScore.sanityPenalty`) and shows "Possible mismatch"; none rejects on its own.
+/// (`QTLyricsMatchScore.sanityPenalty`); all but `gibberish` show "Possible mismatch" (`forcesBadge`). None rejects
+/// on its own.
 public enum QTLyricsMatchFlag: String, Sendable, Hashable, Codable, CaseIterable {
     /// The title is written in a non-Latin script (Chinese, Korean, Cyrillic…) and the lyrics have none of it.
     case scriptMismatch
@@ -29,6 +31,16 @@ public enum QTLyricsMatchFlag: String, Sendable, Hashable, Codable, CaseIterable
     /// Synced lyrics end before 40 % of the track while another version of the song goes on (the resolver drops
     /// the flag when every version ends that early: a long instrumental outro).
     case lowCoverage
+    /// An unofficial version that doesn't say how long its recording is, and whose timing doesn't show it either
+    /// (QQ lists no lengths). The resolver keeps it only when no other version covers the song.
+    case unknownLength
+    /// The same text a source served for other songs (titles and artists unlike this one's): its filler, not this
+    /// song's lyrics. Never chosen automatically; still listed, badged, so it can be picked.
+    case sharedText
+
+    /// Shows "Possible mismatch" on its own. The language recognizer doesn't know every language (Welsh or Zulu
+    /// lyrics read as low-confidence guesses), so `gibberish` only lowers the rank.
+    public var forcesBadge: Bool { self != .gibberish }
 }
 
 public struct QTLyricsMatchScore: Sendable, Hashable, Codable {
@@ -44,8 +56,6 @@ public struct QTLyricsMatchScore: Sendable, Hashable, Codable {
 
     public enum Rejection: String, Sendable, Hashable, Codable {
         case durationMismatch, overrunsTrack, belowThreshold, emptyLyrics
-        /// An unofficial source that doesn't say how long its recording is, and whose timing doesn't show it either.
-        case unknownDuration
     }
 
     /// 0.40 title + 0.40 artist + 0.20 duration − penalties, clamped to 0…1. Rejected scores are 0.
@@ -145,7 +155,8 @@ public struct QTLyricsMatchScorer: Sendable {
 
     /// Post-fetch checks: lyrics longer than the track (+5 s) are for another recording; re-score with the
     /// title/artist/length the payload itself declares (Kugou's `[ti:]…Remix` / `[total:]`); an unofficial version
-    /// must show how long its recording is; then the sanity checks (`QTLyricsSanity`: script, gibberish, coverage).
+    /// that can't show how long its recording is gets `unknownLength`; then the sanity checks (`QTLyricsSanity`:
+    /// script, gibberish, coverage).
     public func rescore(_ score: QTLyricsMatchScore, candidate: QTLyricsCandidate, lyrics: QTParsedLyrics,
                         for query: QTLyricsQuery) -> QTLyricsMatchScore {
         var s = score
@@ -156,13 +167,12 @@ public struct QTLyricsMatchScorer: Sendable {
             return s
         }
         // Unofficial sources match loosely on names, so the length is the evidence that this is the recording. QQ's
-        // search lists none: its synced lyrics must then run most of the way through the track instead.
+        // search lists none: its synced lyrics must then run most of the way through the track instead. Without
+        // either the version is doubtful, not wrong (plain QQ lyrics may be all there is for a song).
+        var undated = false
         if candidate.source.isUnofficial, (candidate.duration ?? 0) <= 0, (lyrics.metadata.length ?? 0) <= 0 {
-            guard query.duration > 0, lyrics.syncKind != .plain, let last = lyrics.lastTimestamp,
-                  last >= query.duration * QTLyricsMatchThreshold.undatedCoverage else {
-                s.rejection = .unknownDuration
-                return s
-            }
+            undated = !(query.duration > 0 && lyrics.syncKind != .plain
+                        && (lyrics.lastTimestamp ?? 0) >= query.duration * QTLyricsMatchThreshold.undatedCoverage)
         }
         if !candidate.isExactMatch {
             var declared = candidate
@@ -182,6 +192,7 @@ public struct QTLyricsMatchScorer: Sendable {
         }
         guard s.rejection == nil else { return s }
         s.flags = QTLyricsSanity.flags(lyrics, for: query)
+        if undated { s.flags.insert(.unknownLength) }
         s.sanityPenalty = QTLyricsSanity.penalty(for: s.flags)
         return s
     }

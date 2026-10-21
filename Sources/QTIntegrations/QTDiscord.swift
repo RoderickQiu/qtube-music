@@ -74,9 +74,11 @@ public struct QTDiscordTrack: Sendable, Hashable {
     public var duration: TimeInterval
     public var elapsed: TimeInterval
     public var isPlaying: Bool
+    /// A song the user uploaded to their own library: its link and artwork are private, so neither is shown.
+    public var isPrivatelyOwned: Bool
 
     public init(title: String, artist: String, album: String? = nil, artworkURL: URL? = nil, link: URL? = nil,
-                duration: TimeInterval, elapsed: TimeInterval, isPlaying: Bool) {
+                duration: TimeInterval, elapsed: TimeInterval, isPlaying: Bool, isPrivatelyOwned: Bool = false) {
         self.title = title
         self.artist = artist
         self.album = album
@@ -85,6 +87,7 @@ public struct QTDiscordTrack: Sendable, Hashable {
         self.duration = duration
         self.elapsed = elapsed
         self.isPlaying = isPlaying
+        self.isPrivatelyOwned = isPrivatelyOwned
     }
 }
 
@@ -97,7 +100,8 @@ public enum QTDiscordActivity {
     }
 
     /// A "Listening to" activity (type 2): title, artist, album art, elapsed/remaining while playing. Paused tracks
-    /// show without timestamps. `buttonTitle` is the localized label of the link button.
+    /// show without timestamps. `buttonTitle` is the localized label of the link button. A private upload shows its
+    /// title and artist only (no artwork URL, no link).
     public static func payload(for t: QTDiscordTrack, now: Date = Date(), showsArtwork: Bool = true,
                                buttonTitle: String? = nil) -> [String: Any] {
         var activity: [String: Any] = [
@@ -113,12 +117,12 @@ public enum QTDiscordActivity {
             ]
         }
         var assets: [String: Any] = [:]
-        if showsArtwork, let art = t.artworkURL, art.scheme == "https" {
+        if showsArtwork, !t.isPrivatelyOwned, let art = t.artworkURL, art.scheme == "https" {
             assets["large_image"] = art.absoluteString
             assets["large_text"] = clamp(t.album?.isEmpty == false ? t.album! : t.title)
         }
         if !assets.isEmpty { activity["assets"] = assets }
-        if let link = t.link, let buttonTitle {
+        if !t.isPrivatelyOwned, let link = t.link, let buttonTitle {
             activity["buttons"] = [["label": String(buttonTitle.prefix(32)), "url": link.absoluteString]]
         }
         return activity

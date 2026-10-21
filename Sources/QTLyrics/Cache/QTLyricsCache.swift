@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import QTCore
 import SQLite3
 
@@ -53,6 +54,8 @@ public actor QTLyricsCache {
             throw QTLyricsCacheError.sqlite(message)
         }
         connection = QTSQLiteConnection(handle)
+        // Another copy of the app (`open -n`) may hold the file for a moment: wait instead of failing at once.
+        sqlite3_busy_timeout(handle, Self.busyTimeoutMilliseconds)
         let schema = """
         PRAGMA journal_mode=WAL;
         PRAGMA synchronous=NORMAL;
@@ -67,21 +70,32 @@ public actor QTLyricsCache {
         CREATE TABLE IF NOT EXISTS rejections (video_id TEXT NOT NULL, version_id TEXT NOT NULL, updated REAL NOT NULL,
             PRIMARY KEY (video_id, version_id));
         CREATE TABLE IF NOT EXISTS fingerprints (hash TEXT NOT NULL, video_id TEXT NOT NULL, title TEXT NOT NULL,
-            PRIMARY KEY (hash, video_id));
+            artist TEXT NOT NULL DEFAULT '', PRIMARY KEY (hash, video_id));
         """
         if sqlite3_exec(handle, schema, nil, nil, nil) != SQLITE_OK {
             throw QTLyricsCacheError.sqlite(String(cString: sqlite3_errmsg(handle)))
         }
-        try Self.migrate(handle)
+        // A migration that can't finish is rolled back and tried again at the next launch; the cache opens either
+        // way, so pins, reports and offsets keep being saved meanwhile.
+        do {
+            try Self.migrate(handle)
+        } catch {
+            Logger(subsystem: "com.roderickqiu.qtube", category: "lyrics").error("lyrics cache migration failed: \(String(describing: error), privacy: .public)")
+        }
     }
 
     /// `PRAGMA user_version` of the current schema.
-    static let schemaVersion: Int32 = 1
+    static let schemaVersion: Int32 = 2
+    static let busyTimeoutMilliseconds: Int32 = 3_000
 
-    /// Version 0 → 1: offsets were per track (`offsets`); they are now per track and version, so a newly picked
-    /// version starts at zero. An existing offset was tuned for what was showing: the pinned version, else the cached
-    /// automatic pick; with neither known it is kept under `""` and goes to the first version shown (`offset(for:version:)`).
-    private static func migrate(_ db: OpaquePointer) throws {
+    /// Every step runs in one transaction; any failed statement rolls all of it back.
+    /// - 0 → 1: offsets were per track (`offsets`); they are now per track and version, so a newly picked version
+    ///   starts at zero. An existing offset was tuned for what was showing: the pinned version, else the cached
+    ///   automatic pick; with neither known it is kept under `""` and goes to the first version shown
+    ///   (`offset(for:version:)`).
+    /// - 1 → 2: fingerprints gain the artist and are started afresh (earlier builds also recorded versions that were
+    ///   never shown, which could mark the right lyrics as another song's).
+    static func migrate(_ db: OpaquePointer) throws {
         var stmt: OpaquePointer?
         var version: Int32 = 0
         if sqlite3_prepare_v2(db, "PRAGMA user_version", -1, &stmt, nil) == SQLITE_OK, sqlite3_step(stmt) == SQLITE_ROW {
@@ -89,37 +103,63 @@ public actor QTLyricsCache {
         }
         sqlite3_finalize(stmt)
         guard version < schemaVersion else { return }
-        let decoder = JSONDecoder()
-        var legacy: [(videoId: String, offset: Double, version: String)] = []
-        if sqlite3_prepare_v2(db, """
+        try exec(db, "BEGIN IMMEDIATE")
+        do {
+            if version < 1 { try migrateOffsets(db) }
+            if version < 2 {
+                try exec(db, """
+                    DROP TABLE IF EXISTS fingerprints;
+                    CREATE TABLE fingerprints (hash TEXT NOT NULL, video_id TEXT NOT NULL, title TEXT NOT NULL,
+                        artist TEXT NOT NULL DEFAULT '', PRIMARY KEY (hash, video_id));
+                    """)
+            }
+            try exec(db, "PRAGMA user_version = \(schemaVersion)")
+            try exec(db, "COMMIT")
+        } catch {
+            sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
+            throw error
+        }
+    }
+
+    private static func migrateOffsets(_ db: OpaquePointer) throws {
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        // A fresh file has no `offsets` table: nothing to carry over.
+        guard sqlite3_prepare_v2(db, """
             SELECT o.video_id, o.offset, p.version_id, l.entry FROM offsets o
             LEFT JOIN pins p ON p.video_id = o.video_id LEFT JOIN lyrics l ON l.video_id = o.video_id
-            """, -1, &stmt, nil) == SQLITE_OK {
-            while sqlite3_step(stmt) == SQLITE_ROW {
-                let pin = sqlite3_column_text(stmt, 2).map { String(cString: $0) }
-                let entry = blob(stmt!, 3)
-                let chosen = entry.isEmpty ? nil : (try? decoder.decode(QTLyricsCacheEntry.self, from: entry))?.chosenID
-                legacy.append((text(stmt!, 0), sqlite3_column_double(stmt, 1),
-                               pin.flatMap { $0 == QTLyricsCache.noLyricsPin ? nil : $0 } ?? chosen ?? ""))
-            }
+            """, -1, &stmt, nil) == SQLITE_OK, let select = stmt else { return }
+        let decoder = JSONDecoder()
+        var legacy: [(videoId: String, offset: Double, version: String)] = []
+        var rc = sqlite3_step(select)
+        while rc == SQLITE_ROW {
+            let pin = sqlite3_column_text(select, 2).map { String(cString: $0) }
+            let entry = blob(select, 3)
+            let chosen = entry.isEmpty ? nil : (try? decoder.decode(QTLyricsCacheEntry.self, from: entry))?.chosenID
+            legacy.append((text(select, 0), sqlite3_column_double(select, 1),
+                           pin.flatMap { $0 == QTLyricsCache.noLyricsPin ? nil : $0 } ?? chosen ?? ""))
+            rc = sqlite3_step(select)
         }
-        sqlite3_finalize(stmt)   // a fresh file has no `offsets` table: nothing to carry over
-        guard sqlite3_exec(db, "BEGIN", nil, nil, nil) == SQLITE_OK else { throw QTLyricsCacheError.sqlite(String(cString: sqlite3_errmsg(db))) }
+        guard rc == SQLITE_DONE else { throw QTLyricsCacheError.sqlite(String(cString: sqlite3_errmsg(db))) }
+        sqlite3_finalize(select)
+        stmt = nil
         for row in legacy {
-            if sqlite3_prepare_v2(db, "INSERT OR REPLACE INTO version_offsets (video_id, version_id, offset) VALUES (?, ?, ?)",
-                                  -1, &stmt, nil) == SQLITE_OK {
-                sqlite3_bind_text(stmt, 1, row.videoId, -1, transient)
-                sqlite3_bind_text(stmt, 2, row.version, -1, transient)
-                sqlite3_bind_double(stmt, 3, row.offset)
-                _ = sqlite3_step(stmt)
-            }
+            guard sqlite3_prepare_v2(db, "INSERT OR REPLACE INTO version_offsets (video_id, version_id, offset) VALUES (?, ?, ?)",
+                                     -1, &stmt, nil) == SQLITE_OK else { throw QTLyricsCacheError.sqlite(String(cString: sqlite3_errmsg(db))) }
+            sqlite3_bind_text(stmt, 1, row.videoId, -1, transient)
+            sqlite3_bind_text(stmt, 2, row.version, -1, transient)
+            sqlite3_bind_double(stmt, 3, row.offset)
+            let done = sqlite3_step(stmt)
             sqlite3_finalize(stmt)
+            stmt = nil
+            guard done == SQLITE_DONE else { throw QTLyricsCacheError.sqlite(String(cString: sqlite3_errmsg(db))) }
         }
-        let done = "DROP TABLE IF EXISTS offsets; PRAGMA user_version = \(schemaVersion); COMMIT;"
-        if sqlite3_exec(db, done, nil, nil, nil) != SQLITE_OK {
-            let message = String(cString: sqlite3_errmsg(db))
-            sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
-            throw QTLyricsCacheError.sqlite(message)
+        try exec(db, "DROP TABLE offsets")
+    }
+
+    private static func exec(_ db: OpaquePointer, _ sql: String) throws {
+        guard sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK else {
+            throw QTLyricsCacheError.sqlite(String(cString: sqlite3_errmsg(db)))
         }
     }
 
@@ -209,17 +249,25 @@ public actor QTLyricsCache {
 
     // MARK: Text fingerprints (`QTLyricsSanity.fingerprint`) of the lyrics chosen per track
 
-    /// The other tracks (videoId, title) a text with this fingerprint was chosen for.
-    public func fingerprintTracks(_ hash: String, excluding videoId: String) -> [(videoId: String, title: String)] {
-        var out: [(String, String)] = []
-        query("SELECT video_id, title FROM fingerprints WHERE hash = ? AND video_id != ?", [hash, videoId]) { stmt in
-            out.append((Self.text(stmt, 0), Self.text(stmt, 1)))
+    /// The other tracks (videoId, title, artist) a text with this fingerprint was chosen for.
+    public func fingerprintTracks(_ hash: String, excluding videoId: String) -> [(videoId: String, title: String, artist: String)] {
+        var out: [(String, String, String)] = []
+        query("SELECT video_id, title, artist FROM fingerprints WHERE hash = ? AND video_id != ?", [hash, videoId]) { stmt in
+            out.append((Self.text(stmt, 0), Self.text(stmt, 1), Self.text(stmt, 2)))
         }
         return out
     }
 
-    public func recordFingerprint(_ hash: String, videoId: String, title: String) {
-        run("INSERT OR REPLACE INTO fingerprints (hash, video_id, title) VALUES (?, ?, ?)", [.text(hash), .text(videoId), .text(title)])
+    /// The text now chosen for a track (one per track: it replaces what was recorded before).
+    public func recordFingerprint(_ hash: String, videoId: String, title: String, artist: String) {
+        clearFingerprints(for: videoId)
+        run("INSERT OR REPLACE INTO fingerprints (hash, video_id, title, artist) VALUES (?, ?, ?, ?)",
+            [.text(hash), .text(videoId), .text(title), .text(artist)])
+    }
+
+    /// Nothing is chosen for the track any more (reported, no lyrics found).
+    public func clearFingerprints(for videoId: String) {
+        run("DELETE FROM fingerprints WHERE video_id = ?", [.text(videoId)])
     }
 
     // MARK: Aliases

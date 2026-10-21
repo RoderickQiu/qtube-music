@@ -63,7 +63,7 @@ struct QTLastFMSettingsSection: View {
                 LabeledContent(QTLoc.tr("Account", table: .desktop)) {
                     HStack(spacing: QTTheme.Spacing.s) {
                         Text(verbatim: name).foregroundStyle(.secondary)
-                        Button(QTLoc.tr("Disconnect", table: .desktop)) { store.disconnectLastFM() }
+                        Button(QTLoc.tr("Disconnect", table: .desktop)) { QTIntegrationsCoordinator.shared.disconnect(.lastFM) }
                             .accessibilityIdentifier("qt.settings.lastfm.disconnect")
                     }
                 }
@@ -241,7 +241,7 @@ struct QTListenBrainzSettingsSection: View {
                 LabeledContent(QTLoc.tr("Account", table: .desktop)) {
                     HStack(spacing: QTTheme.Spacing.s) {
                         Text(verbatim: name).foregroundStyle(.secondary)
-                        Button(QTLoc.tr("Disconnect", table: .desktop)) { if !isPreview { store.disconnectListenBrainz() } }
+                        Button(QTLoc.tr("Disconnect", table: .desktop)) { if !isPreview { QTIntegrationsCoordinator.shared.disconnect(.listenBrainz) } }
                             .accessibilityIdentifier("qt.settings.listenbrainz.disconnect")
                     }
                 }

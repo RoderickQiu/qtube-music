@@ -4,9 +4,10 @@ import SwiftUI
 
 // Owner: builder "desktop". The shortcut field of Settings › Shortcuts, drawn like the system's: a rounded text
 // field showing the combo (or "Record Shortcut"), with a clear button. Click it (or VoiceOver-press it, or press
-// Space on it with Full Keyboard Access) to record; the next key with ⌘ or ⌃ (or an F-key) is the shortcut. Esc
-// cancels, ⌫ clears, Tab moves on. While it records, every global shortcut is off, and a local monitor takes the
-// keys before the menus do.
+// Space on it with Full Keyboard Access) to record; the next allowed combo (`QTKeyCombo.globalRefusal`: two
+// modifiers with ⌘ or ⌃, ⌃ on a key that types nothing, or an F-key) is the shortcut. Esc cancels, ⌫ clears, Tab
+// moves on, and ⌘ + one key (⌘W, ⌘Q…) ends recording and does its usual job. While it records, every global
+// shortcut is off, and a local monitor takes the keys before the menus do.
 
 struct QTShortcutRecorder: NSViewRepresentable {
     /// What the shortcut does (the field's VoiceOver label).
@@ -42,6 +43,8 @@ final class QTShortcutRecorderField: NSControl {
     private var pending: String?
     private var monitor: Any?
     private var resignObserver: NSObjectProtocol?
+    /// This field's hold on `QTGlobalHotKeys` while it records.
+    private var suspension: UUID?
     private let clearButton = NSButton()
 
     override class var cellClass: AnyClass? {
@@ -86,8 +89,10 @@ final class QTShortcutRecorderField: NSControl {
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
+    /// A field torn down mid-recording (Settings closed some other way) still turns the hot keys back on.
     isolated deinit {
         endMonitoring()
+        if let suspension { QTGlobalHotKeys.shared.resume(suspension) }
     }
 
     func update(title: String, combo: QTKeyCombo?, display: String?) {
@@ -174,11 +179,11 @@ final class QTShortcutRecorderField: NSControl {
         super.viewWillMove(toWindow: newWindow)
     }
 
-    private func startRecording() {
+    func startRecording() {
         guard !isRecording else { return }
         isRecording = true
         pending = nil
-        QTGlobalHotKeys.shared.isSuspended = true
+        if suspension == nil { suspension = QTGlobalHotKeys.shared.suspend() }
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged, .leftMouseDown, .rightMouseDown]) { [weak self] event in
             guard let self else { return event }
             return QTMainActorHop.onMainThread { self.handle(event) } ? nil : event
@@ -195,7 +200,8 @@ final class QTShortcutRecorderField: NSControl {
         isRecording = false
         pending = nil
         endMonitoring()
-        QTGlobalHotKeys.shared.isSuspended = false
+        if let suspension { QTGlobalHotKeys.shared.resume(suspension) }
+        suspension = nil
         QTGlobalHotKeys.shared.refreshEnvironment()
         refresh()
     }
@@ -250,15 +256,21 @@ final class QTShortcutRecorderField: NSControl {
             }
             if mods.subtracting(.shift).isEmpty, code == QTKeyCombo.tab { return false }   // move focus on
             let combo = QTKeyCombo(keyCode: code, modifiers: mods)
-            guard combo.isAllowedAsGlobal else {
+            switch Self.decision(for: combo) {
+            case .record:
+                onChange?(combo)
+                finish()
+                return true
+            case .passThrough:
+                // ⌘W closes the window, ⌘Q quits, ⌘, … as anywhere else: recording just ends.
+                finish()
+                return false
+            case .refuse(let reason):
                 NSSound.beep()
-                pending = QTLoc.tr("Include ⌘ or ⌃", table: .desktop)
+                pending = reason
                 refresh()
                 return true
             }
-            onChange?(combo)
-            finish()
-            return true
         default:
             return false
         }
@@ -266,5 +278,23 @@ final class QTShortcutRecorderField: NSControl {
 
     @objc private func clear() {
         onChange?(nil)
+    }
+
+    enum KeyDecision: Equatable {
+        case record
+        /// A standard app or window command (⌘ + one key): never a global shortcut, so it does its usual job.
+        case passThrough
+        /// Beep and say why ("Include ⌘ or ⌃", "Add another modifier key").
+        case refuse(String)
+    }
+
+    /// What a key pressed while recording does (Esc, ⌫ and Tab are handled before this).
+    static func decision(for combo: QTKeyCombo) -> KeyDecision {
+        switch combo.globalRefusal {
+        case nil: .record
+        case .needsAnotherModifier where combo.modifiers == .command: .passThrough
+        case .needsAnotherModifier: .refuse(QTLoc.tr("Add another modifier key", table: .desktop))
+        case .needsCommandOrControl: .refuse(QTLoc.tr("Include ⌘ or ⌃", table: .desktop))
+        }
     }
 }

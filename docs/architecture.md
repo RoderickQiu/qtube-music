@@ -389,18 +389,28 @@ Views:
   Lyrics Source and in the popover: Automatic, the versions best first ("LRCLIB · Line timing" over a plain subtitle,
   "Best match" / "Possible mismatch · 12 s longer" — no raw scores), No Lyrics for This Song, Report Wrong Lyrics.
   `QTLyricsVersionStore` holds the rows and the choice; the session persists it through the resolver:
-  `pin` / `unpin` / `turnOffLyrics` (pin `"none"`: no document, versions still listed) / `reject` (the
-  `rejections(video_id, version_id)` table: never fetched or offered again for that track, the next best shows at
-  once; pinning it again takes the report back). Sanity checks in `QTLyricsMatchScorer.rescore` +
+  `pin` / `unpin` (Automatic always unpins, a stale pin whose version wasn't found included; `isPinned` /
+  `pinnedID` come from the stored pin) / `turnOffLyrics` (pin `"none"`: no document, versions still listed) /
+  `reject` (the `rejections(video_id, version_id)` table: never fetched or chosen again for that track, the next
+  best shows at once; listed last as "Reported", picking it takes the report back; the "Reported" toast has Undo →
+  `undoReject`, which also restores a pin the report dropped; Report is disabled when no version is showing). In
+  video mode with lyrics timed for the video's own cut, the menu, Report and Undo act on that cut's lookup (keyed
+  `<id>~<s>s`); No Lyrics for This Song always goes to the song. Sanity checks in `QTLyricsMatchScorer.rescore` +
   `QTLyricsSanity` (QTLyrics/Matching): penalties, never rejections, that badge "Possible mismatch" — a non-Latin
-  title over Latin-only lyrics, gibberish (mean per-line `NLLanguageRecognizer` confidence < 0.6), synced lyrics
-  ending before 40 % of the track (dropped when every version does: long outro). Unofficial sources need a declared
-  length, or synced lyrics sung past 60 % of the track (QQ's search lists none). Same text for different songs: the
-  chosen text's fingerprint (first 8 normalised lines) goes into `fingerprints(hash, video_id, title)`; a text
-  already chosen for another song whose title is < 0.9 alike (covers, live cuts, remasters pass) is skipped and not
-  offered, and that song looks again. Offsets are per (videoId, version) in `version_offsets`; schema v1
-  (`PRAGMA user_version`) migrated the old per-track `offsets` to the pinned version, else the cached automatic pick,
-  else the first version shown.
+  title over Latin-only lyrics, synced lyrics ending before 40 % of the track (dropped when every version does:
+  long outro), an unofficial version without a declared length or synced lyrics sung past 60 % of the track
+  (`unknownLength`: QQ lists no lengths; kept only when no other version is there), and gibberish (mean per-line
+  `NLLanguageRecognizer` confidence < 0.45 with guesses scattered over ≥ 3 languages) — a rank penalty only, never
+  the badge on its own, since lyrics in languages the recognizer doesn't know (Welsh, Zulu) read as low-confidence
+  guesses. Same text for different songs: only the chosen text's fingerprint (first 8 normalised lines) is recorded,
+  one per track, in `fingerprints(hash, video_id, title, artist)` (cleared on Report and replaced on every lookup);
+  a text already chosen for ≥ 2 other titles (< 0.9 alike: covers, live cuts, remasters pass) by ≥ 2 other artists
+  (not this song's) is `sharedText`: never picked automatically, listed after the others with the badge. Other
+  tracks' cache entries are never touched from a lookup. Offsets are per (videoId, version) in `version_offsets`.
+  Migrations (`PRAGMA user_version`, one transaction, every step checked, rolled back on failure; a failed migration
+  leaves the cache open and retries next launch; `busy_timeout` 3 s; a file that can't open at all leaves the
+  session an in-memory cache): v1 moved the old per-track `offsets` to the pinned version, else the cached automatic
+  pick, else the first version shown; v2 restarted `fingerprints` with the artist column.
 - Machine translation (M6, `QTLyricsTranslationCenter`, Lyrics/QTLyricsTranslation.swift): provider lane in the
   target → Apple Intelligence (`QTAppleIntelligenceTranslationEngine`, Foundation Models, macOS 26+, only when
   Settings' "Translate lyrics with Apple Intelligence" is on and `SystemLanguageModel` is available and supports the
@@ -827,7 +837,7 @@ Builders add their own as `qt.<area>.<name>` (e.g. `qt.stage.chrome hidden`, `qt
 | lyrics-ui | `qt.lyrics.scrolled` · `qt.lyrics.options` · `qt.lyrics.demoVersions` · `qt.lyrics.translationState same\|translating\|download\|unavailable\|onDevice\|appleIntelligence` · `qt.lyrics.lab` · `qt.lyrics.debug` |
 | stage | `qt.stage.chrome hidden` · `qt.stage.queue YES` · `qt.stage.popover appearance` · `qt.stage.window YES` (detached window) · `qt.stage.reduceMotion YES` · `qt.stage.visualizerOnBattery YES` · `qt.stage.closeAfter <s>` · `qt.stage.noAd YES` (free account without the simulated pre-roll, e.g. the visualizer fallback) |
 | glass | DEBUG `qt.reduceTransparency YES` (every glass primitive draws its Reduce Transparency solid) |
-| desktop | `qt.desktop.miniMode compact\|art` · `qt.desktop.miniLyric` · `qt.desktop.miniHover` · `qt.desktop.lyricsUnlocked` · `qt.desktop.menuBarScroll` · `qt.desktop.lyricsSize <pt>` · `qt.settingsTab general\|playback\|lyrics\|account\|integrations\|shortcuts\|advanced`; DEBUG: `qt.desktop.hotKeys suggested` (session-only suggested set), `qt.desktop.hotKeyTaken like,playPause` (those show "Used by another app"), `qt.desktop.registerHotKeys YES` (launches with `-qt.*` arguments never register global shortcuts otherwise), `qt.desktop.switchLanguage`, `qt.desktop.popUpMenu <index>` (1 = File, 3 = View, 4 = Controls), `qt.desktop.showShortcuts`, `qt.desktop.accountPreview signedIn\|premium\|signingIn\|expired\|signedOut` (Settings › Account without Keychain access), `qt.desktop.staleMenus YES` (General shows Relaunch), `qt.desktop.integrationsExpanded YES` (Integrations opens every "Use your own …" / custom-server disclosure), `qt.desktop.listenBrainzPreview connected\|failed` (ListenBrainz connected with a sample account and custom server, or a failed Connect; no Keychain, no network), `qt.desktop.importExpanded YES` (Account opens Import Session), `qt.desktop.importError incomplete\|rejected\|unreadable\|notPermitted` (pins an import error), `qt.desktop.scriptProbe <path>` (runs AppleScript against the app from inside it — no Automation prompt — and writes the results as JSON) |
+| desktop | `qt.desktop.miniMode compact\|art` · `qt.desktop.miniLyric` · `qt.desktop.miniHover` · `qt.desktop.lyricsUnlocked` · `qt.desktop.menuBarScroll` · `qt.desktop.lyricsSize <pt>` · `qt.settingsTab general\|playback\|lyrics\|account\|integrations\|shortcuts\|advanced`; DEBUG: `qt.desktop.hotKeys suggested\|conflicts` (session-only suggested set; `conflicts` adds a menu clash and a ⌘-only binding), `qt.desktop.hotKeyTaken like,playPause` (those show "Used by another app"), `qt.desktop.registerHotKeys YES` (launches with `-qt.*` arguments never register global shortcuts otherwise), `qt.desktop.switchLanguage`, `qt.desktop.popUpMenu <index>` (1 = File, 3 = View, 4 = Controls), `qt.desktop.showShortcuts`, `qt.desktop.accountPreview signedIn\|premium\|signingIn\|expired\|signedOut` (Settings › Account without Keychain access), `qt.desktop.staleMenus YES` (General shows Relaunch), `qt.desktop.integrationsExpanded YES` (Integrations opens every "Use your own …" / custom-server disclosure), `qt.desktop.listenBrainzPreview connected\|failed` (ListenBrainz connected with a sample account and custom server, or a failed Connect; no Keychain, no network), `qt.desktop.importExpanded YES` (Account opens Import Session), `qt.desktop.importError incomplete\|rejected\|unreadable\|notPermitted` (pins an import error), `qt.desktop.scriptProbe <path>` (runs AppleScript against the app from inside it — no Automation prompt — and writes the results as JSON) |
 | lyrics-live | `qt.lyrics.unofficial all\|none\|netease,kugou,qq` (session-only Settings override) · `qt.lyrics.engine live\|mock` (default live) · `qt.lyrics.cache memory\|<path>` (fresh lookup; default Application Support/<bundle id>/Lyrics.sqlite) · `qt.lyrics.offline YES` (every source unreachable → fallback path) |
 | data-live | `qt.account.sync YES\|NO` (session-only Settings › Account › Sync override) · `qt.live.open album:<id\|title>` · `artist:<id\|name>` · `playlist:<id>` (once the library has loaded) · `qt.live.state skeleton\|offline\|unavailable\|expired\|botCheck` (pins every live page's state) · `qt.live.loadDelay <s>` (DEBUG: Home and mood feeds arrive that much later — loading and transition shots) · `qt.live.signedOut YES` (guest mode, no Keychain read) · DEBUG `qt.auth.store memory` (the session lives in memory: a guest run never reads, and a sign-out never clears, the shared dev session) · DEBUG `qt.live.fixtures YES` (YouTube Music answered offline from `Tests/QTInnerTubeTests/Fixtures`, artwork offline — guest screenshots with no network) · with `qt.live.signedOut`, `qt.live.signIn YES` (Google sign-in window in a throwaway WebKit store; a login there is never kept) · DEBUG `qt.auth.signInPreview google|other|insecure[,help]` (the sign-in window's chrome around a local placeholder page — never Google, no network; `,help` opens the ? popover; capture with `shoot.sh --window signIn --window signInHelp`) · DEBUG `qt.auth.revoke YES` (sign-out also ends the session at Google, as release builds do) |
 | stage-video | DEBUG `qt.video.debugVisibleHost YES` (orders the web engine's host window onto U270CA, alpha 1 — page diagnostics only) |
@@ -952,20 +962,26 @@ InnerTube fixtures), `QT_DUMP=1` (print parser output), `QT_KEYCHAIN_TEST=1` (Ke
   Each phrase does what it says: "Play or pause …" toggles, "Pause …" → `QTPauseIntent` (never resumes), "Resume …"
   → `QTPlayIntent` (`Tests/QTCoreTests/AppShortcutPhraseTests.swift` reads the mapping from the source).
 - **Global shortcuts** (Settings › Shortcuts, `Desktop/QTGlobalHotKeys.swift`, `Settings/QTShortcutRecorder.swift`):
-  Play/Pause, Next, Previous, Like/Unlike (Controls › Like's path; VoiceOver announces the result), Show/Hide
+  Play/Pause, Next, Previous, Like/Unlike (Controls › Like's path; VoiceOver announces the result in the toast's
+  words — "Added to Liked Songs" with Sync on, "Liked on this Mac" with it off — or the gate's "Sign in to like
+  songs"; no custom HUD: macOS has no public API for its own, and the menu bar extra and Dock menu show the heart), Show/Hide
   Desktop Lyrics, Show/Hide Mini Player, Show QTube Music (hides the app when it's already in front). Carbon
   `RegisterEventHotKey` on the event dispatcher target: no Accessibility permission, the key is consumed. None is
   set by default (media keys and the Shortcuts app already work); "Use Suggested Shortcuts" fills only empty actions
   with ⌃⌥⌘ P ] [ L Y M, keys placed by character in the current layout. Stored as `QTSettings.globalHotKeys`
   (`QTHotKeyBindings`, QTCore: virtual key code + Carbon modifier mask; one combo per action). The recorder is an
   NSControl with a text field cell (system bezel and focus ring): click/Tab/VoiceOver-press records, Esc cancels, ⌫
-  clears, a combo needs ⌘ or ⌃ or is an F-key (macOS 15+ stopped delivering ⌥ / ⌥⇧-only hot keys; they still
-  register with noErr, checked on macOS 27); every hot key is unregistered while it records. Key names come from
+  clears, a combo (`QTKeyCombo.globalRefusal`) is an F-key, or two modifiers with ⌘ or ⌃, or ⌃ alone on a key that
+  types nothing (arrows, Space, Return) — never ⌘ + one key (every app's own commands: pressing ⌘W/⌘Q while recording
+  ends recording and does its usual job) nor ⌃ + a letter (text editing everywhere); macOS 15+ stopped delivering
+  ⌥ / ⌥⇧-only hot keys (they still register with noErr, checked on macOS 27). Every hot key is unregistered while a
+  field records (counted suspension tokens; a field released mid-recording gives its token back), and stored
+  bindings that break the rule (defaults, older builds) are never registered and show why. Key names come from
   UCKeyTranslate (`QTKeyboardLayout`, refreshed on input-source changes). Inline notes, first match wins: our
   registration failed (eventHotKeyExistsErr → "Used by another app"), an enabled system shortcut
   (`CopySymbolicHotKeys`, looked up with dlsym — no longer in the SDK headers), the default of an installed
   launcher / window manager (`QTPopularHotKeys`: Raycast, Alfred, ChatGPT, 1Password, Maccy, Rectangle, Magnet),
-  our own menu key equivalents (a note only). Help › Keyboard Shortcuts lists them under Global Shortcuts.
+  our own menu key equivalents (also a warning, "Replaces … in the menu bar": the hot key takes the key first). Help › Keyboard Shortcuts lists them under Global Shortcuts.
 - **AppleScript**: `play`, `pause`, `playpause`, `next track`, `previous track`; application properties `player state`
   (stopped/playing/paused), `current track` (name, artist, album, duration, video id), `player position` (rw),
   `sound volume` (0–100, rw). `QTScripting` (Desktop/) + the app delegate's KVC properties.
@@ -995,11 +1011,18 @@ InnerTube fixtures), `QT_DUMP=1` (print parser output), `QT_KEYCHAIN_TEST=1` (Ke
   accepting scrobbles…") until new credentials or a relaunch.
 - **Scrobble services** (`QTScrobbleService`: `maxBatch`, `maxAge`, `nowPlaying`, `submit`, `classify(Error)` →
   temporary / rejected plays / invalid credentials / account problem). One `QTListenTracker` counts **media time**
-  (wall-clock × `QTPlaybackTimeline.rate`: 2× counts double, buffering and ads nothing; Last.fm's thresholds
-  unchanged) and each qualifying listen lands in the queue of every configured service, each with its own file
-  (`Scrobbles.json` for Last.fm, `ListenBrainz.json`), backoff (15 s doubling to 10 min, or the server's wait) and
-  paused state; now playing and sends go to both services at once. A batch refused as plays is halved until the bad
-  play is alone and only that one is dropped. Old queue files load (new `QTScrobble` fields are `decodeIfPresent`).
+  (elapsed × `QTPlaybackTimeline.rate`: 2× counts double, buffering and ads nothing; Last.fm's thresholds
+  unchanged). Elapsed time is system uptime (`QTIntegrationsCoordinator.listenClock`), which stands still while the
+  Mac sleeps, and each event is stamped on the main actor when playback reports it (`QTScrobbler.post(_:at:)`): the
+  serial queue only waits for the scrobbler's bookkeeping, and what an event sends (now playing, queued plays) runs
+  afterwards on the scrobbler's own chain, in order. Each qualifying listen lands in the queue of every configured
+  service, each with its own file (`Scrobbles.json` for Last.fm, `ListenBrainz.json`), backoff (15 s doubling to
+  10 min, or the server's wait) and paused state; now playing and sends go to both services at once. Queued plays
+  are keyed to the account (`lastfm:<user>`, `<user>@<server>`) and only ever sent there: another account connected
+  later never gets them, the same one does when it reconnects (a revoked session keeps them); Settings' Disconnect
+  drops that account's plays; plays queued before keying are adopted by the first account that connects. A batch
+  refused as plays is halved until the bad play is alone and only that one is dropped. Old queue files load (new
+  `QTScrobble` fields are `decodeIfPresent`).
 - **ListenBrainz** (off): paste the user token (https://listenbrainz.org/settings/) → Connect validates it
   (`GET /1/validate-token`) → "name [Disconnect]", "Submit listens", "Update “Now Playing”". Token in the Keychain
   (`QTIntegrationSecret.listenBrainzToken`), read off the main thread (`loadListenBrainzSession`). Submissions:
@@ -1012,7 +1035,7 @@ InnerTube fixtures), `QT_DUMP=1` (print parser output), `QT_KEYCHAIN_TEST=1` (Ke
   `-qt.desktop.listenBrainzPreview connected|failed` shows those states without the Keychain or the network.
 - **Discord Rich Presence** (off): needs the user's Discord application ID; talks only to the local Discord client
   over `$TMPDIR/discord-ipc-N` (handshake, `SET_ACTIVITY` "Listening to": title, artist, album art by its https URL,
-  elapsed/remaining, "Open in YouTube Music" button). Paused/stopped clears it. Sends time out after 0.5 s
+  elapsed/remaining, "Open in YouTube Music" button; a private upload shows title and artist only, no artwork URL or link). Paused/stopped clears it. Sends time out after 0.5 s
   (`SO_SNDTIMEO`), so a Discord client that stops reading can't block the actor's thread.
 - **Ordering:** each integration's calls go through its own `QTSerialTaskQueue` (Desktop/QTIntegrationsCoordinator.swift),
   in the order playback produced them — never one unstructured `Task` per call (Swift doesn't order those, e.g. a

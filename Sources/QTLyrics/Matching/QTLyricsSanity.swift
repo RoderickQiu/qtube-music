@@ -13,18 +13,28 @@ public enum QTLyricsSanity {
         case .scriptMismatch: 0.25
         case .gibberish: 0.15
         case .lowCoverage: 0.15
+        case .unknownLength: 0.15
+        case .sharedText: 0.25
         }
     }
 
     static let maximumPenalty = 0.4
-    /// `NLLanguageRecognizer`'s mean per-line top hypothesis below this means it can't name a language (real lyrics,
-    /// bilingual ones included, average 0.9+; keyboard mash about 0.4).
-    static let gibberishConfidence = 0.6
+    /// `NLLanguageRecognizer`'s mean per-line top hypothesis below this means it can't name a language. Real lyrics
+    /// in a language it knows average 0.9+; in one it doesn't (Welsh, Zulu, Basque, Māori) 0.48–0.65; keyboard mash
+    /// about 0.4.
+    static let gibberishConfidence = 0.45
+    /// …and only when its per-line guesses scatter over at least this many languages, none taking half the lines
+    /// (a language it doesn't know is often guessed the same way line after line).
+    static let gibberishLanguages = 3
     /// Lines that make a fingerprint, and the fewest a text needs to have one.
     static let fingerprintLines = 8
     static let fingerprintMinimumLines = 4
-    /// Songs whose titles are at least this alike may share lyrics (covers, re-releases, live cuts).
+    /// Songs whose titles are at least this alike may share lyrics (covers, re-releases, live cuts); so may songs by
+    /// artists this alike (one artist's song under a translated title).
     static let sameSongTitleSimilarity = 0.9
+    static let sameArtistSimilarity = 0.9
+    /// A text chosen for at least this many other songs (other titles, other artists) is a source's filler.
+    static let sharedTextSongs = 2
 
     public static func penalty(for flags: Set<QTLyricsMatchFlag>) -> Double {
         min(maximumPenalty, flags.reduce(0) { $0 + penalty(for: $1) })
@@ -90,19 +100,23 @@ public enum QTLyricsSanity {
 
     /// Enough text that the recognizer has no idea what language it is in. Judged line by line: a line of real lyrics
     /// is in one language even when the song switches between two (whole-text confidence drops to ~0.6 for a
-    /// bilingual song, as low as keyboard mash), while mash stays uncertain on every line. Short lines and short
-    /// texts ("Oh oh oh") are left alone.
+    /// bilingual song, as low as keyboard mash), while mash stays uncertain on every line and gets a different guess
+    /// on most. Short lines and short texts ("Oh oh oh") are left alone. A hint only (`forcesBadge` is false).
     static func isGibberish(_ lines: [String]) -> Bool {
         let wordy = lines.prefix(30).filter { $0.unicodeScalars.filter(\.properties.isAlphabetic).count >= 12 }
         guard wordy.count >= 4 else { return false }
         let recognizer = NLLanguageRecognizer()
         var total = 0.0
+        var guesses: [NLLanguage: Int] = [:]
         for line in wordy {
             recognizer.reset()
             recognizer.processString(line)
-            total += recognizer.languageHypotheses(withMaximum: 1).values.max() ?? 0
+            guard let (language, p) = recognizer.languageHypotheses(withMaximum: 1).max(by: { $0.value < $1.value }) else { continue }
+            total += p
+            guesses[language, default: 0] += 1
         }
-        return total / Double(wordy.count) < gibberishConfidence
+        let spread = guesses.count >= gibberishLanguages && 2 * (guesses.values.max() ?? 0) < wordy.count
+        return spread && total / Double(wordy.count) < gibberishConfidence
     }
 
     // MARK: Same text for different songs
@@ -127,5 +141,11 @@ public enum QTLyricsSanity {
     /// Two titles name the same song (cover, re-release, "(Live)") — so sharing lyrics is expected.
     static func isSameSong(_ a: String, _ b: String, scorer: QTLyricsMatchScorer) -> Bool {
         scorer.similarity(QTTitleCleaner.clean(a).core, QTTitleCleaner.clean(b).core) >= sameSongTitleSimilarity
+    }
+
+    /// Two artist lines name the same artist (or share one: "A & B" and "A"). Unknown artists ("") never match.
+    static func isSameArtist(_ a: String, _ b: String, scorer: QTLyricsMatchScorer) -> Bool {
+        let x = QTTitleCleaner.splitArtists(a), y = QTTitleCleaner.splitArtists(b)
+        return x.contains { p in y.contains { scorer.similarity(p, $0) >= sameArtistSimilarity } }
     }
 }

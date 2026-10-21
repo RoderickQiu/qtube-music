@@ -41,9 +41,12 @@ public struct QTScrobble: Codable, Sendable, Hashable {
     public var isPrivatelyOwned: Bool
     /// Exact length in milliseconds (ListenBrainz `duration_ms`).
     public var durationMs: Int?
+    /// The account (and server) a queued play belongs to; it is only ever sent there (`QTScrobbleQueue`). nil =
+    /// not yet queued, or queued before plays were keyed (adopted by the next account that connects).
+    public var account: String?
 
     public init(artist: String, track: String, album: String? = nil, duration: Int? = nil, timestamp: Int,
-                videoId: String? = nil, isPrivatelyOwned: Bool = false, durationMs: Int? = nil) {
+                videoId: String? = nil, isPrivatelyOwned: Bool = false, durationMs: Int? = nil, account: String? = nil) {
         self.artist = artist
         self.track = track
         self.album = album
@@ -52,6 +55,7 @@ public struct QTScrobble: Codable, Sendable, Hashable {
         self.videoId = videoId
         self.isPrivatelyOwned = isPrivatelyOwned
         self.durationMs = durationMs
+        self.account = account
     }
 
     public init(from decoder: any Decoder) throws {
@@ -64,6 +68,7 @@ public struct QTScrobble: Codable, Sendable, Hashable {
         videoId = try c.decodeIfPresent(String.self, forKey: .videoId)
         isPrivatelyOwned = try c.decodeIfPresent(Bool.self, forKey: .isPrivatelyOwned) ?? false
         durationMs = try c.decodeIfPresent(Int.self, forKey: .durationMs)
+        account = try c.decodeIfPresent(String.self, forKey: .account)
     }
 }
 

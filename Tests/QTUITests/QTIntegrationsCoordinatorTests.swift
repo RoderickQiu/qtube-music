@@ -78,7 +78,7 @@ final class QTUIStubEngine: QTPlaybackEngine {
         QTTrack(videoId: id, title: "Song \(id)", artists: [QTArtistRef(name: "Artist")], duration: duration)
     }
 
-    func makeCoordinator(lastFM: Bool = true, listenBrainz: Bool = false, notify: Bool = true,
+    func makeCoordinator(lastFM: Bool = true, listenBrainz: Bool = false, notify: Bool = true, queueFolder: URL? = nil,
                          launchTrack: QTTrack? = nil) -> QTIntegrationsCoordinator {
         let defaults = UserDefaults(suiteName: "qt.tests.integrations.\(UUID().uuidString)")!
         let store = QTIntegrationsStore(defaults: defaults, secrets: QTMemorySecretStore([.lastFMSecret: "secret",
@@ -94,7 +94,7 @@ final class QTUIStubEngine: QTPlaybackEngine {
             $0.notifiesTrackChanges = notify
         }
         let clock = clock
-        let c = QTIntegrationsCoordinator(store: store, scrobbler: QTScrobbler(queueFolder: nil, now: { clock.now }),
+        let c = QTIntegrationsCoordinator(store: store, scrobbler: QTScrobbler(queueFolder: queueFolder, now: { clock.now }),
                                           discord: QTDiscordPresence(paths: []))
         let transport = lastfm.transport
         c.makeLastFMClient = { QTLastFMClient(credentials: $0, transport: transport) }
@@ -102,6 +102,7 @@ final class QTUIStubEngine: QTPlaybackEngine {
         c.makeListenBrainzClient = { QTListenBrainzClient(token: $0, server: $1, pacer: QTRequestPacer(interval: 0), transport: lbTransport) }
         let log = notifications
         c.postNotification = { log.append($0.videoId) }
+        c.listenClock = { clock.now }
         c.startForTesting(launchTrack: launchTrack)
         return c
     }
@@ -290,6 +291,42 @@ final class QTUIStubEngine: QTPlaybackEngine {
         s.playSerial = 3
         await apply(c, s)
         #expect(lastfm.scrobbledTracks == ["Song b"])
+    }
+
+    /// Finding 19: listening is counted on system uptime, which stands still while the Mac sleeps — an hour asleep
+    /// mid-song (wall clock on, uptime still) never counts.
+    @Test func sleepDoesNotCountAsListening() async {
+        let c = makeCoordinator()
+        let uptime = QTUITestClock()
+        c.listenClock = { uptime.now }
+        var s = QTIntegrationsSnapshot(track: Self.song("a"), playSerial: 1, isPlaying: true)
+        await apply(c, s)
+        uptime.advance(30)
+        clock.advance(30 + 3_600)
+        s.track = Self.song("b")
+        s.playSerial = 2
+        await apply(c, s)
+        #expect(lastfm.scrobbledTracks.isEmpty)
+        // The app's own clock is uptime.
+        let real = makeCoordinator()
+        real.listenClock = QTIntegrationsCoordinator().listenClock
+        #expect(abs(real.listenClock().timeIntervalSinceReferenceDate - ProcessInfo.processInfo.systemUptime) < 1)
+    }
+
+    /// Finding 8: Settings' Disconnect drops the plays still waiting for that account.
+    @Test func disconnectDropsTheAccountsQueuedPlays() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("qt-ui-scrobbles-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let now = Int(Date().timeIntervalSince1970)
+        try JSONEncoder().encode([QTScrobble(artist: "A", track: "Mine", duration: 100, timestamp: now, account: "lastfm:listener"),
+                                  QTScrobble(artist: "A", track: "Theirs", duration: 100, timestamp: now, account: "lastfm:other")])
+            .write(to: folder.appendingPathComponent("Scrobbles.json"))
+        let c = makeCoordinator(lastFM: false, queueFolder: folder)
+        c.disconnect(.lastFM)
+        await c.drain()
+        #expect(await c.scrobbler.queue(.lastFM).items.map(\.track) == ["Theirs"])
+        #expect(!c.store.settings.lastFM.isConnected)
     }
 
     @Test func notificationsOnlyWhenInactive() async {

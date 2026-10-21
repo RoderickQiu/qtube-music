@@ -181,6 +181,59 @@ final class QTTestClock: @unchecked Sendable {
         #expect(lastfm.requests.last?["track[0]"] == "One")
     }
 
+    /// Finding 8: plays wait for the account they were listened under; another account never gets them, the same one
+    /// does when it comes back, and an explicit Disconnect drops them. Plays queued before keying are adopted once.
+    @Test func queuedPlaysBelongToTheirAccount() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("qt-scrobbles-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: url) }
+        // A queue file from before plays were keyed.
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        try JSONEncoder().encode([QTScrobble(artist: "A", track: "Old", duration: 100, timestamp: Int(Date().timeIntervalSince1970))])
+            .write(to: url.appendingPathComponent("Scrobbles.json"))
+        let clock = QTTestClock(Date())
+        let lastfm = QTRecordingLastFM()
+        lastfm.failure = .network
+        let scrobbler = QTScrobbler(queueFolder: url, now: { clock.now })
+        let client = QTLastFMClient(credentials: Self.creds, transport: lastfm.transport)
+        let alice = QTLastFMScrobbleService(client: client, sessionKey: "SK-A")
+        await scrobbler.configure(.lastFM, service: alice, account: "lastfm:alice", sendsNowPlaying: false)
+        await scrobbler.trackChanged(to: QTScrobble(artist: "A", track: "One", duration: 100, timestamp: Int(clock.now.timeIntervalSince1970)), playing: true)
+        clock.advance(60)
+        await scrobbler.trackChanged(to: nil, playing: false)
+        #expect(await scrobbler.queuedCount(.lastFM, account: "lastfm:alice") == 2)
+
+        // Bob connects (Alice's session was revoked, not disconnected): he gets none of Alice's plays.
+        lastfm.failure = nil
+        let bob = QTLastFMScrobbleService(client: client, sessionKey: "SK-B")
+        await scrobbler.configure(.lastFM, service: bob, account: "lastfm:bob", sendsNowPlaying: false)
+        await scrobbler.flush()
+        #expect(lastfm.requests.allSatisfy { $0["sk"] != "SK-B" || $0["method"] != "track.scrobble" })
+        #expect(await scrobbler.queuedCount(.lastFM, account: "lastfm:alice") == 2)
+
+        // Alice disconnects explicitly: her plays go.
+        #expect(await scrobbler.discardQueue(.lastFM, account: "lastfm:alice") == 2)
+        #expect(await scrobbler.queue(.lastFM).items.isEmpty)
+    }
+
+    /// Finding 9: the time an event is stamped with is what counts, however late the scrobbler gets to it.
+    @Test func eventsCountAtTheTimeTheyWereStamped() async {
+        let clock = QTTestClock(Date(timeIntervalSince1970: 1_760_000_000))
+        let lastfm = QTRecordingLastFM()
+        let scrobbler = QTScrobbler(queueFolder: nil, now: { clock.now })
+        await scrobbler.configure(client: QTLastFMClient(credentials: Self.creds, transport: lastfm.transport), sessionKey: "SK",
+                                  sendsNowPlaying: false)
+        let t0 = Date(timeIntervalSinceReferenceDate: 1_000)
+        await scrobbler.post(.track(QTScrobble(artist: "A", track: "T", duration: 200, timestamp: 1_760_000_000), rate: 1), at: t0).value
+        // Paused after 90 s; the pause is handled "late" (the wall clock moved on 300 s meanwhile).
+        clock.advance(300)
+        await scrobbler.post(.rate(0), at: t0.addingTimeInterval(90)).value
+        await scrobbler.post(.tick, at: t0.addingTimeInterval(400)).value
+        #expect(!lastfm.requests.contains { $0["method"] == "track.scrobble" })
+        await scrobbler.post(.rate(1), at: t0.addingTimeInterval(500)).value
+        await scrobbler.post(.tick, at: t0.addingTimeInterval(510)).value
+        #expect(lastfm.requests.contains { $0["method"] == "track.scrobble" })
+    }
+
     @Test func invalidSessionStopsSendingAndTellsTheApp() async {
         let lastfm = QTRecordingLastFM()
         lastfm.failure = .api(code: 9, message: "Invalid session key")
@@ -340,6 +393,18 @@ final class QTTestFlag: @unchecked Sendable {
         let clear = try #require(QTDiscordIPC.decode(try QTDiscordIPC.setActivity(nil, pid: 42, nonce: "n2")))
         let clearJSON = try #require(JSONSerialization.jsonObject(with: clear.payload) as? [String: Any])
         #expect((clearJSON["args"] as? [String: Any])?["activity"] is NSNull)
+    }
+
+    /// Finding 7: a private upload shows title and artist only — no artwork URL, no link button.
+    @Test func privateUploadsShowNoLinkOrArtwork() {
+        let upload = QTDiscordTrack(title: "Home Demo", artist: "Me", album: "Uploads",
+                                    artworkURL: URL(string: "https://lh3.googleusercontent.com/private=w544"),
+                                    link: URL(string: "https://music.youtube.com/watch?v=private1"),
+                                    duration: 200, elapsed: 10, isPlaying: true, isPrivatelyOwned: true)
+        let activity = QTDiscordActivity.payload(for: upload, buttonTitle: "Open in YouTube Music")
+        #expect(activity["details"] as? String == "Home Demo")
+        #expect(activity["assets"] == nil)
+        #expect(activity["buttons"] == nil)
     }
 
     @Test func stringsAreClampedToDiscordLimits() {

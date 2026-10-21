@@ -21,8 +21,11 @@ public final class QTGlobalHotKeys {
     /// What else on this Mac uses keys, for the conflict notes. Refreshed when Settings › Shortcuts shows.
     private(set) var environment = QTHotKeyEnvironment()
     /// True while a shortcut field records: hot keys are off so the keys reach the field.
-    public var isSuspended = false {
-        didSet { if isSuspended != oldValue { sync() } }
+    public var isSuspended: Bool { !suspensions.isEmpty }
+    /// One token per field that records (`suspend()` / `resume(_:)`), so one field ending can't turn hot keys back
+    /// on under another, and a field that goes away can't leave them off.
+    private var suspensions: Set<UUID> = [] {
+        didSet { if suspensions.isEmpty != oldValue.isEmpty { sync() } }
     }
 
     @ObservationIgnored private weak var model: QTAppModel?
@@ -40,9 +43,18 @@ public final class QTGlobalHotKeys {
         #if DEBUG
         let launch = model.launch
         registers = launch.raw.isEmpty || launch.bool(QTDesktopLaunchKey.registerHotKeys) == true
-        if launch.string(QTDesktopLaunchKey.hotKeys) == "suggested" {
+        let preset = launch.string(QTDesktopLaunchKey.hotKeys)
+        if preset == "suggested" || preset == "conflicts" {
             let suggested = QTKeyboardLayout.shared.suggested()
-            model.settings.override { $0.globalHotKeys.applySuggested(suggested) }
+            model.settings.override {
+                $0.globalHotKeys.applySuggested(suggested)
+                // `conflicts`: one shortcut our menus use (⇧⌘M) and a stored ⌘-only one (⌘L), as if from defaults.
+                if preset == "conflicts" {
+                    $0.globalHotKeys[.miniPlayer] = QTKeyCombo(keyCode: QTKeyboardLayout.shared.keyCode(for: "m") ?? 0x2E,
+                                                               modifiers: [.shift, .command])
+                    $0.globalHotKeys[.showApp] = QTKeyCombo(keyCode: QTKeyboardLayout.shared.keyCode(for: "l") ?? 0x25, modifiers: .command)
+                }
+            }
         }
         simulatedTaken = Set((launch.string(QTDesktopLaunchKey.hotKeyTaken) ?? "").split(separator: ",")
             .compactMap { QTGlobalHotKeyAction(rawValue: String($0)) })
@@ -52,6 +64,17 @@ public final class QTGlobalHotKeys {
     }
 
     // MARK: Registration
+
+    /// Turns every hot key off until the token is handed back.
+    func suspend() -> UUID {
+        let token = UUID()
+        suspensions.insert(token)
+        return token
+    }
+
+    func resume(_ token: UUID) {
+        suspensions.remove(token)
+    }
 
     private func observe() {
         withObservationTracking {
@@ -64,7 +87,8 @@ public final class QTGlobalHotKeys {
 
     private func sync() {
         guard let model else { return }
-        let wanted = isSuspended || !registers ? [:] : model.settings.settings.globalHotKeys.all
+        let bindings = model.settings.settings.globalHotKeys.all
+        let wanted = isSuspended || !registers ? [:] : Self.registrable(bindings)
         for (action, entry) in registered where wanted[action] != entry.combo {
             UnregisterEventHotKey(entry.ref)
             registered[action] = nil
@@ -72,6 +96,7 @@ public final class QTGlobalHotKeys {
         // Failures stay as they were while recording (nothing is registered then).
         guard !isSuspended else { return }
         var failed: [QTGlobalHotKeyAction: QTHotKeyRegistrationFailure] = [:]
+        for (action, combo) in bindings where !combo.isAllowedAsGlobal { failed[action] = .notAllowed }
         for action in simulatedTaken where model.settings.settings.globalHotKeys[action] != nil { failed[action] = .taken }
         for (action, combo) in wanted where registered[action] == nil && failed[action] == nil {
             var ref: EventHotKeyRef?
@@ -84,6 +109,12 @@ public final class QTGlobalHotKeys {
             }
         }
         if failed != failures { failures = failed }
+    }
+
+    /// The bindings that may be registered. Combos the recorder refuses can still arrive through defaults or an
+    /// older build: never registered (Settings shows why).
+    static func registrable(_ bindings: [QTGlobalHotKeyAction: QTKeyCombo]) -> [QTGlobalHotKeyAction: QTKeyCombo] {
+        bindings.filter { $0.value.isAllowedAsGlobal }
     }
 
     private func installHandler() {
@@ -120,14 +151,12 @@ public final class QTGlobalHotKeys {
         case .next: QTScripting.perform(.next)
         case .previous: QTScripting.perform(.previous)
         case .like:
-            // Controls › Like's path (in-app likes; the guest-mode gate shows its sign-in toast). The app is
-            // usually in the background, so VoiceOver hears what happened.
+            // Controls › Like's path (the account when Sync is on, else this Mac; in guest mode the gate shows its
+            // sign-in toast). The app is usually in the background, so VoiceOver hears what happened, in the same
+            // words as the toast; the menu bar extra and the Dock menu show the heart.
             guard let track = player.nowPlaying, player.ad == nil else { return }
-            let wasLiked = player.isLiked(track)
-            player.toggleLike(track)
-            if player.isLiked(track) != wasLiked {
-                announce(QTLoc.tr(wasLiked ? "Removed from Liked Songs" : "Added to Liked Songs"))
-            }
+            announce(Self.toggleLike(track, player: player, guest: QTLiveCatalogStore.shared.isGuest,
+                                     savesToAccount: QTAccountWriter.shared.savesToAccount))
         case .desktopLyrics: desktop.toggleDesktopLyrics()
         case .miniPlayer: desktop.toggleMiniPlayer()
         case .showApp:
@@ -138,6 +167,19 @@ public final class QTGlobalHotKeys {
                 desktop.showMainWindow()
             }
         }
+    }
+
+    /// Toggles the like and says what happened: where the like went, or why nothing changed (guest mode).
+    static func toggleLike(_ track: QTTrack, player: QTPlayerModel, guest: Bool, savesToAccount: Bool) -> String {
+        let wasLiked = player.isLiked(track)
+        player.toggleLike(track)
+        guard player.isLiked(track) != wasLiked else {
+            return guest ? QTLoc.tr("Sign in to like songs", table: .live)
+                : QTLoc.tr(wasLiked ? "Couldn’t remove “%@” from Liked Songs" : "Couldn’t like “%@”", table: .live, track.title)
+        }
+        return savesToAccount
+            ? QTLoc.tr(wasLiked ? "Removed from Liked Songs" : "Added to Liked Songs")
+            : QTLoc.tr(wasLiked ? "Removed from Liked Songs on this Mac" : "Liked on this Mac", table: .live)
     }
 
     private func announce(_ text: String) {
@@ -183,6 +225,9 @@ public enum QTHotKeyRegistrationFailure: Equatable, Sendable {
     /// eventHotKeyExistsErr: another app registered it exclusively.
     case taken
     case rejected(OSStatus)
+    /// Not registered: the combo isn't allowed as a global shortcut (`QTKeyCombo.globalRefusal`; a stored binding
+    /// from defaults or an older build).
+    case notAllowed
 }
 
 // MARK: - Conflict classifier
@@ -203,19 +248,21 @@ struct QTMenuShortcut: Equatable, Sendable {
 }
 
 public enum QTHotKeyConflict: Equatable, Sendable {
+    case notAllowed(QTKeyCombo.GlobalRefusal)
     case takenByAnotherApp
     case rejected
     case system
     case app(String)
     case menu(String)
 
-    /// The first that applies, most certain first: our registration failed, macOS has it, an installed app has
-    /// it by default, our own menus use it.
+    /// The first that applies, most certain first: the combo can't be global at all, our registration failed, macOS
+    /// has it, an installed app has it by default, our own menus use it.
     static func classify(_ combo: QTKeyCombo, failure: QTHotKeyRegistrationFailure?, environment: QTHotKeyEnvironment) -> QTHotKeyConflict? {
+        if let refusal = combo.globalRefusal { return .notAllowed(refusal) }
         switch failure {
         case .taken: return .takenByAnotherApp
         case .rejected: return .rejected
-        case nil: break
+        case .notAllowed, nil: break
         }
         if environment.system.contains(combo) { return .system }
         if let app = environment.apps.first(where: { $0.combo == combo }) { return .app(app.appName) }
@@ -223,20 +270,17 @@ public enum QTHotKeyConflict: Equatable, Sendable {
         return nil
     }
 
-    /// A menu clash is only a note (the global shortcut wins, and often does the same thing); the rest mean the
-    /// shortcut won't do anything.
-    public var isWarning: Bool {
-        if case .menu = self { return false }
-        return true
-    }
-
+    /// Shown as a warning, a menu clash too: the hot key is taken before our menus see the key, so that menu item
+    /// loses its shortcut.
     public var message: String {
         switch self {
+        case .notAllowed(.needsCommandOrControl): QTLoc.tr("Include ⌘ or ⌃", table: .desktop)
+        case .notAllowed(.needsAnotherModifier): QTLoc.tr("Add another modifier key", table: .desktop)
         case .takenByAnotherApp: QTLoc.tr("Used by another app", table: .desktop)
         case .rejected: QTLoc.tr("macOS didn’t accept this shortcut", table: .desktop)
         case .system: QTLoc.tr("Used by macOS (System Settings › Keyboard › Keyboard Shortcuts)", table: .desktop)
         case .app(let name): QTLoc.tr("%@ uses this by default", table: .desktop, name)
-        case .menu(let path): QTLoc.tr("Same as %@ in the menu bar", table: .desktop, path)
+        case .menu(let path): QTLoc.tr("Replaces %@ in the menu bar", table: .desktop, path)
         }
     }
 }

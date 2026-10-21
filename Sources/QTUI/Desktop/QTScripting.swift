@@ -14,7 +14,9 @@ import QTCore
 //       set sound volume to 40      -- 0…100
 //   end tell
 //
-// Read-only toward YouTube Music: nothing here likes, edits playlists or writes to the account.
+// The AppleScript terminology only reads and controls playback. "Like Current Song" (Shortcuts / Siri,
+// `likeCurrentTrack`) goes through the app's own like path, so with Sync on (the default) it likes in the YouTube
+// Music account, as Controls › Like does.
 
 public enum QTScripting {
     /// Application properties the app delegate answers (`application(_:delegateHandlesKey:)`).
@@ -87,12 +89,21 @@ public enum QTScripting {
         return [track.title, track.artistLine].filter { !$0.isEmpty }.joined(separator: " — ")
     }
 
-    /// Likes the current track in this app only (likes aren't written to YouTube Music — that needs the user's
-    /// approval). Returns the title, or nil if nothing is playing.
-    @MainActor public static func likeCurrentTrack() -> String? {
-        guard let track = player.nowPlaying, player.ad == nil else { return nil }
+    /// What "Like Current Song" did.
+    public enum LikeResult: Equatable, Sendable {
+        /// Liked now, or already was (the title).
+        case liked(String)
+        case nothingPlaying
+        /// Nothing changed: guest mode (no account to like for; the app shows its sign-in toast).
+        case signInRequired
+    }
+
+    /// Likes the current track the way Controls › Like does: in the YouTube Music account when Sync is on, else on
+    /// this Mac.
+    @MainActor public static func likeCurrentTrack() -> LikeResult {
+        guard let track = player.nowPlaying, player.ad == nil else { return .nothingPlaying }
         if !player.isLiked(track) { player.toggleLike(track) }
-        return track.title
+        return player.isLiked(track) ? .liked(track.title) : .signInRequired
     }
 
     /// Liked Songs + the library's playlists, as (id, title) for the Shortcuts playlist picker.
