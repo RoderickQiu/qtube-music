@@ -114,20 +114,20 @@ public struct QTTransportControls: View {
     @ViewBuilder
     private var playPause: some View {
         if style == .stage {
-            playPauseButton.buttonStyle(QTStagePlayButtonStyle(glyphOffset: player.isPlaying ? 0 : 2))
+            playPauseButton.buttonStyle(QTStagePlayButtonStyle(glyphOffset: player.isPlaybackRequested ? 0 : 2))
         } else {
             playPauseButton.buttonStyle(.borderless)
         }
     }
 
     private var playPauseButton: some View {
-        let title = QTLoc.tr(player.isPlaying ? "Pause" : "Play")
+        let title = QTLoc.tr(player.isPlaybackRequested ? "Pause" : "Play")
         return Button {
             player.togglePlayPause()
         } label: {
             Group {
                 if style == .playerBar {
-                    Label(title, systemImage: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                    Label(title, systemImage: player.isPlaybackRequested ? "pause.circle.fill" : "play.circle.fill")
                         .symbolRenderingMode(.palette)
                         .foregroundStyle(QTTheme.Colors.windowBackground, QTTheme.Colors.label)
                         .font(.system(size: playGlyph, weight: .regular))
@@ -135,7 +135,7 @@ public struct QTTransportControls: View {
                         .contentShape(Circle())
                 } else {
                     // Stage: plain glyph inside QTStagePlayButtonStyle's disc; compact: plain glyph.
-                    Label(title, systemImage: player.isPlaying ? QTIcon.pause.systemName : QTIcon.play.systemName)
+                    Label(title, systemImage: player.isPlaybackRequested ? QTIcon.pause.systemName : QTIcon.play.systemName)
                         .font(.system(size: playGlyph))
                         .frame(width: playGlyph + 12, height: playGlyph + 10)
                         .contentShape(Rectangle())
@@ -147,7 +147,7 @@ public struct QTTransportControls: View {
             .qtBufferingIndicator(player.isBuffering, controlSize: style == .stage ? .regular : .small)
             .environment(\.colorScheme, style == .stage ? .light : colorScheme)
         }
-        .help("\(QTLoc.tr(player.isPlaying ? "Pause" : "Play"))  Space")
+        .help("\(QTLoc.tr(player.isPlaybackRequested ? "Pause" : "Play"))  Space")
         .accessibilityIdentifier("qt.transport.playPause")
     }
 

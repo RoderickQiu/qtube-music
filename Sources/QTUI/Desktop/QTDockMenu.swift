@@ -25,7 +25,7 @@ enum QTDockMenuBuilder {
         }
         // Same enabling rules as the Controls menu: nothing loaded → no transport.
         let loaded = player.nowPlaying != nil
-        menu.addItem(QTClosureMenuItem(QTLoc.tr(player.isPlaying ? "Pause" : "Play"), enabled: loaded) { player.togglePlayPause() })
+        menu.addItem(QTClosureMenuItem(QTLoc.tr(player.isPlaybackRequested ? "Pause" : "Play"), enabled: loaded) { player.togglePlayPause() })
         menu.addItem(QTClosureMenuItem(QTLoc.tr(player.ad?.canSkip == true ? "Skip" : "Next"),
                                        enabled: player.ad.map(\.canSkip) ?? loaded) {
             if player.ad != nil { player.skipAd() } else { Task { await player.next() } }

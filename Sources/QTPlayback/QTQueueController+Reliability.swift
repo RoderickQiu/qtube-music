@@ -7,7 +7,8 @@ import QTCore
 // noticing, so the queue watches (`superviseTick`, once a second while the listener wants music or something is
 // pending — nothing runs while idle) and reconciles:
 // - a pause nobody asked for (YouTube's "Still listening?", WebKit) is undone once after a short grace; a second one
-//   soon after stops fighting and says so once. A pause from the Picture in Picture window is the listener's own.
+//   soon after stops fighting and says so once. A pause (or Play) from the Picture in Picture window is the
+//   listener's own: the queue's intent follows it.
 // - the engine playing another item than the queue's current one (a stale gapless chain), or none, for 2 s reloads
 //   the queue's track (or moves on, when the old one had ended);
 // - an end or failure the queue missed (it came while a load was in flight) is acted on after 3 s;
@@ -168,9 +169,11 @@ extension QTQueueController {
 
     // MARK: Ticking
 
-    /// Whether the watch has anything to look after (else its loop stops; idle costs nothing).
+    /// Whether the watch has anything to look after (else its loop stops; idle costs nothing). A load nobody waits for
+    /// (a queue restored at launch, cued) is watched only while online — offline it may wait for hours, and the engine
+    /// times it out itself once the network is back.
     var needsSupervision: Bool {
-        wantsPlayback || !watch.timers.isEmpty || loadInFlight != nil
+        wantsPlayback || !watch.timers.isEmpty || (loadInFlight != nil && engine.isNetworkAvailable)
     }
 
     /// One look at the queue and the engine; acts on what has been wrong for long enough. Runs once a second while
@@ -291,8 +294,8 @@ extension QTQueueController {
             return
         }
         if engine.isPausedByListener {
-            // The Picture in Picture window's pause: the listener's own.
-            pause()
+            // The Picture in Picture window's pause: the listener's own (normally adopted as it arrived).
+            listenerPausedOutsideApp()
             return
         }
         let since = watch.pausedSince ?? now
@@ -331,6 +334,30 @@ extension QTQueueController {
         } else {
             Task { await self.handleEnded() }
         }
+    }
+
+    // MARK: The listener outside the app
+
+    /// Play / pause the listener made outside the app's commands (the Picture in Picture window's controls, or closing
+    /// it): theirs, so the queue's intent follows at once — their pause is never resumed, their Play is wanted (the
+    /// next track plays on). The media already did it; nothing is sent back to the engine, which would fight it.
+    func adoptListenerControl(_ s: QTPlaybackState, previous: QTPlaybackState) {
+        guard s.status != previous.status, let current = queue.nowPlaying, agrees(s.item, with: current) else { return }
+        if s.status == .paused, wantsPlayback, engine.isPausedByListener {
+            listenerPausedOutsideApp()
+        } else if s.status == .playing, !wantsPlayback, engine.isResumedByListener {
+            wantsPlayback = true
+            watch.listenerResumed()
+            superviseSoon()
+        }
+    }
+
+    /// The listener paused outside the app: the queue's intent only (the media is paused already).
+    func listenerPausedOutsideApp() {
+        wantsPlayback = false
+        pauseSerial += 1
+        watch.listenerPaused()
+        scheduleSave()
     }
 
     // MARK: Network trouble

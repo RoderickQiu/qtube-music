@@ -141,12 +141,14 @@ final class ChaosEngine: QTPlaybackEngine {
         didSet { if isNetworkAvailable, !oldValue { resolvePending() } }
     }
     var isPausedByListener = false
+    var isResumedByListener = false
     /// What the next loads do, in order (none left: they play, once online).
     var loadFaults: [LoadFault] = []
     /// Ids that always fail with this error.
     var failing: [String: QTPlaybackError] = [:]
     private(set) var loads: [QTPlaybackItem] = []
     private(set) var plays = 0
+    private(set) var pauses = 0
     private(set) var wakes: [TimeInterval] = []
     private(set) var prepared: QTPlaybackItem?
     /// The next end happens without a word (state changes, nothing is published).
@@ -244,6 +246,7 @@ final class ChaosEngine: QTPlaybackEngine {
     }
 
     func pause() {
+        pauses += 1
         guard state.item != nil else { return }
         if pending != nil { pending?.autoplay = false }
         guard state.status == .playing || state.status == .loading else { return }
@@ -315,6 +318,14 @@ final class ChaosEngine: QTPlaybackEngine {
         publish()
     }
 
+    /// The media plays again without the app asking (Play in the Picture in Picture window).
+    func resumeByItself() {
+        guard state.status == .paused, state.item != nil, pending == nil else { return }
+        state.status = .playing
+        state.timeline = QTPlaybackTimeline(time: position, rate: rate, anchorUptime: clock.now, duration: state.duration)
+        publish()
+    }
+
     /// Playing, but the clock stands still (buffering that never ends); fails as a network stall after 20 s.
     func stall() {
         guard state.status == .playing, stalledSince == nil, pending == nil else { return }
@@ -340,13 +351,15 @@ final class ChaosEngine: QTPlaybackEngine {
         publish()
     }
 
-    /// Moves on to the prepared next item by itself (gapless join), as the native engine does.
-    func joinPrepared() {
-        guard let next = prepared, state.status == .playing, pending == nil else { return }
+    /// Moves on to the prepared next item by itself (gapless join), as the native engine does. `evenIfPaused`: the join
+    /// lands just as the listener pauses (a crossfade under way), so the next item reports paused.
+    func joinPrepared(evenIfPaused: Bool = false) {
+        guard let next = prepared, state.status == .playing || (evenIfPaused && state.status == .paused), pending == nil else { return }
         prepared = nil
         state.item = next
         state.duration = next.track.duration
-        state.timeline = QTPlaybackTimeline(time: 0, rate: rate, anchorUptime: clock.now, duration: next.track.duration)
+        state.timeline = QTPlaybackTimeline(time: 0, rate: state.status == .playing ? rate : 0, anchorUptime: clock.now,
+                                            duration: next.track.duration)
         publish()
     }
 

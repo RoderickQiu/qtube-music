@@ -78,7 +78,7 @@ public struct QTCommands: Commands {
 
         // Controls (prototype order, desktop.jsx › controlsMenuItems)
         CommandMenu(QTLoc.tr("Controls")) {
-            Button(QTLoc.tr(player.isPlaying ? "Pause" : "Play")) { player.togglePlayPause() }
+            Button(QTLoc.tr(player.isPlaybackRequested ? "Pause" : "Play")) { player.togglePlayPause() }
                 .keyboardShortcut(.space, modifiers: [])
                 .disabled(player.nowPlaying == nil)
             Button(QTLoc.tr(player.ad?.canSkip == true ? "Skip" : "Next")) {

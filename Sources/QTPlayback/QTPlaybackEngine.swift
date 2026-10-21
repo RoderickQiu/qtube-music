@@ -193,6 +193,9 @@ public protocol QTPlaybackEngine: AnyObject {
     /// The current pause came from the listener outside the app's own commands (the Picture in Picture window's
     /// controls): the queue takes it as the listener's pause instead of resuming. Default false.
     var isPausedByListener: Bool { get }
+    /// The current play came from the listener outside the app's own commands (Play in the Picture in Picture window
+    /// after the app had paused): the queue takes it as the listener's play. Default false.
+    var isResumedByListener: Bool { get }
     /// The Mac woke after sleeping `sleep` seconds (the queue paused it on the way down). Engines check their
     /// output and drop state that went stale. Default: nothing.
     func systemDidWake(after sleep: TimeInterval)
@@ -202,6 +205,8 @@ public extension QTPlaybackEngine {
     func togglePlayPause() {
         state.isPlaying ? pause() : play()
     }
+
+    var isResumedByListener: Bool { false }
 
     func spectrum(bandCount: Int) -> [Float]? { nil }
 

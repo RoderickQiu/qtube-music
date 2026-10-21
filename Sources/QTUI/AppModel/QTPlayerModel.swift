@@ -65,6 +65,9 @@ public final class QTPlayerModel {
     public var nowPlaying: QTTrack? { queue.nowPlaying?.track }
     public var timeline: QTPlaybackTimeline { state.timeline }
     public var isPlaying: Bool { state.isPlaying }
+    /// What every Play/Pause control shows (and `togglePlayPause` toggles): the listener's intent, so it reads Pause
+    /// while a track loads, retries or recovers. Now-playing bars and AppleScript's `player state` keep `isPlaying`.
+    public var isPlaybackRequested: Bool { playback.isPlaybackRequested }
     public var ad: QTAdState? { state.ad }
     /// Waiting for media: loading an item, or stalled mid-play (network). Views debounce it
     /// (`qtBufferingIndicator`) so quick loads never flash a spinner.

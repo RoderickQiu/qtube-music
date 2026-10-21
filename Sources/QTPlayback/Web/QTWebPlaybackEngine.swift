@@ -20,7 +20,8 @@ import WebKit
 /// - **Errors:** player errors and non-OK playability (age gate, region lock, removed) fail the item with a
 ///   specific `QTPlaybackError`; the queue skips it and the app shows a toast.
 /// - **Network:** offline time never counts towards load timeouts or the stall watchdog; when the network comes
-///   back a stalled item reloads at its position. A load that times out online is retried once on a fresh page.
+///   back a stalled item reloads at its position (only while the app wants it playing). A load that times out online
+///   is retried once on a fresh page.
 /// - **Crashes:** a WebContent process that dies (`webContentProcessDidTerminate`), a page that no longer takes
 ///   commands, or a page left over from a long sleep is replaced by a fresh one at the same position, playing or
 ///   paused as before.
@@ -30,7 +31,8 @@ import WebKit
 ///   (`QTWebPlaybackBridgeScript.keepAlive`).
 /// - **Video (M5):** `video` (`QTWebVideoOutput`) moves the web view into an app view while the app shows the
 ///   music video (the page becomes a bare `<video>` surface, quality sized to the slot) and back into the hidden
-///   host when it doesn't; native Picture in Picture goes through WebKit. Song⇄Video switches of the same track
+///   host when it doesn't; native Picture in Picture goes through WebKit, and its own Play / Pause (or closing it)
+///   are the listener's (`pictureInPictureIntent`). Song⇄Video switches of the same track
 ///   are measured (`lastModeSwitch`: requested vs landed position, latency).
 /// - **Visualizer data (web-audio):** `audio` (`QTWebAudioTap`) decodes the audio the page appends to its
 ///   MediaSource and returns spectra, pulled only while a visualizer shows. Nothing is routed: media element,
@@ -133,6 +135,10 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
     /// What the app last asked for: play (autoplaying load, play) or not (cued load, pause, stop). A page that pauses
     /// while this is true paused on its own, and is never frozen.
     private(set) var intendsPlayback = false
+    /// The listener's last play (true) or pause (false) from the Picture in Picture window — its own controls, or
+    /// closing it, which pauses — as the bridge reported it; nil once the app commands again. The engine takes it as
+    /// the app's intent and the queue adopts it (`isPausedByListener` / `isResumedByListener`) instead of fighting it.
+    private(set) var pictureInPictureIntent: Bool?
     /// Notices a WebContent process that died (the page goes blank and stops answering).
     private lazy var navigationWatcher = QTWebPlaybackNavigationWatcher(engine: self)
     /// Recent WebContent crashes (uptime); a page that keeps crashing fails the item instead of looping.
@@ -228,6 +234,7 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         // A switch still preparing in the standby page is superseded by any new load (including switching back).
         cancelStandby(.superseded)
         intendsPlayback = autoplay
+        pictureInPictureIntent = nil
         var item = item
         var autoplay = autoplay
         let previousMode = state.item.flatMap { $0.track.videoId == item.track.videoId ? $0.mode : nil }
@@ -339,6 +346,7 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
     public func play() {
         guard state.item != nil else { return }
         intendsPlayback = true
+        pictureInPictureIntent = nil
         // A page left over from a long sleep (or a crash) plays nothing useful: a fresh one at the same position.
         if needsFreshPage, pendingLoads.isEmpty, webView != nil {
             reloadCurrent(autoplay: true)
@@ -367,7 +375,9 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
 
     public func pause() {
         resumeAfterMoveDeadline = nil
+        // Recorded whatever the status: a failed item that is paused stays held (no reload when the network returns).
         intendsPlayback = false
+        pictureInPictureIntent = nil
         cancelStandby(.fallBack)
         guard state.item != nil else { return }
         // Optimistic: freeze the timeline now so the UI doesn't drift while the page catches up. Paused while
@@ -450,6 +460,7 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
     public func stop() {
         cancelStandby(.superseded)
         intendsPlayback = false
+        pictureInPictureIntent = nil
         generation += 1
         cancelFreeze()
         playingVideoID = nil
@@ -542,9 +553,26 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         // (`needsFreshPage`), at the position the state still shows.
     }
 
-    /// From the Picture in Picture window's own controls: the listener's pause, not the page's.
+    /// From the Picture in Picture window's own controls (or closing it): the listener's pause, not the page's.
     public var isPausedByListener: Bool {
-        state.status == .paused && video.isPictureInPictureActive
+        state.status == .paused && (pictureInPictureIntent == false || video.isPictureInPictureActive)
+    }
+
+    /// Play from the Picture in Picture window: the listener's, though the app had paused.
+    public var isResumedByListener: Bool {
+        state.status == .playing && pictureInPictureIntent == true
+    }
+
+    /// The bridge saw the listener play or pause in the Picture in Picture window. The page has already done it (and
+    /// set or dropped its hold); the engine only takes it as its own intent, so nothing re-pauses, freezes or resumes it.
+    private func pictureInPictureListener(playing: Bool) {
+        QTWebVideoOutput.log.info("Picture in Picture: the listener \(playing ? "played" : "paused", privacy: .public)")
+        pictureInPictureIntent = playing
+        intendsPlayback = playing
+        resumeAfterMoveDeadline = nil
+        playIntentBeforeReady = nil
+        // The page thawed itself to play; a pause may freeze it again later (the bridge thaws on the next Play).
+        if playing { cancelFreeze() }
     }
 
     /// After a long sleep the page's player state is stale (tokens, stream URLs): the next play reloads it fresh.
@@ -645,6 +673,7 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         if configuration.isSilent { sources.append(QTWebPlaybackBridgeScript.silence) }
         sources.append(QTWebPlaybackBridgeScript.videoSurface)
         sources.append(QTWebPlaybackBridgeScript.keepAlive)
+        sources.append(QTWebPlaybackBridgeScript.pictureInPicture)
         sources.append(QTWebPlaybackBridgeScript.rate)
         sources.append(QTWebAudioScript.parsers)
         sources.append(QTWebAudioScript.tap)
@@ -738,6 +767,9 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         case "ended":
             guard (dict["gen"] as? Int) == generation, state.item != nil, state.ad == nil else { return }
             finishItem()
+        case "pip":
+            guard (dict["gen"] as? Int) == generation, state.item != nil, let playing = dict["playing"] as? Bool else { return }
+            pictureInPictureListener(playing: playing)
         case "error":
             guard (dict["gen"] as? Int) == generation, state.item != nil else { return }
             let error = QTWebPlaybackErrorMapper.error(code: dict["code"] as? Int ?? 0, status: dict["status"] as? String ?? "",
@@ -912,14 +944,15 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         }
     }
 
-    /// Back online: an item that stalled or timed out while offline reloads at its position; the watchdog
-    /// restarts its clock either way.
+    /// Back online: an item that stalled or timed out while offline reloads at its position — only while the app still
+    /// wants it playing (a pause, the queue giving up or stopping at a failed last track all hold it: it waits for
+    /// Play); the watchdog restarts its clock either way.
     public func networkChanged(available: Bool) {
         guard available != isNetworkAvailable else { return }
         isNetworkAvailable = available
         onNetworkChange?(available)
         lastProgress = (state.timeline.currentTime, ProcessInfo.processInfo.systemUptime)
-        guard available, let item = state.item, pendingLoads.isEmpty, state.ad == nil else { return }
+        guard available, intendsPlayback, let item = state.item, pendingLoads.isEmpty, state.ad == nil else { return }
         let networkFailure: Bool
         if case .failed(.network) = state.status { networkFailure = true } else { networkFailure = false }
         guard networkFailure || (state.status == .playing && state.isBuffering) else { return }

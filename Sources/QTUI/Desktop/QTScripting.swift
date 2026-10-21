@@ -66,9 +66,10 @@ public enum QTScripting {
         let player = player
         switch command {
         case .play:
-            if !player.isPlaying, player.nowPlaying != nil { player.togglePlayPause() }
+            // Only ever plays / pauses (a track still loading is already wanted; pausing it is a real pause).
+            if !player.isPlaybackRequested, player.nowPlaying != nil { player.play() }
         case .pause:
-            if player.isPlaying { player.togglePlayPause() }
+            if player.isPlaybackRequested { player.pause() }
         case .playPause:
             if player.nowPlaying != nil { player.togglePlayPause() }
         case .next:

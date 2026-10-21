@@ -85,6 +85,12 @@ public enum QTPlaybackSpeed {
 
     public static func isNormal(_ rate: Double) -> Bool { abs(rate - normal) < 0.001 }
 
+    /// Seconds of listening that `mediaSeconds` of a track take at `rate` — what a scrubber's remaining time shows, like
+    /// Podcasts ("-2:00" of a 3:00 rest at 1.5×). Positions, lengths, lyrics and listens stay in track time.
+    public static func listeningTime(_ mediaSeconds: TimeInterval, at rate: Double) -> TimeInterval {
+        mediaSeconds / normalized(rate)
+    }
+
     /// "1.5×", "0.75×", "2×", in the interface language's number format.
     public static func label(_ rate: Double, locale: Locale = QTLoc.locale) -> String {
         rate.formatted(.number.precision(.fractionLength(0...2)).locale(locale)) + "×"

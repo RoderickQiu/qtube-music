@@ -5,7 +5,7 @@ import SwiftUI
 
 // Owner: builder "player". Shared by the player bar, Stage, mini player and menu bar popover.
 
-/// Elapsed · progress · remaining. The fill is `.tint`: the app's accent (the song's colour, or the system accent —
+/// Elapsed · progress · remaining (time left to listen, at the playback speed). The fill is `.tint`: the app's accent (the song's colour, or the system accent —
 /// Settings › Accent colour), one control colour with Play, the volume slider and the hearts; white over art (Stage).
 ///
 /// Drawn like the progress bar in Music.app's player (a thin capsule that thickens and shows its knob on hover)
@@ -28,7 +28,7 @@ public struct QTScrubber: View {
         // Re-render 4×/s while time moves (playing or ad countdown); otherwise only on state changes.
         QTTickingView(every: .milliseconds(250), isRunning: player.timeline.rate > 0 || (ad != nil && player.isPlaying)) {
             QTScrubberContent(overArt: overArt, identifier: identifier, ad: ad, time: player.timeline.currentTime,
-                              duration: player.duration) { player.seek(to: $0) }
+                              duration: player.duration, rate: player.rate) { player.seek(to: $0) }
         }
     }
 }
@@ -39,6 +39,9 @@ private struct QTScrubberContent: View {
     let ad: QTAdState?
     let time: TimeInterval
     let duration: TimeInterval
+    /// The listener's speed: the remaining time is how long the rest takes to hear (wall clock, like Podcasts);
+    /// elapsed, the bar and VoiceOver's value stay in track time.
+    let rate: Double
     let onSeek: (TimeInterval) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -59,7 +62,7 @@ private struct QTScrubberContent: View {
         if let ad { return ad.qtRemainingText ?? "" }
         // Nothing loaded (or no length yet): no "-0:01" from the 1 s floor above.
         guard duration > 0 else { return "" }
-        return QTFormat.remaining(safeDuration - shownTime)
+        return QTFormat.remaining(QTPlaybackSpeed.listeningTime(safeDuration - shownTime, at: rate))
     }
 
     private var labelColor: Color { overArt ? QTTheme.Colors.onArtSecondary : QTTheme.Colors.secondaryLabel }

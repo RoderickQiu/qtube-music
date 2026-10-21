@@ -26,6 +26,17 @@ import Testing
         #expect(QTPlaybackSpeed.label(0.75, locale: Locale(identifier: "de_DE")) == "0,75×")
     }
 
+    /// The scrubber's remaining time is time left to listen (Podcasts): 3:00 of track at 1.5× is "-2:00"; at 1× it is
+    /// the track's own rest. (Elapsed, lyrics and listens stay in track time.)
+    @Test func remainingTimeIsTimeLeftToListen() {
+        #expect(QTPlaybackSpeed.listeningTime(180, at: 1.5) == 120)
+        #expect(QTPlaybackSpeed.listeningTime(180, at: 0.5) == 360)
+        #expect(QTPlaybackSpeed.listeningTime(180, at: 1) == 180)
+        #expect(QTPlaybackSpeed.listeningTime(180, at: .nan) == 180, "a garbage speed reads as normal")
+        let en = Locale(identifier: "en_US")
+        #expect(QTFormat.remaining(QTPlaybackSpeed.listeningTime(170, at: 2), locale: en) == "-1:25")
+    }
+
     @Test func theSpeedIsSavedWithThePlaybackSettings() throws {
         var prefs = QTPlaybackEffectsPrefs()
         #expect(prefs.playbackRate == 1)

@@ -273,6 +273,8 @@ public final class QTNativePlaybackEngine: QTPlaybackEngine {
 
     public var isPausedByListener: Bool { !isNativeActive && web.isPausedByListener }
 
+    public var isResumedByListener: Bool { !isNativeActive && web.isResumedByListener }
+
     /// The web engine drops a stale page; a native track checks its graph (the output may have changed while asleep),
     /// restarting it, or falling back when it won't run.
     public func systemDidWake(after sleep: TimeInterval) {
