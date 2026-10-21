@@ -1,0 +1,42 @@
+{
+  "responseContext" : {
+    "serviceTrackingParams" : [ { "service" : "GFEEDBACK", "params" : [ { "key" : "logged_in", "value" : "1" } ] } ]
+  },
+  "contents" : {
+    "singleColumnBrowseResultsRenderer" : {
+      "tabs" : [ {
+        "tabRenderer" : {
+          "content" : {
+            "sectionListRenderer" : {
+              "contents" : [ {
+                "itemSectionRenderer" : {
+                  "contents" : [ {
+                    "gridRenderer" : {
+                      "items" : [
+                        {
+                          "musicTwoRowItemRenderer" : {
+                            "thumbnailRenderer" : { "musicThumbnailRenderer" : { "thumbnail" : { "thumbnails" : [ { "url" : "https://example.invalid/lanterns.jpg", "width" : 226, "height" : 226 } ] } } },
+                            "title" : { "runs" : [ { "text" : "Paper Lanterns", "navigationEndpoint" : { "browseEndpoint" : { "browseId" : "FEmusic_library_privately_owned_release_detailb_po_fakeLanterns" } } } ] },
+                            "subtitle" : { "runs" : [ { "text" : "Album" }, { "text" : " • " }, { "text" : "Juniper Field", "navigationEndpoint" : { "browseEndpoint" : { "browseId" : "FEmusic_library_privately_owned_artist_detaila_po_fakeJuniper" } } }, { "text" : " • " }, { "text" : "2024" } ] },
+                            "navigationEndpoint" : { "browseEndpoint" : { "browseId" : "FEmusic_library_privately_owned_release_detailb_po_fakeLanterns" } }
+                          }
+                        },
+                        {
+                          "musicTwoRowItemRenderer" : {
+                            "title" : { "runs" : [ { "text" : "Night Ferry", "navigationEndpoint" : { "browseEndpoint" : { "browseId" : "FEmusic_library_privately_owned_release_detailb_po_fakeFerry", "browseEndpointContextSupportedConfigs" : { "browseEndpointContextMusicConfig" : { "pageType" : "MUSIC_PAGE_TYPE_ALBUM" } } } } } ] },
+                            "subtitle" : { "runs" : [ { "text" : "Album" }, { "text" : " • " }, { "text" : "The Quiet Hours" } ] },
+                            "navigationEndpoint" : { "browseEndpoint" : { "browseId" : "FEmusic_library_privately_owned_release_detailb_po_fakeFerry", "browseEndpointContextSupportedConfigs" : { "browseEndpointContextMusicConfig" : { "pageType" : "MUSIC_PAGE_TYPE_ALBUM" } } } }
+                          }
+                        }
+                      ]
+                    }
+                  } ]
+                }
+              } ]
+            }
+          }
+        }
+      } ]
+    }
+  }
+}

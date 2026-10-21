@@ -154,7 +154,8 @@ import Testing
     // MARK: Menus
 
     @Test func numberedSectionsFollowTheSidebar() {
-        #expect(QTCommands.sidebarShortcutOrder == [.home, .explore, .songs, .albums, .artists, .liked, .history])
+        #expect(QTCommands.sidebarShortcutOrder == [.home, .explore, .songs, .albums, .artists, .liked, .history,
+                                                    .uploads])
     }
 
     @Test func sidebarContextMenuTargetsLikedAndPlaylistsOnly() {

@@ -4,7 +4,7 @@ import SwiftUI
 
 // Owner: builder "desktop". The full menu bar (draft §8, HANDOFF §5 keyboard map):
 //   QTube Music (system + Check for Updates… from the app target) · File (Close Window ⌘W) · Edit (+ Search Music ⌘K, Filter ⌘F) · View (panel ⌥⌘N,
-//   sections ⌘1–7 in sidebar order, Back ⌘[ / Forward ⌘] through QTNavigator, system sidebar / full screen) · Controls (Space, ⌘←/→, ⌘L, shuffle, repeat, ⌘↑/↓ volume,
+//   sections ⌘1–8 in sidebar order, Back ⌘[ / Forward ⌘] through QTNavigator, system sidebar / full screen) · Controls (Space, ⌘←/→, ⌘L, shuffle, repeat, ⌘↑/↓ volume,
 //   ⇧⌘V, ⇧⌘P, ⇧⌘F, ⇧⌘M, ⇧⌘L, ⌥↑/↓, Lyrics Source ›) · Window (system + "QTube Music" ⌘0) · Help (Keyboard Shortcuts ⌘/).
 // Esc closes the Stage / its drawer inside the Stage view (`.cancelAction`), not as a menu item, so popovers and
 // sheets keep their own Esc. Text-editing collisions (Space, ⌘←…) are routed to the text field (QTKeyRouting).
@@ -160,8 +160,9 @@ public struct QTCommands: Commands {
     }
 
     /// ⌘1… follow the sidebar from the top: Home, Explore, then Library (Songs, Albums, Artists, Liked Songs,
-    /// History). Playlists have no number.
-    static let sidebarShortcutOrder: [QTSidebarItem] = [.home, .explore, .songs, .albums, .artists, .liked, .history]
+    /// History, Uploads). Playlists have no number.
+    static let sidebarShortcutOrder: [QTSidebarItem] = [.home, .explore, .songs, .albums, .artists, .liked, .history,
+                                                        .uploads]
 
     private func section(_ item: QTSidebarItem, title: String, key: KeyEquivalent) -> some View {
         Button(title) {

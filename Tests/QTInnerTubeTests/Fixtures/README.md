@@ -49,3 +49,17 @@ owner-approved signed-in recording run.
 | `handbuilt-edit-playlist-add` | `browse/edit_playlist` add answer | new `setVideoId`s |
 | `handbuilt-add-to-playlist` | `playlist/get_add_to_playlist` | Add to Playlist options + checkmarks |
 | `handbuilt-accounts-list` | `account/accounts_list` (with one spoofed switch link) | brand accounts |
+
+The uploads ones (2026-10-20) follow ytmusicapi `mixins/uploads.py` / `parsers/uploads.py` and Metrolist's
+`YouTube.kt` / `LibraryPage.kt` (upload album pages keep the older `musicDetailHeaderRenderer`); titles and names are
+invented, ids are fake.
+
+| File | Shape of | Used for |
+|---|---|---|
+| `handbuilt-uploads-songs` | `browse FEmusic_library_privately_owned_tracks` (sort dropdown, "Shuffle all" row with a video id but no menu, a row playable only through its menu's `queueAddEndpoint`, a row with an unlinked artist and no album / artwork, a continuation) | shuffle row dropped, menu `videoId`, `isPrivatelyOwned`, upload links without a page type |
+| `handbuilt-uploads-songs-continuation` | `musicShelfContinuation` page of the above (also answers the artist page's continuation) | paging keeps the mark |
+| `handbuilt-uploads-albums` | `browse …_privately_owned_releases` (grid in an `itemSectionRenderer`) | upload album cards |
+| `handbuilt-uploads-artists` | `browse …_privately_owned_artists` (rows without a menu) | upload artist rows |
+| `handbuilt-uploads-album` | `browse …_release_detail…` (`musicDetailHeaderRenderer`, rows without artist or artwork) | album page by prefix, header Play → playlist id |
+| `handbuilt-uploads-artist` | `browse …_artist_detail…` (`musicHeaderRenderer`, shuffle row, continuation) | artist page by prefix, every page read |
+| `handbuilt-uploads-empty` | an account without uploads (`messageRenderer` only) | empty list |

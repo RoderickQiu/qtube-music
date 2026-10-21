@@ -35,20 +35,27 @@ public struct QTMockCatalog: QTCatalogService, Sendable {
     public var liked: QTPlaylist
     public var playlists: [QTPlaylist]
     public var home: QTHomeFeed
+    /// Library › Uploads. Kept apart from `tracks` (the library's songs), like YouTube Music does; the demo
+    /// catalog's are invented (`QTMockUploads`).
+    public var uploads: QTUploads
     /// Folder the catalog was loaded from (images resolve relative to it).
     public var root: URL?
 
     public init(tracks: [QTTrack], lyrics: [String: QTLyricsDocument] = [:], liked: QTPlaylist,
-                playlists: [QTPlaylist] = [], home: QTHomeFeed = QTHomeFeed(), root: URL? = nil) {
+                playlists: [QTPlaylist] = [], home: QTHomeFeed = QTHomeFeed(), uploads: QTUploads = .empty,
+                root: URL? = nil) {
         self.tracks = tracks
         self.lyrics = lyrics
         self.liked = liked
         self.playlists = playlists
         self.home = home
+        self.uploads = uploads
         self.root = root
     }
 
-    public func track(id: String) -> QTTrack? { tracks.first { $0.videoId == id } }
+    public func track(id: String) -> QTTrack? {
+        tracks.first { $0.videoId == id } ?? uploads.songs.first { $0.videoId == id }
+    }
 
     // MARK: QTCatalogService
 
@@ -167,6 +174,7 @@ struct QTMockCatalogFile: Decodable {
             })
         }
         return QTMockCatalog(tracks: resolvedTracks, lyrics: lyrics, liked: likedList, playlists: lists,
-                             home: QTHomeFeed(moods: home.moods, shelves: shelves), root: root)
+                             home: QTHomeFeed(moods: home.moods, shelves: shelves), uploads: QTMockUploads.demo,
+                             root: root)
     }
 }

@@ -1,0 +1,27 @@
+{
+  "responseContext" : {
+    "serviceTrackingParams" : [ { "service" : "GFEEDBACK", "params" : [ { "key" : "logged_in", "value" : "1" } ] } ]
+  },
+  "contents" : {
+    "singleColumnBrowseResultsRenderer" : {
+      "tabs" : [ {
+        "tabRenderer" : {
+          "content" : {
+            "sectionListRenderer" : {
+              "contents" : [ {
+                "itemSectionRenderer" : {
+                  "contents" : [ {
+                    "messageRenderer" : {
+                      "text" : { "runs" : [ { "text" : "Your uploaded music will show up here" } ] },
+                      "button" : { "buttonRenderer" : { "text" : { "runs" : [ { "text" : "Upload music" } ] } } }
+                    }
+                  } ]
+                }
+              } ]
+            }
+          }
+        }
+      } ]
+    }
+  }
+}

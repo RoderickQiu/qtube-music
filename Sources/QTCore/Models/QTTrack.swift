@@ -125,6 +125,16 @@ public struct QTTrack: Codable, Sendable, Hashable, Identifiable {
     public var setVideoId: String?
     /// Whether the account likes the song, when the row said so (signed-in pages only).
     public var likeStatus: QTLikeStatus?
+    /// Stored as an optional so queues saved before uploads existed still decode (see `isPrivatelyOwned`).
+    private var privatelyOwned: Bool?
+
+    /// A song the user uploaded to their own YouTube Music library (`MUSIC_VIDEO_TYPE_PRIVATELY_OWNED_TRACK`). Only
+    /// the owner can play it or open its link: it has no music video, no radio and no YouTube lyrics, and its link is
+    /// never sent anywhere (ListenBrainz gets no `origin_url`).
+    public var isPrivatelyOwned: Bool {
+        get { privatelyOwned == true }
+        set { privatelyOwned = newValue ? true : nil }
+    }
 
     public init(
         videoId: String,
@@ -141,7 +151,8 @@ public struct QTTrack: Codable, Sendable, Hashable, Identifiable {
         palette: QTArtworkPalette? = nil,
         lyricsHint: QTLyricsSyncKind? = nil,
         setVideoId: String? = nil,
-        likeStatus: QTLikeStatus? = nil
+        likeStatus: QTLikeStatus? = nil,
+        isPrivatelyOwned: Bool = false
     ) {
         self.videoId = videoId
         self.title = title
@@ -158,6 +169,7 @@ public struct QTTrack: Codable, Sendable, Hashable, Identifiable {
         self.lyricsHint = lyricsHint
         self.setVideoId = setVideoId
         self.likeStatus = likeStatus
+        self.privatelyOwned = isPrivatelyOwned ? true : nil
     }
 
     /// "Artist A, Artist B" — joined with the locale's list format.
@@ -165,9 +177,10 @@ public struct QTTrack: Codable, Sendable, Hashable, Identifiable {
         artists.map(\.name).formatted(.list(type: .and, width: .narrow).locale(QTLoc.locale))
     }
 
-    /// Whether Song⇄Video can switch to a video for this track.
+    /// Whether Song⇄Video can switch to a video for this track. Never for an upload (it is audio only).
     public var hasVideo: Bool {
-        musicVideoType.isVideo || counterpart?.musicVideoType.isVideo == true
+        guard !isPrivatelyOwned else { return false }
+        return musicVideoType.isVideo || counterpart?.musicVideoType.isVideo == true
     }
 
     /// Still image for the video version (the track's own artwork if it already is the video).

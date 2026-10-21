@@ -34,6 +34,9 @@ public struct QTSidebarView: View {
                 row(.artists)
                 row(.liked)
                 row(.history)
+                // Always listed (signed in, guest and demo alike): ⌘8 stays put, and an account without uploads
+                // learns where they would go (the page says how to add some).
+                row(.uploads)
             } header: {
                 Text(QTLoc.tr("Library"))
             }
@@ -84,6 +87,7 @@ public struct QTSidebarView: View {
         case .artists: QTLoc.tr("Artists")
         case .liked: QTLoc.tr("Liked Songs")
         case .history: QTLoc.tr("History")
+        case .uploads: QTLoc.tr("Uploads")
         case .playlist: QTLoc.tr("Playlist")
         }
     }
@@ -97,6 +101,7 @@ public struct QTSidebarView: View {
         case .artists: .mic
         case .liked: .heart
         case .history: .clock
+        case .uploads: .upload
         case .playlist: .playlist
         }
     }

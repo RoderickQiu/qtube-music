@@ -193,6 +193,8 @@ struct QTContentRouter: View {
             } else {
                 QTLibraryView(collection: history, destination: d)
             }
+        case .section(.uploads):
+            QTUploadsPage()
         case .section(.playlist(let id)):
             // Through the store: playlists made here and renames count too.
             if let p = QTLiveCatalogStore.shared.playlist(id) {
@@ -240,9 +242,10 @@ enum QTWindowTitle {
         }
     }
 
-    /// `MPREb_…`, `UC…` and friends: ids, not names to show.
+    /// `MPREb_…`, `UC…`, uploads' `FEmusic_library_privately_owned_…` and friends: ids, not names to show.
     static func isBrowseID(_ key: String) -> Bool {
-        (key.hasPrefix("MPRE") || key.hasPrefix("UC") || key.hasPrefix("MPLA")) && !key.contains(" ") && key.count >= 12
+        (key.hasPrefix("MPRE") || key.hasPrefix("UC") || key.hasPrefix("MPLA") || QTUploads.isUploadID(key))
+            && !key.contains(" ") && key.count >= 12
     }
 }
 

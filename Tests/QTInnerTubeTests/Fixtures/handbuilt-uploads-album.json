@@ -1,0 +1,75 @@
+{
+  "responseContext" : {
+    "serviceTrackingParams" : [ { "service" : "GFEEDBACK", "params" : [ { "key" : "logged_in", "value" : "1" } ] } ]
+  },
+  "header" : {
+    "musicDetailHeaderRenderer" : {
+      "title" : { "runs" : [ { "text" : "Paper Lanterns" } ] },
+      "subtitle" : { "runs" : [ { "text" : "Album" }, { "text" : " • " }, { "text" : "Juniper Field", "navigationEndpoint" : { "browseEndpoint" : { "browseId" : "FEmusic_library_privately_owned_artist_detaila_po_fakeJuniper" } } }, { "text" : " • " }, { "text" : "2024" } ] },
+      "secondSubtitle" : { "runs" : [ { "text" : "3 songs" }, { "text" : " • " }, { "text" : "11 minutes" } ] },
+      "thumbnail" : { "croppedSquareThumbnailRenderer" : { "thumbnail" : { "thumbnails" : [ { "url" : "https://example.invalid/lanterns-large.jpg", "width" : 544, "height" : 544 } ] } } },
+      "menu" : { "menuRenderer" : {
+        "topLevelButtons" : [ { "buttonRenderer" : { "text" : { "runs" : [ { "text" : "Play" } ] }, "navigationEndpoint" : { "watchPlaylistEndpoint" : { "playlistId" : "MLPRb_po_fakeLanterns" } } } } ]
+      } }
+    }
+  },
+  "contents" : {
+    "singleColumnBrowseResultsRenderer" : {
+      "tabs" : [ {
+        "tabRenderer" : {
+          "content" : {
+            "sectionListRenderer" : {
+              "contents" : [ {
+                "musicShelfRenderer" : {
+                  "contents" : [
+                    {
+                      "musicResponsiveListItemRenderer" : {
+                        "flexColumns" : [
+                          { "musicResponsiveListItemFlexColumnRenderer" : { "text" : { "runs" : [ { "text" : "Porch Light" } ] } } },
+                          { "musicResponsiveListItemFlexColumnRenderer" : { "text" : { } } }
+                        ],
+                        "fixedColumns" : [ { "musicResponsiveListItemFixedColumnRenderer" : { "text" : { "runs" : [ { "text" : "3:34" } ] } } } ],
+                        "menu" : { "menuRenderer" : {
+                          "items" : [
+                            { "menuServiceItemRenderer" : { "text" : { "runs" : [ { "text" : "Add to queue" } ] }, "serviceEndpoint" : { "queueAddEndpoint" : { "queueTarget" : { "videoId" : "upl0adVid01" }, "queueInsertPosition" : "INSERT_AT_END" } } } }
+                          ],
+                          "topLevelButtons" : [ { "likeButtonRenderer" : { "target" : { "videoId" : "upl0adVid01" }, "likeStatus" : "LIKE" } } ]
+                        } }
+                      }
+                    },
+                    {
+                      "musicResponsiveListItemRenderer" : {
+                        "flexColumns" : [
+                          { "musicResponsiveListItemFlexColumnRenderer" : { "text" : { "runs" : [ { "text" : "Kites Over Harbour Street" } ] } } }
+                        ],
+                        "fixedColumns" : [ { "musicResponsiveListItemFixedColumnRenderer" : { "text" : { "runs" : [ { "text" : "4:07" } ] } } } ],
+                        "menu" : { "menuRenderer" : {
+                          "items" : [
+                            { "menuServiceItemRenderer" : { "text" : { "runs" : [ { "text" : "Add to queue" } ] }, "serviceEndpoint" : { "queueAddEndpoint" : { "queueTarget" : { "videoId" : "upl0adVid02" }, "queueInsertPosition" : "INSERT_AT_END" } } } }
+                          ]
+                        } }
+                      }
+                    },
+                    {
+                      "musicResponsiveListItemRenderer" : {
+                        "flexColumns" : [
+                          { "musicResponsiveListItemFlexColumnRenderer" : { "text" : { "runs" : [ { "text" : "Slow Tide" } ] } } }
+                        ],
+                        "fixedColumns" : [ { "musicResponsiveListItemFixedColumnRenderer" : { "text" : { "runs" : [ { "text" : "3:12" } ] } } } ],
+                        "menu" : { "menuRenderer" : {
+                          "items" : [
+                            { "menuServiceItemRenderer" : { "text" : { "runs" : [ { "text" : "Add to queue" } ] }, "serviceEndpoint" : { "queueAddEndpoint" : { "queueTarget" : { "videoId" : "upl0adVid05" }, "queueInsertPosition" : "INSERT_AT_END" } } } }
+                          ]
+                        } }
+                      }
+                    }
+                  ]
+                }
+              } ]
+            }
+          }
+        }
+      } ]
+    }
+  }
+}

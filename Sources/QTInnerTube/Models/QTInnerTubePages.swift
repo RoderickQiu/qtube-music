@@ -51,6 +51,20 @@ public struct QTMoodsPage: Sendable, Hashable {
     public init(groups: [Group]) { self.groups = groups }
 }
 
+/// Sort order of a library list (the uploads lists take it). `params` are YouTube Music's own (its sort menu's
+/// `browseEndpoint.params`, as ytmusicapi `prepare_order_params` reads them).
+public enum QTLibraryOrder: String, Sendable, Hashable, CaseIterable {
+    case aToZ, zToA, recentlyAdded
+
+    public var params: String {
+        switch self {
+        case .aToZ: "ggMGKgQIARAA"
+        case .zToA: "ggMGKgQIARAB"
+        case .recentlyAdded: "ggMGKgQIABAB"
+        }
+    }
+}
+
 /// Search filters. `params` values are the ones YouTube Music's own chips send.
 public enum QTSearchFilter: String, Sendable, Hashable, CaseIterable {
     case all, songs, videos, albums, artists, playlists, featuredPlaylists

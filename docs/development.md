@@ -45,7 +45,7 @@ swift test  --scratch-path .build/<you> --disable-xctest
 - **Keep `--disable-xctest` for now.** Every suite uses Swift Testing, so the XCTest pass has nothing to run. A
   plain `swift test` still runs that pass first, and on this host (Xcode 27.1, macOS 27) the `QTUITests.xctest`
   runner hangs in it, blocked in a CFPreferences XPC call. Re-checked 2026-10-19.
-- **Current result:** 658 tests in 104 suites pass (after the pre-launch merges). They need no network and none of the git-ignored data.
+- **Current result:** 676 tests in 106 suites pass (after the pre-launch merges). They need no network and none of the git-ignored data.
 - **Opt-in suites** are gated by environment variables:
   - `QT_LIVE=1`: live, anonymous InnerTube, lyrics and playback.
   - `QT_RECORD=1`: re-record the InnerTube fixtures.
@@ -64,7 +64,7 @@ Launch arguments apply to one session only and are never saved. Pass them as
 |---|---|
 | `qt.catalog` | `live` (default), `mock` (demo library, debug builds only; never reads the Keychain), or a catalog folder path |
 | `qt.surface` | `window` · `stage` · `mini` |
-| `qt.section` | `home` `explore` `songs` `albums` `artists` `liked` `history` `playlist:<id>` |
+| `qt.section` | `home` `explore` `songs` `albums` `artists` `liked` `history` `uploads` `playlist:<id>` |
 | `qt.stageLayout` / `qt.stageBackground` | `standard` `lyrics-only` `art-only` / `blur` `cover` `vinyl` `video` `visual` |
 | `qt.theme` · `qt.lang` · `qt.account` | `auto` `light` `dark` · `auto` `en-US` `zh-CN` · `premium` `free` |
 | `qt.translation` | `auto` `off` `zh-Hans` `zh-Hant` `en` `ko` `ja` `vi` `es` `fr` `de` |

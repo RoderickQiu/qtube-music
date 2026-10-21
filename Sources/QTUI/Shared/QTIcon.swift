@@ -8,7 +8,7 @@ public enum QTIcon: String, CaseIterable, Sendable {
     case home, compass, note, album, mic, clock, list, playlist
     case search, chevL, chevR, chevD, chevU
     case expand, mini, lyrics, lyricsOptions, volume, volumeMuted, airplay, more, sidebar
-    case grip, video, check, layers, close, sparkle, pin
+    case grip, video, check, layers, close, sparkle, pin, upload
 
     public var systemName: String {
         switch self {
@@ -51,6 +51,8 @@ public enum QTIcon: String, CaseIterable, Sendable {
         case .close: "xmark"
         case .sparkle: "sparkle"
         case .pin: "pin"
+        // Library › Uploads: the user's own files, kept in YouTube Music's cloud.
+        case .upload: "icloud.and.arrow.up"
         }
     }
 

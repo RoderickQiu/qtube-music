@@ -230,7 +230,9 @@ public struct QTMockBrowseService: QTBrowseService {
 
     /// Album by id or title (mock albums use their title as id).
     public func albumNow(_ key: String) -> QTAlbumPage? {
-        let tracks = catalog.tracks.filter { $0.album?.id == key || $0.album?.title == key }
+        // Uploads by id only (an upload album may share its title with a library one).
+        let tracks = QTUploads.isAlbumID(key) ? catalog.uploads.songs.filter { $0.album?.id == key }
+            : catalog.tracks.filter { $0.album?.id == key || $0.album?.title == key }
         guard let first = tracks.first, let ref = first.album else { return nil }
         let album = QTAlbum(id: ref.id ?? ref.title, title: ref.title, artists: first.artists,
                             kind: tracks.count > 3 ? .album : .single, artwork: first.artwork, tracks: tracks)
@@ -239,6 +241,11 @@ public struct QTMockBrowseService: QTBrowseService {
 
     /// Artist by id or name. `shelves` holds the page's rows in display order, like the live parser.
     public func artistNow(_ key: String) -> QTArtistPage? {
+        if QTUploads.isArtistID(key) {
+            let songs = catalog.uploads.songs.filter { $0.artists.contains { $0.id == key } }
+            guard let ref = songs.first?.artists.first(where: { $0.id == key }) else { return nil }
+            return QTArtistPage(artist: QTArtist(id: key, name: ref.name), songs: songs)
+        }
         let tracks = catalog.tracks.filter { $0.artists.contains { $0.id == key || $0.name == key } }
         guard let first = tracks.first, let ref = first.artists.first(where: { $0.id == key || $0.name == key }) else { return nil }
         let artist = QTArtist(id: ref.id ?? ref.name, name: ref.name, artwork: first.artwork)

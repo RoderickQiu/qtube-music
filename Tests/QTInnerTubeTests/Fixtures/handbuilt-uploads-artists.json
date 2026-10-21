@@ -1,0 +1,46 @@
+{
+  "responseContext" : {
+    "serviceTrackingParams" : [ { "service" : "GFEEDBACK", "params" : [ { "key" : "logged_in", "value" : "1" } ] } ]
+  },
+  "contents" : {
+    "singleColumnBrowseResultsRenderer" : {
+      "tabs" : [ {
+        "tabRenderer" : {
+          "content" : {
+            "sectionListRenderer" : {
+              "contents" : [ {
+                "itemSectionRenderer" : {
+                  "contents" : [ {
+                    "musicShelfRenderer" : {
+                      "contents" : [
+                        {
+                          "musicResponsiveListItemRenderer" : {
+                            "flexColumns" : [
+                              { "musicResponsiveListItemFlexColumnRenderer" : { "text" : { "runs" : [ { "text" : "Juniper Field" } ] } } },
+                              { "musicResponsiveListItemFlexColumnRenderer" : { "text" : { "runs" : [ { "text" : "4 songs" } ] } } }
+                            ],
+                            "navigationEndpoint" : { "browseEndpoint" : { "browseId" : "FEmusic_library_privately_owned_artist_detaila_po_fakeJuniper", "browseEndpointContextSupportedConfigs" : { "browseEndpointContextMusicConfig" : { "pageType" : "MUSIC_PAGE_TYPE_LIBRARY_ARTIST" } } } }
+                          }
+                        },
+                        {
+                          "musicResponsiveListItemRenderer" : {
+                            "thumbnail" : { "musicThumbnailRenderer" : { "thumbnail" : { "thumbnails" : [ { "url" : "https://example.invalid/mara.jpg", "width" : 120, "height" : 120 } ] } } },
+                            "flexColumns" : [
+                              { "musicResponsiveListItemFlexColumnRenderer" : { "text" : { "runs" : [ { "text" : "Mara Sol" } ] } } },
+                              { "musicResponsiveListItemFlexColumnRenderer" : { "text" : { "runs" : [ { "text" : "2 songs" } ] } } }
+                            ],
+                            "navigationEndpoint" : { "browseEndpoint" : { "browseId" : "FEmusic_library_privately_owned_artist_detaila_po_fakeMara" } }
+                          }
+                        }
+                      ]
+                    }
+                  } ]
+                }
+              } ]
+            }
+          }
+        }
+      } ]
+    }
+  }
+}

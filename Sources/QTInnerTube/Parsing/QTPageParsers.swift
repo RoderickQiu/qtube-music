@@ -142,7 +142,11 @@ public enum QTInnerTubeParser {
 
     // MARK: Album
 
+    /// An album page. An uploaded album (`FEmusic_library_privately_owned_release_detail…`) comes with the older
+    /// `musicDetailHeaderRenderer` and rows without artist or artwork; they take the album's, and every song is marked
+    /// privately owned.
     public static func album(_ response: QTJSON, browseId: String) -> QTAlbumPage? {
+        let owned = QTUploads.isAlbumID(browseId)
         let sections = QTShelfParser.sections(response)
         let header = responsiveHeader(response, sections: sections)
         guard let title = header["title"].text else { return nil }
@@ -156,13 +160,14 @@ public enum QTInnerTubeParser {
             album.artists = [QTArtistRef(name: strapline.text)]
         }
         let context = QTItemContext(album: QTAlbumRef(id: browseId, title: title), albumArtists: album.artists,
-                                    albumArtwork: album.artwork)
+                                    albumArtwork: album.artwork, privatelyOwned: owned)
         var tracks: [QTTrack] = []
         var shelves: [QTShelf] = []
         for (index, section) in sections.enumerated() {
             if section.rendererKey == "musicShelfRenderer" || section.rendererKey == "musicPlaylistShelfRenderer",
                tracks.isEmpty {
-                tracks = QTItemParser.tracks(section.rendererValue["contents"].array, context: context)
+                let rows = section.rendererValue["contents"].array
+                tracks = owned ? uploadedTracks(rows, context: context) : QTItemParser.tracks(rows, context: context)
             } else if section.rendererKey == "musicCarouselShelfRenderer",
                       let shelf = QTShelfParser.shelf(section, index: index) {
                 shelves.append(shelf)
@@ -172,6 +177,8 @@ public enum QTInnerTubeParser {
         let playlistId = header.all("musicPlayButtonRenderer").lazy.compactMap {
             if case .watchPlaylist(let id, _)? = $0.navigation("playNavigationEndpoint") { id } else { nil }
         }.first ?? canonicalPlaylistId(response)
+            // Uploaded albums: the header menu's Play button.
+            ?? header.first("watchPlaylistEndpoint")?["playlistId"].string
         return QTAlbumPage(album: album, playlistId: playlistId, summary: header["secondSubtitle"].text,
                            description: header.first("description").flatMap { $0.text }, shelves: shelves,
                            isSaved: savedState(header))
@@ -250,6 +257,10 @@ public enum QTInnerTubeParser {
 
     /// The next page of a playlist / album / library song list.
     public static func trackContinuation(_ response: QTJSON) -> QTTrackPage {
+        trackContinuation(response, context: .plain)
+    }
+
+    static func trackContinuation(_ response: QTJSON, context: QTItemContext) -> QTTrackPage {
         var items: [QTJSON] = []
         var continuation: QTContinuation?
         for action in response["onResponseReceivedActions"].array {
@@ -263,7 +274,8 @@ public enum QTInnerTubeParser {
             items += c["contents"].array
             continuation = continuation ?? QTShelfParser.continuation(c) ?? QTShelfParser.continuationItem(c["contents"].array)
         }
-        return QTTrackPage(tracks: QTItemParser.tracks(items), continuation: continuation)
+        let tracks = context.privatelyOwned ? uploadedTracks(items, context: context) : QTItemParser.tracks(items)
+        return QTTrackPage(tracks: tracks, continuation: continuation)
     }
 
     static func leadingInteger(_ text: String) -> Int? {
@@ -341,6 +353,12 @@ public enum QTInnerTubeParser {
     /// Library pages (`FEmusic_liked_playlists`, `FEmusic_liked_albums`, `FEmusic_library_corpus_track_artists`,
     /// `FEmusic_library_songs`…) and their continuations: every music item in every grid/shelf.
     public static func libraryItems(_ response: QTJSON) -> QTLibraryPage<QTShelfItem> {
+        let (lists, continuation) = libraryLists(response)
+        return QTLibraryPage(items: QTItemParser.items(lists).items, continuation: continuation)
+    }
+
+    /// Every grid / shelf item of a library page or continuation, and the next page's token.
+    static func libraryLists(_ response: QTJSON) -> (items: [QTJSON], continuation: QTContinuation?) {
         var lists: [QTJSON] = []
         var continuation: QTContinuation?
         for section in QTShelfParser.sections(response) {
@@ -354,8 +372,9 @@ public enum QTInnerTubeParser {
             } else if section.rendererKey == "itemSectionRenderer" {
                 for inner in shelfItems where inner.rendererKey == "gridRenderer" || inner.rendererKey == "musicShelfRenderer" {
                     let ir = inner.rendererValue
-                    lists += ir["items"].array + ir["contents"].array
-                    continuation = continuation ?? QTShelfParser.continuation(ir)
+                    let list = ir["items"].array + ir["contents"].array
+                    lists += list
+                    continuation = continuation ?? QTShelfParser.continuation(ir) ?? QTShelfParser.continuationItem(list)
                 }
             }
         }
@@ -371,7 +390,62 @@ public enum QTInnerTubeParser {
             lists += list
             continuation = continuation ?? QTShelfParser.continuationItem(list)
         }
-        return QTLibraryPage(items: QTItemParser.items(lists).items, continuation: continuation)
+        return (lists, continuation)
+    }
+
+    // MARK: Uploads
+
+    /// The uploads library (`FEmusic_library_privately_owned_tracks` / `_releases` / `_artists`) or one of its
+    /// continuations: songs (marked privately owned), album cards or artist rows. The songs list opens with a
+    /// "Shuffle all" row when it holds two or more; that row has no menu, unlike every upload, and is dropped
+    /// (ytmusicapi `pop_songs_random_mix` / `parse_uploaded_items`).
+    public static func uploads(_ response: QTJSON) -> QTLibraryPage<QTShelfItem> {
+        let (lists, continuation) = libraryLists(response)
+        let context = QTItemContext(privatelyOwned: true)
+        let items = lists.compactMap { entry -> QTShelfItem? in
+            guard case .item(let item) = QTItemParser.parse(entry, context: context) else { return nil }
+            if item.track != nil, !hasMenu(entry) { return nil }
+            return item
+        }
+        return QTLibraryPage(items: items, continuation: continuation)
+    }
+
+    /// An uploads artist's page (`FEmusic_library_privately_owned_artist_detail…`): the songs uploaded for that
+    /// artist (the shuffle row dropped, rows without an artist given this one) and the next page's token. The name
+    /// comes from the header, else from the songs' links to this page.
+    public static func uploadArtist(_ response: QTJSON, browseId: String) -> (page: QTArtistPage, continuation: QTContinuation?)? {
+        var rows: [QTJSON] = []
+        var continuation: QTContinuation?
+        for section in QTShelfParser.sections(response) where rows.isEmpty {
+            guard section.rendererKey == "musicShelfRenderer" || section.rendererKey == "musicPlaylistShelfRenderer"
+            else { continue }
+            let shelf = section.rendererValue
+            rows = shelf["contents"].array
+            continuation = QTShelfParser.continuation(shelf) ?? QTShelfParser.continuationItem(rows)
+        }
+        let songs = uploadedTracks(rows, context: QTItemContext(privatelyOwned: true))
+        let linked = songs.lazy.flatMap(\.artists).first { $0.id == browseId }?.name
+        guard let name = response["header"].rendererValue["title"].text ?? linked ?? songs.first?.artists.first?.name
+        else { return nil }
+        var page = QTArtistPage(artist: QTArtist(id: browseId, name: name,
+                                                 artwork: QTParse.artwork(response["header"].rendererValue["thumbnail"])))
+        page.songs = songs.map { t in
+            var t = t
+            if t.artists.isEmpty { t.artists = [QTArtistRef(id: browseId, name: name)] }
+            return t
+        }
+        return (page, continuation)
+    }
+
+    /// Upload rows → songs: only rows with a menu count (the shuffle row has none), all privately owned.
+    static func uploadedTracks(_ rows: [QTJSON], context: QTItemContext) -> [QTTrack] {
+        var context = context
+        context.privatelyOwned = true
+        return QTItemParser.tracks(rows.filter(hasMenu), context: context)
+    }
+
+    private static func hasMenu(_ entry: QTJSON) -> Bool {
+        !entry.rendererValue["menu"].isNull
     }
 
     // MARK: Watch (next / get_queue / player)

@@ -115,6 +115,9 @@ public final class QTLiveCatalogStore {
     public private(set) var libraryAlbums: [QTAlbum] = []
     public private(set) var artistsPhase: QTLivePhase = .idle
     public private(set) var libraryArtists: [QTArtist] = []
+    /// Library › Uploads, one list per segment (each loads when first shown).
+    public private(set) var uploads = QTUploads.empty
+    public private(set) var uploadPhases: [QTUploadsSection: QTLivePhase] = [:]
     /// Playlists opened from Home / search / artist pages (not in the library, so not in the sidebar).
     public private(set) var otherPlaylists: [String: QTPlaylist] = [:]
     public private(set) var playlistPhases: [String: QTLivePhase] = [:]
@@ -293,7 +296,7 @@ public final class QTLiveCatalogStore {
     /// Places that are the account's library: guest mode shows the sign-in state there.
     public static func isLibrary(_ destination: QTDestination) -> Bool {
         switch destination {
-        case .section(.liked), .section(.songs), .section(.albums), .section(.artists): return true
+        case .section(.liked), .section(.songs), .section(.albums), .section(.artists), .section(.uploads): return true
         // Playlists in the sidebar are the library's; one opened from Home, search or an artist page is public.
         case .section(.playlist(let id)): return id == "LM"
         default: return false
@@ -350,7 +353,9 @@ public final class QTLiveCatalogStore {
         guard let model else { return }
         let client = client
         model.player.playback.autoplayContinuation = { [weak self] request in
-            guard let self, self.mode.browsesYouTube, let seed = request.seed, seed.videoId.count == 11 else { return [] }
+            // An upload has no radio (it isn't in YouTube's catalog): the queue ends with it.
+            guard let self, self.mode.browsesYouTube, let seed = request.seed, seed.videoId.count == 11,
+                  !seed.isPrivatelyOwned else { return [] }
             let page = try await client.next(videoId: seed.videoId, playlistId: "RDAMVM" + seed.videoId)
             return page.tracks.filter { $0.videoId != seed.videoId && !request.excludingVideoIDs.contains($0.videoId) }
         }
@@ -572,6 +577,7 @@ public final class QTLiveCatalogStore {
         likedPhase = .idle; isLoadingMoreLiked = false; libraryPhase = .idle
         songsPhase = .idle; librarySongs = []; albumsPhase = .idle; libraryAlbums = []
         artistsPhase = .idle; libraryArtists = []
+        uploads = .empty; uploadPhases = [:]
         otherPlaylists = [:]; playlistPhases = [:]; reportedTrackCounts = [:]; albumPages = [:]; albumPhases = [:]
         artistPages = [:]; artistPhases = [:]; explore = nil; explorePhase = .idle
         exploreSections = [:]; exploreSectionPhases = [:]; moodsPage = nil
@@ -801,6 +807,52 @@ public final class QTLiveCatalogStore {
                 }
             } catch {
                 artistsPhase = .failure(error)
+            }
+        }
+    }
+
+    // MARK: Uploads
+
+    public func uploadsPhase(_ section: QTUploadsSection) -> QTLivePhase { uploadPhases[section] ?? .idle }
+
+    /// One uploads list: the first page shows at once, the rest streams in behind it (read-only; uploading and
+    /// deleting stay on music.youtube.com).
+    public func loadUploads(_ section: QTUploadsSection, force: Bool = false) async {
+        guard mode == .live, force || !uploadsPhase(section).isLoadedOrLoading else { return }
+        await run("uploads:\(section.rawValue)") { [self] in
+            uploadPhases[section] = .loading
+            do {
+                await debugLoadDelay()
+                var token: QTContinuation?
+                switch section {
+                case .songs:
+                    let page = try await client.uploadedSongs()
+                    uploads.songs = page.items
+                    token = page.continuation
+                case .albums:
+                    let page = try await client.uploadedAlbums()
+                    uploads.albums = page.items
+                    token = page.continuation
+                case .artists:
+                    let page = try await client.uploadedArtists()
+                    uploads.artists = page.items
+                    token = page.continuation
+                }
+                uploadPhases[section] = .loaded
+                var pages = 1
+                while let t = token, pages < 40, mode == .live {
+                    guard let more = try? await client.uploadsContinuation(t) else { break }
+                    switch section {
+                    case .songs: uploads.songs += more.items.compactMap(\.track)
+                    case .albums: uploads.albums += more.items.compactMap { if case .album(let a) = $0 { a } else { nil } }
+                    case .artists: uploads.artists += more.items.compactMap { if case .artist(let a) = $0 { a } else { nil } }
+                    }
+                    token = more.continuation
+                    pages += 1
+                }
+                if section == .songs { remember(uploads.songs) }
+            } catch {
+                uploadPhases[section] = .failure(error)
             }
         }
     }
@@ -1058,13 +1110,13 @@ public final class QTLiveCatalogStore {
     /// Browse id for an album/artist key: ids pass through; titles/names (mock-era navigation) are looked up in
     /// the tracks seen so far.
     public func albumID(for key: String) -> String? {
-        if key.hasPrefix("MPREb_") { return key }
+        if key.hasPrefix("MPREb_") || QTUploads.isAlbumID(key) { return key }
         if let id = resolvedKeys["album:\(key)"] { return id }
         return model?.catalog.tracks.lazy.compactMap { $0.album?.title == key ? $0.album?.id : nil }.first
     }
 
     public func artistID(for key: String) -> String? {
-        if key.hasPrefix("UC") || key.hasPrefix("MPLA") { return QTInnerTubeClient.channelId(key) }
+        if key.hasPrefix("UC") || key.hasPrefix("MPLA") || QTUploads.isArtistID(key) { return QTInnerTubeClient.channelId(key) }
         if let id = resolvedKeys["artist:\(key)"] { return id }
         return model?.catalog.tracks.lazy.flatMap(\.artists).first { $0.name == key && $0.id != nil }?.id
             .map(QTInnerTubeClient.channelId)
