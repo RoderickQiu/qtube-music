@@ -1910,6 +1910,74 @@
           }
         }
       }
+    },
+    "Upload the changes on this Mac?" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "要上传这台 Mac 上的更改吗？"
+          }
+        }
+      }
+    },
+    "%lld changes to likes and playlists were made while Sync was off. Upload them to your YouTube Music account, or discard them." : {
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld change to likes or playlists was made while Sync was off. Upload it to your YouTube Music account, or discard it."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld changes to likes and playlists were made while Sync was off. Upload them to your YouTube Music account, or discard them."
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同步关闭期间，你对喜欢的音乐和播放列表做了 %lld 项更改。可以将它们上传到你的 YouTube Music 账户，或者丢弃。"
+          }
+        }
+      }
+    },
+    "Upload Changes" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上传更改"
+          }
+        }
+      }
+    },
+    "Discard Changes" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "丢弃更改"
+          }
+        }
+      }
+    },
+    "Turn Off Sync" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭同步"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

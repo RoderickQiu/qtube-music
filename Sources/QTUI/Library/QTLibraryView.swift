@@ -342,7 +342,10 @@ struct QTLibraryActions: View {
             }
         }
         menu.addItem(.separator())
-        menu.addItem(QTClosureMenuItem(QTLoc.tr("Copy Link")) { QTTrackActions.copyLinks(playable) })
+        // Uploads have no link to share.
+        menu.addItem(QTClosureMenuItem(QTLoc.tr("Copy Link"), enabled: QTTrackActions.canCopyLinks(playable)) {
+            QTTrackActions.copyLinks(playable)
+        })
         if let collection, let p = editablePlaylist(collection) {
             menu.addItem(.separator())
             menu.addItem(QTClosureMenuItem(QTLoc.tr("Edit Playlist…", table: .main)) { QTPlaylistActions.edit(p) })

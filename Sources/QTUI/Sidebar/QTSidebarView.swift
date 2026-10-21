@@ -40,20 +40,28 @@ public struct QTSidebarView: View {
             } header: {
                 Text(QTLoc.tr("Library"))
             }
-            // The library's playlists with this Mac's changes (renamed, deleted, made here) and pending ones.
+            // The library's playlists with this Mac's changes (renamed, deleted, made here) and pending ones. Guests
+            // have none; signed in (or the demo) the section stays, so New Playlist… is there with no playlists too.
             let playlists = QTAccountWriter.shared.edits.playlists(model.catalog.playlists)
-            if !playlists.isEmpty {
+            if !QTLiveCatalogStore.shared.isGuest {
                 Section(isExpanded: $playlistsExpanded) {
                     ForEach(playlists) { p in
                         QTSidebarRow(item: .playlist(p.id), title: p.title.resolved, icon: .playlist, playlist: p,
                                      renaming: $renamingID)
                     }
+                    if playlists.isEmpty, QTLiveCatalogStore.shared.mode != .restoring {
+                        // Like Music's empty sidebar: the way to make one, where the playlists will be.
+                        Button { QTPlaylistActions.newPlaylist() } label: {
+                            Label(QTLoc.tr("New Playlist…", table: .main), systemImage: "plus")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("qt.sidebar.newPlaylist")
+                    }
                 } header: {
                     Text(QTLoc.tr("Playlists"))
                         .contextMenu {
-                            if !QTLiveCatalogStore.shared.isGuest {
-                                Button(QTLoc.tr("New Playlist…", table: .main)) { QTPlaylistActions.newPlaylist() }
-                            }
+                            Button(QTLoc.tr("New Playlist…", table: .main)) { QTPlaylistActions.newPlaylist() }
                         }
                 }
             }
@@ -120,21 +128,27 @@ struct QTSidebarRow: View {
     @State private var isTargeted = false
     @State private var draftName = ""
     @FocusState private var isEditingName: Bool
+    /// Esc: the rename ends without keeping the name.
+    @State private var renameCancelled = false
 
     private var isRenaming: Bool { playlist != nil && renaming == playlist?.id }
 
     var body: some View {
         let label = Label {
             if isRenaming {
-                // In place, like Finder: ↩ keeps the name, Esc (or clicking away) leaves it as it was.
+                // In place, like Finder and Music: ↩ or clicking away keeps the name, Esc leaves it as it was.
                 TextField(QTLoc.tr("Name", table: .main), text: $draftName)
                     .textFieldStyle(.plain)
                     .focused($isEditingName)
                     .onSubmit(commitRename)
-                    .onExitCommand { renaming = nil }
-                    .onChange(of: isEditingName) { _, focused in if !focused { renaming = nil } }
+                    .onExitCommand {
+                        renameCancelled = true
+                        renaming = nil
+                    }
+                    .onChange(of: isEditingName) { _, focused in if !focused { commitRename() } }
                     .onAppear {
                         draftName = title
+                        renameCancelled = false
                         isEditingName = true
                     }
                     .accessibilityIdentifier("qt.sidebar.rename")
@@ -147,6 +161,10 @@ struct QTSidebarRow: View {
         .tag(item)
         .accessibilityIdentifier("qt.sidebar.\(item.argument)")
         .qtSidebarContextMenu(for: item, playlist: playlist, onRename: { renaming = playlist?.id }) // Desktop/QTSidebarContextMenu.swift
+        .onChange(of: renaming) { old, new in
+            // Renaming another row while this one was being edited keeps this one's new name too (Finder does).
+            if old == playlist?.id, new != nil, new != old { commitRename() }
+        }
         if acceptsDrops {
             label
                 .dropDestination(for: String.self) { items, _ in drop(items) } isTargeted: { isTargeted = $0 }
@@ -164,12 +182,15 @@ struct QTSidebarRow: View {
         }
     }
 
+    /// Keeps the typed name (once: ↩, focus moving away and another rename can each end the same edit).
     private func commitRename() {
-        defer { renaming = nil }
+        guard !renameCancelled else { return }
+        renameCancelled = true
+        if renaming == playlist?.id { renaming = nil }
         let name = draftName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let playlist, !name.isEmpty, name != title else { return }
-        QTAccountWriter.shared.editDetails(playlist, title: name, description: playlist.description ?? "",
-                                           privacy: playlist.privacy ?? .private)
+        // Only the name: description and privacy stay as they are (they may not be known here).
+        QTAccountWriter.shared.editDetails(playlist, title: name)
     }
 
     /// Liked Songs, and playlists songs can go into (the account's own; one not opened yet may be, so it tries).

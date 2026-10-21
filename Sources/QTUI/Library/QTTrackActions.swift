@@ -8,6 +8,14 @@ public enum QTTrackActions {
     /// Web link for a track (also what a dragged row carries to other apps).
     public static func link(for track: QTTrack) -> String { "https://music.youtube.com/watch?v=\(track.videoId)" }
 
+    /// The link to share, nil for a song the user uploaded: only its owner can open it, so the app never hands it
+    /// out (Copy Link, drags to other apps).
+    public static func shareableLink(for track: QTTrack) -> String? { track.isPrivatelyOwned ? nil : link(for: track) }
+
+    /// What a dragged song carries: its link, or for an upload an app-internal reference that only this app's
+    /// playlists and Liked Songs read (other apps get no link).
+    public static func dragString(for track: QTTrack) -> String { shareableLink(for: track) ?? dragPrefix + track.videoId }
+
     /// Parses a dragged/pasted link (or a bare id) back to a video id.
     public static func videoID(fromLink string: String) -> String? {
         let s = string.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -61,7 +69,7 @@ public enum QTTrackActions {
     /// Likes all when any is unliked, otherwise unlikes all (with Undo). The toast says where the like went: the
     /// account (syncing) or this Mac (Settings › Account › Sync off).
     public static func toggleLike(_ tracks: [QTTrack], model: QTAppModel = .shared, writer: QTAccountWriter = .shared) {
-        guard !tracks.isEmpty, QTAccountGate.allows(.like, model: model) else { return }
+        guard !tracks.isEmpty, QTAccountGate.allows(.like, model: model), writer.acceptsChanges() else { return }
         let player = model.player
         let like = tracks.contains { !player.isLiked($0) }
         let changed = tracks.filter { player.isLiked($0) != like }
@@ -74,20 +82,25 @@ public enum QTTrackActions {
         }
     }
 
+    /// Copies the songs' links (uploads have none to share and are left out).
     public static func copyLinks(_ tracks: [QTTrack], model: QTAppModel = .shared) {
-        guard !tracks.isEmpty else { return }
+        let links = tracks.compactMap(shareableLink(for:))
+        guard !links.isEmpty else { return }
         let pb = NSPasteboard.general
         pb.clearContents()
-        pb.setString(tracks.map(link(for:)).joined(separator: "\n"), forType: .string)
+        pb.setString(links.joined(separator: "\n"), forType: .string)
         model.showToast(QTLoc.tr("Link copied"))
     }
+
+    /// Whether Copy Link has anything to copy (not only uploads).
+    public static func canCopyLinks(_ tracks: [QTTrack]) -> Bool { tracks.contains { !$0.isPrivatelyOwned } }
 
     /// Adds the songs not already in the playlist (`QTAccountWriter`); toast "Added “x” to y" (or "… on this Mac")
     /// with Undo.
     public static func add(_ tracks: [QTTrack], to playlist: QTPlaylist, model: QTAppModel = .shared,
                            writer: QTAccountWriter = .shared) {
         let playable = tracks.filter(\.availability.isPlayable)
-        guard !playable.isEmpty, QTAccountGate.allows(.addToPlaylist, model: model) else { return }
+        guard !playable.isEmpty, QTAccountGate.allows(.addToPlaylist, model: model), writer.acceptsChanges() else { return }
         let name = playlist.title.resolved
         let added = writer.add(playable, to: playlist)
         guard !added.isEmpty else {
@@ -104,13 +117,14 @@ public enum QTTrackActions {
         model.showToast(message) { writer.remove(added, from: playlist) }
     }
 
-    /// Takes songs out of a playlist the account owns (⌫, context menu); Undo puts them back where they were.
+    /// Takes rows out of a playlist the account owns (⌫, context menu) — exactly the rows given, so one copy of a
+    /// song the playlist holds twice goes alone; Undo puts them back where they were (unavailable ones too).
     public static func remove(_ tracks: [QTTrack], from playlist: QTPlaylist, model: QTAppModel = .shared,
                               writer: QTAccountWriter = .shared) {
-        guard !tracks.isEmpty, writer.canEdit(playlist) else { return }
+        guard !tracks.isEmpty, writer.canEdit(playlist), writer.acceptsChanges() else { return }
         let before = writer.rows(of: playlist)
-        let ids = Set(tracks.map(\.videoId))
-        let removed = before.filter { ids.contains($0.videoId) }
+        let keys = Set(tracks.map(QTAccountWriter.rowKey))
+        let removed = before.filter { keys.contains(QTAccountWriter.rowKey($0)) }
         guard !removed.isEmpty else { return }
         writer.remove(removed, from: playlist)
         let name = playlist.title.resolved
@@ -118,10 +132,15 @@ public enum QTTrackActions {
             ? QTLoc.tr("Removed “%@” from %@", table: .live, removed[0].title, name)
             : QTLoc.tr("Removed %lld songs from %@", table: .live, removed.count, name)
         model.showToast(message) {
-            // Back in, then each to its old place (first row first, so the later indexes hold).
-            writer.add(removed, to: playlist)
-            for (index, t) in before.enumerated() where ids.contains(t.videoId) {
-                writer.move([t], in: playlist, to: index)
+            // Back in, then each to its old place (first row first, so the later indexes hold). The rows that come
+            // back are new rows of the songs (no entry id until YouTube gives them one).
+            let back = writer.add(removed, to: playlist, restoring: true)
+            let backIDs = Set(back.map(\.videoId))
+            for (index, t) in before.enumerated() where keys.contains(QTAccountWriter.rowKey(t)) && backIDs.contains(t.videoId) {
+                let rows = writer.rows(of: playlist)
+                guard let row = rows.last(where: { $0.videoId == t.videoId && $0.setVideoId == nil })
+                    ?? rows.last(where: { $0.videoId == t.videoId }) else { continue }
+                writer.move([row], in: playlist, to: index)
             }
         }
     }

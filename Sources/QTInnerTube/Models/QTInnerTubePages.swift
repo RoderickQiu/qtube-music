@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import QTCore
 
@@ -337,12 +338,30 @@ public struct QTAccountContext: Sendable, Hashable {
     public var hl: String?
     /// `LOGGED_IN`.
     public var isLoggedIn: Bool?
+    /// `DATASYNC_ID`: `"<user>||"` for the Google account itself, `"<brand>||<user>"` for a brand account. Kept in
+    /// memory only; `accountKey` is what gets stored.
+    public var dataSyncId: String?
 
-    public init(isSubscriber: Bool? = nil, gl: String? = nil, hl: String? = nil, isLoggedIn: Bool? = nil) {
+    public init(isSubscriber: Bool? = nil, gl: String? = nil, hl: String? = nil, isLoggedIn: Bool? = nil,
+                dataSyncId: String? = nil) {
         self.isSubscriber = isSubscriber
         self.gl = gl
         self.hl = hl
         self.isLoggedIn = isLoggedIn
+        self.dataSyncId = dataSyncId
+    }
+
+    /// A stable key for the Google account (the same for all its brand accounts): a SHA-256 of `DATASYNC_ID`'s user
+    /// part, so files that are filed under it never hold the id itself. nil when the page didn't say.
+    public var accountKey: String? { dataSyncId.flatMap(Self.accountKey(dataSyncId:)) }
+
+    public static func accountKey(dataSyncId value: String) -> String? {
+        let parts = value.components(separatedBy: "||")
+        guard parts.count == 2 else { return nil }
+        let user = parts[1].isEmpty ? parts[0] : parts[1]
+        guard !user.isEmpty else { return nil }
+        let digest = SHA256.hash(data: Data("qtube-account:\(user)".utf8))
+        return "acct-" + digest.prefix(12).map { String(format: "%02x", $0) }.joined()
     }
 
     /// Reads the first `"KEY": value` of each key from the page HTML.
@@ -365,6 +384,7 @@ public struct QTAccountContext: Sendable, Hashable {
             return String(v.dropFirst().dropLast())
         }
         return QTAccountContext(isSubscriber: bool("IS_SUBSCRIBER"), gl: string("INNERTUBE_CONTEXT_GL") ?? string("GL"),
-                                hl: string("INNERTUBE_CONTEXT_HL") ?? string("HL"), isLoggedIn: bool("LOGGED_IN"))
+                                hl: string("INNERTUBE_CONTEXT_HL") ?? string("HL"), isLoggedIn: bool("LOGGED_IN"),
+                                dataSyncId: string("DATASYNC_ID"))
     }
 }

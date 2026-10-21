@@ -154,6 +154,13 @@ public final class QTLiveCatalogStore {
     @ObservationIgnored var persistsLocalChanges = false
     /// The brand account the player page was confirmed to act as this session.
     @ObservationIgnored private var pinnedBrand: String?
+    /// Tries again to confirm the saved brand account after a launch that couldn't reach YouTube's switch page.
+    @ObservationIgnored private var identityRetry: Task<Void, Never>?
+    /// Delays between those tries (tests shorten them).
+    @ObservationIgnored var identityRetryDelays: [Duration] = [.seconds(30), .seconds(120), .seconds(600)]
+    /// Writes YouTube confirmed while a playlist's later pages were still loading, merged into each page as it
+    /// arrives (`loadPlaylist`): rows added at the end, entry ids removed.
+    @ObservationIgnored private var pagingConfirmed: [String: (added: [QTTrack], removed: Set<String>)] = [:]
 
     /// UserDefaults key earlier builds set when the user picked "Use Demo Library" on the signed-out screen. Guest
     /// mode replaced the demo library; the key is removed at launch and never read.
@@ -229,9 +236,10 @@ public final class QTLiveCatalogStore {
         mode = .restoring
         model.catalog = Self.emptyCatalog
         // Changes kept on this Mac survive relaunches — but never from scripted (screenshot / test) runs.
+        // They're filed per Google account, which isn't known until the session is read (`enterLive`).
         if persistsLocalChanges, model.launch.readyFile == nil {
             writer.edits.storageURL = QTPlaylistEdits.defaultStorageURL()
-            writer.edits.use(profile: "main", reload: true)
+            writer.edits.use(profile: nil, reload: true)
         }
         writer.attach(model: model, store: self)
         // Screenshot states (session-only): guest mode without touching the Keychain.
@@ -325,18 +333,23 @@ public final class QTLiveCatalogStore {
 
     private func enterLive() async {
         mode = .live
-        writer.edits.use(profile: auth.brandAccountId ?? "main")
+        useLocalProfile()
         writer.publishLikes()
         let hold = QTReadiness.shared.hold("live.initial")
         defer { QTReadiness.shared.release(hold) }
         // A brand account saved last time: the player page's session is fresh from the Keychain, so it moves to that
         // identity again (in the background; `confirmSavedIdentity`).
-        if let brand = auth.brandAccountId, brand != pinnedBrand { Task { await confirmSavedIdentity() } }
+        if let brand = auth.brandAccountId, brand != pinnedBrand, identityRetry == nil {
+            Task { await confirmSavedIdentity() }
+        }
         // The session is in the player's jar now: the saved queue (if any) cues signed in.
         await model?.applyLaunchPlayback()
         // Premium + account region first: `gl` shapes Home.
         await auth.refreshAccount()
         applyAccount()
+        // A new sign-in learns its account only now.
+        useLocalProfile()
+        writer.publishLikes()
         installAutoplay()
         async let home: Void = loadHome()
         async let library: Void = loadLibraryPlaylists()
@@ -345,6 +358,21 @@ public final class QTLiveCatalogStore {
         applyLaunchDestination()
         // Brand accounts for the Account menu's picker (one read of the account list).
         if identities.isEmpty { await loadIdentities() }
+        // Syncing, but this identity still has changes kept on this Mac: ask what to do with them.
+        await writer.reconcileLocalChanges()
+    }
+
+    /// This Mac's changes are filed per Google account (a hashed key, never the account id) and brand account; nil
+    /// until the account is known (changes made meanwhile move over once it is).
+    static func localProfile(accountKey: String?, brand: String?) -> String? {
+        guard let accountKey else { return nil }
+        return brand.map { "\(accountKey)/\($0)" } ?? accountKey
+    }
+
+    private func useLocalProfile() {
+        // The first account signed in after profiles became per account takes over the older "main" ones.
+        if let key = auth.accountKey { writer.edits.migrateLegacyProfiles(to: key) }
+        writer.edits.use(profile: Self.localProfile(accountKey: auth.accountKey, brand: auth.brandAccountId))
     }
 
     /// Autoplay after the queue runs out: YouTube Music's radio for the last track (`next` with `RDAMVM<id>`,
@@ -473,6 +501,10 @@ public final class QTLiveCatalogStore {
         resetPages()
         model?.catalog = Self.emptyCatalog
         identities = []
+        // A later sign-in (perhaps another account) confirms its own identity from scratch.
+        pinnedBrand = nil
+        identityRetry?.cancel()
+        identityRetry = nil
         enterGuest()
         writer.reset()
     }
@@ -914,11 +946,13 @@ public final class QTLiveCatalogStore {
                 playlistPhases[id] = .loaded
                 var token = first.continuation
                 var pages = 1
+                pagingConfirmed[id] = token == nil ? nil : ([], [])
+                defer { pagingConfirmed[id] = nil }
                 while let t = token, pages < service.maxPlaylistPages, mode.browsesYouTube {
                     guard let more = try? await client.playlistContinuation(t) else { break }
                     tracks += more.tracks
-                    p.tracks = tracks
-                    store(p)
+                    // Into the playlist as it is now: writes confirmed while the pages load stay.
+                    guard mergePage(more.tracks, into: id) else { break }
                     token = more.continuation
                     pages += 1
                 }
@@ -927,6 +961,22 @@ public final class QTLiveCatalogStore {
                 playlistPhases[id] = .failure(error)
             }
         }
+    }
+
+    /// One more page of a playlist, merged into its current copy (renames, removals, reorders and adds YouTube
+    /// confirmed meanwhile kept; rows added meanwhile stay at the end). false once the playlist is gone.
+    private func mergePage(_ page: [QTTrack], into id: String) -> Bool {
+        guard var p = rawPlaylist(id) else { return false }
+        let confirmed = pagingConfirmed[id] ?? ([], [])
+        let addedKeys = Set(confirmed.added.compactMap(\.setVideoId))
+        func isAdded(_ t: QTTrack) -> Bool { t.setVideoId.map(addedKeys.contains) ?? false }
+        let fresh = page.filter { !($0.setVideoId.map(confirmed.removed.contains) ?? false) }
+        let freshKeys = Set(fresh.compactMap(\.setVideoId))
+        let loaded = (p.tracks ?? []).filter { !isAdded($0) }
+        let tail = (p.tracks ?? []).filter { isAdded($0) && !freshKeys.contains($0.setVideoId ?? "") }
+        p.tracks = loaded + fresh + tail
+        store(p)
+        return true
     }
 
     private func store(_ p: QTPlaylist) {
@@ -961,6 +1011,7 @@ public final class QTLiveCatalogStore {
 
     /// Songs YouTube added to a playlist (with their new entry ids).
     func confirmAdd(_ tracks: [QTTrack], to id: String) {
+        pagingConfirmed[id]?.added += tracks
         guard var p = rawPlaylist(id) else { return }
         if p.tracks != nil {
             p.tracks! += tracks
@@ -972,6 +1023,7 @@ public final class QTLiveCatalogStore {
     }
 
     func confirmRemove(_ setVideoIDs: Set<String>, from id: String) {
+        pagingConfirmed[id]?.removed.formUnion(setVideoIDs)
         guard var p = rawPlaylist(id), let tracks = p.tracks else { return }
         p.tracks = tracks.filter { $0.setVideoId.map { !setVideoIDs.contains($0) } ?? true }
         let removed = tracks.count - (p.tracks?.count ?? 0)
@@ -979,12 +1031,11 @@ public final class QTLiveCatalogStore {
         if let n = reportedTrackCounts[id] { reportedTrackCounts[id] = max(0, n - removed) }
     }
 
-    func confirmOrder(_ videoIDs: [String], in id: String) {
+    /// A reorder YouTube confirmed: `order` names rows (`QTPlaylistEdits.rowKey`), so two copies of a song keep
+    /// their own places.
+    func confirmOrder(_ order: [String], in id: String) {
         guard var p = rawPlaylist(id), let tracks = p.tracks else { return }
-        let rank = Dictionary(videoIDs.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
-        p.tracks = tracks.enumerated().sorted {
-            (rank[$0.element.videoId] ?? Int.max, $0.offset) < (rank[$1.element.videoId] ?? Int.max, $1.offset)
-        }.map(\.element)
+        p.tracks = QTPlaylistEdits.sorted(tracks, by: order)
         store(p)
     }
 
@@ -1062,6 +1113,9 @@ public final class QTLiveCatalogStore {
     /// (`QTAuthController.switchIdentity`), then the library reloads as that identity and playback follows.
     public func switchIdentity(to identity: QTAccountIdentity) async {
         guard mode == .live, identity.brandId != auth.brandAccountId, switchingIdentity == nil else { return }
+        // The user chose: a background retry of the saved identity must not undo that.
+        identityRetry?.cancel()
+        identityRetry = nil
         switchingIdentity = identity
         defer { switchingIdentity = nil }
         await writer.idle()
@@ -1077,23 +1131,84 @@ public final class QTLiveCatalogStore {
     }
 
     /// Launch with a saved brand account: the player page is moved to it again (its session came from the
-    /// Keychain). If that can't be confirmed, the app goes back to the Google account itself rather than show one
-    /// identity's library while plays count for another.
+    /// Keychain), so plays never count for one identity while the library shows another.
+    /// - YouTube refuses it (the brand account is gone from the account list, the page names another identity): back
+    ///   to the Google account itself, saved.
+    /// - It can't be asked (offline, the list or the page didn't load): the Google account itself for this session
+    ///   only — the Keychain keeps the brand account — and the switch is tried again a few times
+    ///   (`identityRetryDelays`) and at the next launch.
     private func confirmSavedIdentity() async {
         guard let brand = auth.brandAccountId else { return }
-        await loadIdentities()
-        if let target = identities.first(where: { $0.brandId == brand }), let url = target.signinURL,
-           (try? await auth.identitySwitcher.switchIdentity(to: url, brandId: brand, dataStore: auth.webDataStore)) != nil {
+        switch await moveWebSession(to: brand) {
+        case .confirmed:
             pinnedBrand = brand
             playbackServices.sessionDidChange()
-            return
+        case .refused:
+            guard mode == .live, auth.brandAccountId == brand else { return }
+            let name = identities.first { $0.brandId == brand }?.name
+            await auth.useMainIdentity()
+            identityDidChange()
+            model?.showToast(name.map { QTLoc.tr("Couldn’t switch to %@", table: .live, $0) }
+                             ?? QTLoc.tr("Switched to your Google account", table: .live))
+        case .unreachable:
+            guard mode == .live, auth.brandAccountId == brand else { return }
+            await auth.useMainIdentity(persist: false)
+            identityDidChange()
+            retrySavedIdentity(brand)
         }
-        guard mode == .live, auth.brandAccountId == brand else { return }
-        let name = activeIdentity?.name
-        await auth.useMainIdentity()
-        identityDidChange()
-        model?.showToast(name.map { QTLoc.tr("Couldn’t switch to %@", table: .live, $0) }
-                         ?? QTLoc.tr("Switched to your Google account", table: .live))
+    }
+
+    enum IdentityConfirmation { case confirmed, refused, unreachable }
+
+    /// Moves the player page to `brand` through YouTube's own switch link from the account list.
+    private func moveWebSession(to brand: String) async -> IdentityConfirmation {
+        let list: [QTAccountIdentity]
+        do {
+            list = try await client.accounts()
+        } catch {
+            return .unreachable
+        }
+        if mode == .live { identities = list }
+        guard let target = list.first(where: { $0.brandId == brand }), let url = target.signinURL else { return .refused }
+        do {
+            try await auth.identitySwitcher.switchIdentity(to: url, brandId: brand, dataStore: auth.webDataStore)
+            return .confirmed
+        } catch let error as QTIdentitySwitchError where error.isTransient {
+            return .unreachable
+        } catch {
+            return .refused
+        }
+    }
+
+    /// After a launch that couldn't reach the switch: tries again in the background; once the page confirms the
+    /// saved brand account, the library moves back to it.
+    private func retrySavedIdentity(_ brand: String) {
+        identityRetry?.cancel()
+        let delays = identityRetryDelays
+        identityRetry = Task { @MainActor [weak self] in
+            for delay in delays {
+                try? await Task.sleep(for: delay)
+                guard let self, !Task.isCancelled, self.mode == .live, self.auth.brandAccountId == nil,
+                      self.switchingIdentity == nil, await self.auth.savedBrandAccountId() == brand else { return }
+                switch await self.moveWebSession(to: brand) {
+                case .confirmed:
+                    guard !Task.isCancelled, self.mode == .live, self.auth.brandAccountId == nil else { return }
+                    self.identityRetry = nil
+                    await self.writer.idle()
+                    await self.auth.resumeSavedIdentity()
+                    self.pinnedBrand = brand
+                    self.identityDidChange()
+                    return
+                case .refused:
+                    // Gone from the account: stop asking (the next launch falls back for good).
+                    self.identityRetry = nil
+                    return
+                case .unreachable:
+                    continue
+                }
+            }
+            self?.identityRetry = nil
+        }
     }
 
     /// The session acts as another identity now: its library replaces the old one, playback reloads signed in as it.

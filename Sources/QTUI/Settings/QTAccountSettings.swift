@@ -120,15 +120,16 @@ struct QTAccountSettings: View {
                 }
             }
             Section {
+                // Through the writer: turning it on with changes kept on this Mac asks what to do with them.
                 Toggle(QTLoc.tr("Sync likes and playlists to YouTube Music", table: .desktop), isOn: Binding(
                     get: { model.settings.settings.syncsToYouTubeMusic },
-                    set: { on in model.settings.update { $0.syncsToYouTubeMusic = on } }))
+                    set: { on in QTAccountWriter.shared.setSync(on) }))
                     .accessibilityIdentifier("qt.settings.account.sync")
             } footer: {
                 Text(QTLoc.tr(model.settings.settings.syncsToYouTubeMusic
                               ? "Likes, playlists, subscriptions and saved albums change in your YouTube Music account."
                               : "Likes and playlist changes stay on this Mac.", table: .desktop))
-                    .font(.footnote)
+                    .font(.callout)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -172,6 +173,19 @@ struct QTAccountSettings: View {
         .task(id: snapshot.state) {
             // The brand accounts (a read of the account list) — only when this tab is open and signed in.
             if case .signedIn = snapshot.state, !isPreview { await QTLiveCatalogStore.shared.loadIdentities() }
+        }
+        .task {
+            #if DEBUG
+            // `-qt.account.localChangesAlert YES`: the Sync question over this pane (screenshots; nothing changes).
+            if model.launch.bool("qt.account.localChangesAlert") == true {
+                let hold = QTReadiness.shared.hold("account.localChangesAlert")
+                try? await Task.sleep(for: .milliseconds(600))
+                let window = NSApp.windows.first { $0.identifier == QTWindowID.settings.identifier && $0.isVisible }
+                Task { @MainActor in _ = await QTLocalChangesAlert.ask(count: 3, turningOn: true, over: window) }
+                try? await Task.sleep(for: .milliseconds(700))
+                QTReadiness.shared.release(hold)
+            }
+            #endif
         }
     }
 
@@ -310,5 +324,36 @@ struct QTAccountAvatar: View {
         if first.unicodeScalars.first.map({ $0.properties.isIdeographic }) == true { return String(first) }
         let parts = name.split(separator: " ").prefix(2).compactMap(\.first)
         return parts.isEmpty ? nil : String(parts).uppercased()
+    }
+}
+
+/// The question when Sync turns on (or is on) while this Mac keeps changes of its own: a sheet on the window it came
+/// from (Settings, or the main window for the Account menu), like Music's "Turn on Sync Library?".
+@MainActor
+enum QTLocalChangesAlert {
+    static func ask(count: Int, turningOn: Bool, over window: NSWindow? = nil) async -> QTLocalChangesChoice {
+        let alert = NSAlert()
+        alert.messageText = QTLoc.tr("Upload the changes on this Mac?", table: .desktop)
+        alert.informativeText = QTLoc.tr("%lld changes to likes and playlists were made while Sync was off. Upload them to your YouTube Music account, or discard them.", table: .desktop, count)
+        alert.addButton(withTitle: QTLoc.tr("Upload Changes", table: .desktop))
+        let discard = alert.addButton(withTitle: QTLoc.tr("Discard Changes", table: .desktop))
+        discard.hasDestructiveAction = true
+        // "Cancel" leaves Sync off; when it's already on (another identity's changes, a launch override), the way to
+        // keep the changes here is to turn it off.
+        let keep = alert.addButton(withTitle: turningOn ? QTLoc.tr("Cancel", table: .desktop)
+                                                        : QTLoc.tr("Turn Off Sync", table: .desktop))
+        keep.keyEquivalent = "\u{1b}"
+        let host = window ?? NSApp.keyWindow ?? NSApp.windows.first { $0.identifier == QTWindowID.main.identifier }
+        let response: NSApplication.ModalResponse
+        if let host, host.attachedSheet == nil {
+            response = await alert.beginSheetModal(for: host)
+        } else {
+            response = alert.runModal()
+        }
+        switch response {
+        case .alertFirstButtonReturn: return .upload
+        case .alertSecondButtonReturn: return .discard
+        default: return .cancel
+        }
     }
 }

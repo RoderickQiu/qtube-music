@@ -27,39 +27,49 @@ public enum QTIdentitySwitchError: Error, Sendable, Equatable {
     case notApplied
 }
 
-/// The WebKit implementation: a hidden, muted page in the session jar, closed again after the check.
-@MainActor
-public final class QTWebIdentitySwitcher: NSObject, QTSessionIdentitySwitching, WKNavigationDelegate {
-    private var continuation: CheckedContinuation<Void, any Error>?
-    private var timeout: Task<Void, Never>?
+extension QTIdentitySwitchError {
+    /// The page couldn't be reached or took too long (offline, a slow network): worth another try later. The others
+    /// mean the link or YouTube refused the identity.
+    public var isTransient: Bool { self == .navigationFailed || self == .timedOut }
+}
 
-    public override init() {}
+/// The WebKit implementation: a hidden, muted page in the session jar, closed again after the check. Switches run one
+/// at a time (two pages moving one jar to different identities would race), and each has its own page and load
+/// state, so an overlapping call waits its turn instead of taking over the first one's.
+@MainActor
+public final class QTWebIdentitySwitcher: QTSessionIdentitySwitching {
+    private var last: Task<Void, Never>?
+
+    public init() {}
 
     public func switchIdentity(to signinURL: URL, brandId: String?, dataStore: WKWebsiteDataStore?) async throws {
         guard QTWriteParser.isAllowedSigninURL(signinURL) else { throw QTIdentitySwitchError.invalidLink }
         guard let dataStore, !dataStore.isPersistent else { throw QTIdentitySwitchError.noWebSession }
+        let previous = last
+        let mine = Task { @MainActor in
+            await previous?.value
+            try await Self.perform(signinURL, brandId: brandId, dataStore: dataStore)
+        }
+        last = Task { _ = try? await mine.value }
+        try await mine.value
+    }
+
+    private static func perform(_ signinURL: URL, brandId: String?, dataStore: WKWebsiteDataStore) async throws {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = dataStore
         configuration.mediaTypesRequiringUserActionForPlayback = .all
         let page = WKWebView(frame: NSRect(x: 0, y: 0, width: 800, height: 600), configuration: configuration)
         page.customUserAgent = QTInnerTubeConfiguration().userAgent
-        page.navigationDelegate = self
+        let load = PageLoad()
+        page.navigationDelegate = load
         defer {
             page.navigationDelegate = nil
             page.stopLoading()
         }
-        try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, any Error>) in
-            continuation = c
-            timeout = Task { [weak self] in
-                try? await Task.sleep(for: .seconds(20))
-                guard !Task.isCancelled else { return }
-                self?.finish(.failure(QTIdentitySwitchError.timedOut))
-            }
-            page.load(URLRequest(url: signinURL))
-        }
+        try await load.run(URLRequest(url: signinURL), in: page, timeout: .seconds(20))
         // `ytcfg` may be set a moment after the load finishes.
         for attempt in 0..<6 {
-            let value = try? await page.evaluateJavaScript(Self.dataSyncScript) as? String
+            let value = try? await page.evaluateJavaScript(dataSyncScript) as? String
             if let value, QTWriteParser.dataSyncId(value, matches: brandId) { return }
             if attempt < 5 { try await Task.sleep(for: .milliseconds(400)) }
         }
@@ -76,24 +86,43 @@ public final class QTWebIdentitySwitcher: NSObject, QTSessionIdentitySwitching, 
     })();
     """
 
-    private func finish(_ result: Result<Void, any Error>) {
-        timeout?.cancel()
-        timeout = nil
-        let c = continuation
-        continuation = nil
-        c?.resume(with: result)
-    }
+    /// One page load: finishes once, on the first of finish / failure / timeout.
+    @MainActor
+    private final class PageLoad: NSObject, WKNavigationDelegate {
+        private var continuation: CheckedContinuation<Void, any Error>?
+        private var timeout: Task<Void, Never>?
 
-    public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        finish(.success(()))
-    }
+        func run(_ request: URLRequest, in page: WKWebView, timeout limit: Duration) async throws {
+            try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, any Error>) in
+                continuation = c
+                timeout = Task { [weak self] in
+                    try? await Task.sleep(for: limit)
+                    guard !Task.isCancelled else { return }
+                    self?.finish(.failure(QTIdentitySwitchError.timedOut))
+                }
+                page.load(request)
+            }
+        }
 
-    public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
-        finish(.failure(QTIdentitySwitchError.navigationFailed))
-    }
+        private func finish(_ result: Result<Void, any Error>) {
+            timeout?.cancel()
+            timeout = nil
+            let c = continuation
+            continuation = nil
+            c?.resume(with: result)
+        }
 
-    public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!,
-                        withError error: any Error) {
-        finish(.failure(QTIdentitySwitchError.navigationFailed))
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            finish(.success(()))
+        }
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
+            finish(.failure(QTIdentitySwitchError.navigationFailed))
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!,
+                     withError error: any Error) {
+            finish(.failure(QTIdentitySwitchError.navigationFailed))
+        }
     }
 }

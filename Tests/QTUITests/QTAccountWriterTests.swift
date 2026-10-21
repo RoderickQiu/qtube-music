@@ -52,6 +52,9 @@ import WebKit
         private var queued: [String: [Reply]] = [:]
         var holdsLikes = false
         let gate = Gate()
+        /// Set: one playlist continuation page is served once this opens (later pages fail, ending the paging).
+        var continuationGate: Gate?
+        private var continuationsServed = 0
 
         func enqueue(_ suffix: String, _ reply: Reply) { lock.withLock { queued[suffix, default: []].append(reply) } }
 
@@ -74,6 +77,13 @@ import WebKit
                 return r
             }
             if holdsLikes, path.hasSuffix("/like/like") || path.hasSuffix("/like/removelike") { await gate.wait() }
+            if let continuationGate, path.hasSuffix("/browse"), body.contains("\"continuation\"") {
+                await continuationGate.wait()
+                let first = lock.withLock { continuationsServed += 1; return continuationsServed == 1 }
+                guard first else { throw URLError(.notConnectedToInternet) }
+                return (QTAccountWriterTests.fixture("playlist-classic-rock-continuation-en"),
+                        HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: [:])!)
+            }
             func answer(_ r: Reply) -> (Data, HTTPURLResponse) {
                 (r.body, HTTPURLResponse(url: r.url ?? request.url!, statusCode: r.status, httpVersion: "HTTP/1.1",
                                          headerFields: [:])!)
@@ -84,6 +94,12 @@ import WebKit
                 return answer(Reply(body: QTAccountWriterTests.fixture("playlist-classic-rock-en")))
             case path.hasSuffix("/browse") && body.contains("\"VLPLowned\""):
                 return answer(Reply(body: QTAccountWriterTests.fixture("handbuilt-playlist-owned")))
+            case path.hasSuffix("/browse") && body.contains("\"VLPLdup\""):
+                // The owned playlist with "Song One" twice (entries SETID001 and SETID003).
+                let text = String(decoding: QTAccountWriterTests.fixture("handbuilt-playlist-owned"), as: UTF8.self)
+                return answer(Reply(body: Data(text.replacingOccurrences(of: "vidOwned003", with: "vidOwned001").utf8)))
+            case path.hasSuffix("/browse") && body.contains("\"VLPLpaged\""):
+                return answer(Reply(body: QTAccountWriterTests.fixture("playlist-classic-rock-en")))
             case path.hasSuffix("/account/accounts_list"):
                 return answer(Reply(body: QTAccountWriterTests.fixture("handbuilt-accounts-list")))
             case path.hasSuffix("/like/like"), path.hasSuffix("/like/removelike"):
@@ -104,10 +120,15 @@ import WebKit
     /// Confirms (or refuses) identity switches without WebKit.
     @MainActor final class FakeSwitcher: QTSessionIdentitySwitching {
         var fails = false
+        /// What a failure throws (refused by default; `.timedOut` / `.navigationFailed` = couldn't reach the page).
+        var error: QTIdentitySwitchError = .notApplied
+        /// Holds the switch until opened (a switch under way).
+        var gate: Gate?
         var calls: [(URL, String?)] = []
         func switchIdentity(to signinURL: URL, brandId: String?, dataStore: WKWebsiteDataStore?) async throws {
             calls.append((signinURL, brandId))
-            if fails { throw QTIdentitySwitchError.notApplied }
+            if let gate { await gate.wait() }
+            if fails { throw error }
         }
     }
 
@@ -119,16 +140,20 @@ import WebKit
         @MainActor var writer: QTAccountWriter { store.writer }
     }
 
-    static func makeHarness(sync: Bool = true, edits: QTPlaylistEdits = QTPlaylistEdits()) async throws -> Harness {
+    static func makeHarness(sync: Bool = true, edits: QTPlaylistEdits = QTPlaylistEdits(), brand: String? = nil,
+                            switcher: FakeSwitcher? = nil, prepare: (Transport, QTLiveCatalogStore) -> Void = { _, _ in })
+        async throws -> Harness {
         let keychain = QTMemorySecureStore()
-        try await QTSessionStore(store: keychain).save(QTAuthSession(cookies: fakeLogin))
+        try await QTSessionStore(store: keychain).save(QTAuthSession(cookies: fakeLogin, brandAccountId: brand))
         let transport = Transport()
         let client = QTInnerTubeClient(transport: transport, retry: .none, scrapesClientConfig: false, sleep: { _ in })
         let auth = QTAuthController(sessionStore: QTSessionStore(store: keychain), cookieStore: QTMemoryWebCookieStore(),
                                     client: client)
+        if let switcher { auth.identitySwitcher = switcher }
         let defaults = try #require(UserDefaults(suiteName: "qt.tests.writer.\(UUID().uuidString)"))
         let store = QTLiveCatalogStore(client: client, auth: auth, defaults: defaults,
                                        playbackServices: QTPlaybackServices(), edits: edits)
+        prepare(transport, store)
         let empty = QTMockCatalog(tracks: [], liked: QTPlaylist(id: "LM", title: .localized("Liked Songs"), kind: .liked, tracks: []))
         let player = QTPlayerModel(engine: QTSimulatedPlaybackEngine(account: .premium, tickInterval: nil),
                                    lyricsProvider: QTMockLyricsProvider(catalog: empty))
@@ -332,8 +357,8 @@ import WebKit
 
     @Test func aNewPlaylistShowsAtOnceThenTakesItsRealID() async throws {
         let h = try await Self.makeHarness()
-        let placeholder = h.writer.create(title: "Queue · Oct 20", description: "", privacy: .private,
-                                          tracks: [Self.newSong], opens: false)
+        let placeholder = try #require(h.writer.create(title: "Queue · Oct 20", description: "", privacy: .private,
+                                                       tracks: [Self.newSong], opens: false))
         #expect(placeholder.id.hasPrefix("pending:"))
         #expect(h.edits.playlists(h.model.catalog.playlists).map(\.title.resolved) == ["Queue · Oct 20"])
         #expect(h.store.playlistPhase(placeholder.id) == .loaded)

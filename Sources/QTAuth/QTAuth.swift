@@ -33,6 +33,9 @@ public final class QTAuthController {
     public private(set) var lastError: QTAuthError?
     /// The brand account the session acts as (`onBehalfOfUser`), nil for the Google account itself.
     public private(set) var brandAccountId: String?
+    /// A stable, hashed key for the signed-in Google account (`QTAccountContext.accountKey`), nil until the account
+    /// has been read once. This Mac's own library changes are filed under it (with the brand account).
+    public private(set) var accountKey: String?
     /// Moves the player page's web session to another identity (`switchIdentity(to:)`); tests inject a fake.
     @ObservationIgnored public var identitySwitcher: any QTSessionIdentitySwitching = QTWebIdentitySwitcher()
 
@@ -42,6 +45,8 @@ public final class QTAuthController {
     @ObservationIgnored private var signInWindow: QTSignInWindowController?
     @ObservationIgnored private var eventsTask: Task<Void, Never>?
     @ObservationIgnored private var foldTask: Task<Void, Never>?
+    /// A session import being checked; Cancel (Settings › Account) stops it.
+    @ObservationIgnored private var importTask: Task<Void, any Error>?
     /// How long cookie changes in the web jar settle before they're folded into the Keychain session.
     @ObservationIgnored var foldDelay: Duration = .seconds(2)
     /// Ends the session at Google on sign-out (`QTGoogleSignOut`), given the session's cookies; nil signs out of the
@@ -96,6 +101,7 @@ public final class QTAuthController {
             await syncWebCookies(from: session)
             account = session.account
             brandAccountId = session.brandAccountId
+            accountKey = session.accountKey
             state = .signedIn(accountName: session.account?.name ?? "", isPremium: session.account?.isPremium ?? false)
         } catch let error as QTAuthError {
             lastError = error
@@ -173,13 +179,19 @@ public final class QTAuthController {
         QTWebKitCookieStore(dataStore: .nonPersistent())
     }
 
+    /// Cancel while signing in: closes the sign-in window, or stops a session import that is being checked.
     public func cancelSignIn() {
         signInWindow?.close()
+        importTask?.cancel()
     }
 
     private func completeSignIn(cookies: [QTCookie]) async {
         do {
             try await sessionStore.save(QTAuthSession(cookies: cookies))
+            // A new login: no brand account or account key carries over from an earlier one (it may be another
+            // Google account altogether).
+            brandAccountId = nil
+            accountKey = nil
             await client?.setCredentialsProvider(sessionStore)
             if let saved = await sessionStore.current { await seedWebCookies(saved.cookies) }
             state = .signedIn(accountName: "", isPremium: false)
@@ -216,6 +228,10 @@ public final class QTAuthController {
         if let context = facts.context {
             accountContext = context
             if let gl = context.gl { await client?.setRegion(gl: gl) }
+            if let key = context.accountKey, key != accountKey {
+                accountKey = key
+                try? await sessionStore.setAccountKey(key)
+            }
         }
         guard var info = facts.info ?? account else { return }
         if let premium = facts.context?.isSubscriber { info.isPremium = premium }
@@ -239,6 +255,7 @@ public final class QTAuthController {
         await client?.clearCache()
         account = nil
         brandAccountId = nil
+        accountKey = nil
         state = .signedOut
     }
 
@@ -263,11 +280,30 @@ public final class QTAuthController {
     }
 
     /// Back to the Google account itself for the API, without touching the web session (a launch whose saved brand
-    /// account couldn't be confirmed in the player page).
-    public func useMainIdentity() async {
+    /// account couldn't be confirmed in the player page). `persist: false` does it for this session only: the
+    /// Keychain keeps the brand account, and `resumeSavedIdentity()` (or the next launch) goes back to it.
+    public func useMainIdentity(persist: Bool = true) async {
         guard brandAccountId != nil else { return }
-        try? await sessionStore.setBrandAccount(nil)
+        if persist {
+            try? await sessionStore.setBrandAccount(nil)
+        } else {
+            await sessionStore.useBrandAccountForThisSession(nil)
+        }
         brandAccountId = nil
+        await client?.setCredentialsProvider(sessionStore)
+        await refreshAccount()
+    }
+
+    /// The brand account saved in the Keychain, which may differ from `brandAccountId` this session.
+    public func savedBrandAccountId() async -> String? {
+        await sessionStore.savedBrandAccountId
+    }
+
+    /// Acts as the saved brand account again after `useMainIdentity(persist: false)`, once the player page has been
+    /// moved to it.
+    public func resumeSavedIdentity() async {
+        await sessionStore.resumeSavedBrandAccount()
+        brandAccountId = await sessionStore.savedBrandAccountId
         await client?.setCredentialsProvider(sessionStore)
         await refreshAccount()
     }
@@ -349,11 +385,23 @@ public final class QTAuthController {
     /// the Keychain and the account is read as after a sign-in. When YouTube answers that read signed out, the login
     /// behind the cookies is gone: nothing is kept (signed out) and it throws `.sessionRejected`. Network errors keep
     /// the session, as at launch. Then the session jar gets the cookies and the state is `.signedIn`.
-    /// Callers delete any temporary cookie copy right after this returns.
+    /// Callers delete any temporary cookie copy right after this returns. `cancelSignIn()` stops it while it's being
+    /// checked: nothing is kept and it throws `CancellationError`.
     public func importSession(cookies: [QTCookie], authUser: Int = 0, brandAccountId: String? = nil) async throws {
         let session = QTAuthSession(cookies: QTAuthSession.filtered(cookies), authUser: authUser,
                                     brandAccountId: brandAccountId)
         guard session.isComplete else { throw QTAuthError.incompleteSession }
+        let task = Task { @MainActor in try await self.checkImport(session) }
+        importTask = task
+        defer { if importTask == task { importTask = nil } }
+        try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            task.cancel()
+        }
+    }
+
+    private func checkImport(_ session: QTAuthSession) async throws {
         let previous = state
         state = .signingIn
         do {
@@ -364,19 +412,26 @@ public final class QTAuthController {
         }
         await client?.setCredentialsProvider(sessionStore)
         let facts = await fetchAccountFacts()
-        if await sessionStore.expired {
-            // Local only: there's no live session left to end at Google. The Keychain item was replaced, so this
-            // is signed out whatever came before.
+        let rejected = await sessionStore.expired
+        if rejected || Task.isCancelled {
+            // Local only: there's no live session left to end at Google (or the user stopped the check). The Keychain
+            // item was replaced, so this is signed out whatever came before.
             try? await sessionStore.clear()
             await client?.clearCache()
             account = nil
             accountContext = nil
+            brandAccountId = nil
+            accountKey = nil
             state = .signedOut
+            guard rejected else { throw CancellationError() }
             lastError = .sessionRejected
             throw QTAuthError.sessionRejected
         }
         await seedWebCookies(session.cookies)
         account = nil
+        // The imported session's own identity; its account key is read below.
+        brandAccountId = session.brandAccountId
+        accountKey = nil
         state = .signedIn(accountName: "", isPremium: false)
         await apply(facts)
     }

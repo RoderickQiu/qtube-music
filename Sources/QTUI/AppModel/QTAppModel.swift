@@ -48,8 +48,6 @@ public final class QTAppModel {
     public var playlistSheet: QTPlaylistSheetRequest?
     /// A playlist waiting for "Delete “x”?" to be answered.
     public var playlistToDelete: QTPlaylist?
-    /// The Settings tab to show next (Account › Account Settings…); the Settings window takes it and clears it.
-    public var settingsTabRequest: QTSettingsTab?
     public private(set) var toast: QTToast?
     @ObservationIgnored private var toastTask: Task<Void, Never>?
     /// Launch playback ran (it runs once per process — reopening the main window must not touch playback).
@@ -87,7 +85,8 @@ public final class QTAppModel {
             if let v = launch.stageBackground { s.stageBackground = v }
             if let v = launch.translation { s.lyricsTranslation = v }
             if let v = launch.bool("qt.playback.native") { s.playbackEffects.nativeEngine = v }
-            if let v = launch.bool("qt.account.sync") { s.syncsToYouTubeMusic = v }
+            // Off in DEBUG and scripted runs unless `-qt.account.sync YES`: never a write to the owner's account.
+            if let v = QTAccountWriter.launchSyncOverride(launch) { s.syncsToYouTubeMusic = v }
             if let v = QTLyricsSession.unofficialSources(argument: launch.string("qt.lyrics.unofficial")) {
                 s.unofficialLyricsSources = v
             }
@@ -96,7 +95,9 @@ public final class QTAppModel {
         // so no demo track, lyric or palette can surface (release builds never find the catalog at all).
         let catalog: QTMockCatalog
         if !QTLiveCatalogStore.wantsLive(launch) {
-            if let url = QTMockCatalog.locate(explicitPath: launch.catalogPath), let loaded = try? QTMockCatalog.load(from: url) {
+            if let url = QTMockCatalog.locate(explicitPath: launch.catalogPath), var loaded = try? QTMockCatalog.load(from: url) {
+                // `-qt.playlists.empty YES`: the demo library without playlists (the sidebar's empty Playlists).
+                if launch.bool("qt.playlists.empty") == true { loaded.playlists = [] }
                 catalog = loaded
             } else {
                 FileHandle.standardError.write(Data("QTube Music: mock catalog not found; run Scripts/make-mock-catalog.py\n".utf8))
