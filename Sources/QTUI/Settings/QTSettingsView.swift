@@ -43,6 +43,11 @@ public struct QTSettingsView: View {
             showRequestedTab()
         }
         .onChange(of: QTSettingsNavigation.shared.requestedTab) { showRequestedTab() }
+        .onChange(of: model.settingsTabRequest, initial: true) { _, request in
+            guard let request else { return }
+            tab = request
+            model.settingsTabRequest = nil
+        }
         .background(QTWindowAccessor { [model] window in
             window.identifier = QTWindowID.settings.identifier
             if model.launch.screen != nil {

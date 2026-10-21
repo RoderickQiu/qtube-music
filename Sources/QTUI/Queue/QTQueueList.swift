@@ -187,11 +187,12 @@ public struct QTQueueList: View {
         model.showToast(QTLoc.tr("Cleared Up Next")) { [player] in player.undoClearUpNext(token) }
     }
 
-    /// Saving to the YouTube Music account is an ask-before write; until it's wired, the app confirms locally.
+    /// New Playlist with the queue's songs, named after today ("Queue · Oct 20"); it goes to the account when
+    /// syncing, else stays on this Mac (the sheet says which).
     private func saveAsPlaylist(_ tracks: [QTTrack]) {
         let name = QTLoc.tr("Queue · %@", table: .player,
                             Date.now.formatted(Date.FormatStyle(locale: QTLoc.locale).month(.abbreviated).day()))
-        model.showToast(QTLoc.tr("Saved “%@”", table: .player, name))
+        QTPlaylistActions.newPlaylist(with: tracks, suggestedTitle: name, model: model)
     }
 }
 

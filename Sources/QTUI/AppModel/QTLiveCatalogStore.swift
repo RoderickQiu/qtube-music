@@ -9,8 +9,9 @@ import QTInnerTube
 // library, guest mode (signed out: YouTube Music without an account) and — DEBUG builds only — the demo (mock)
 // catalog, loads pages on demand, and folds what it loads into `QTAppModel.catalog` so the existing Home / Liked /
 // playlist / sidebar views show real data unchanged.
-// Read-only: account writes stay off (`QTInnerTubeClient.setAllowsAccountWrites(false)`); likes and playlist edits
-// remain session-only (QTPlaylistEdits) until the user approves writes.
+// Library changes (likes, playlists, subscriptions, saved albums) go through `writer` (QTAccountWriter): to the
+// account when signed in with Sync on, else kept on this Mac. Confirmed writes land here (`confirm…`). Brand
+// accounts: `identities` / `switchIdentity(to:)`.
 
 /// Where the app's catalog comes from.
 public enum QTCatalogMode: String, Sendable, Hashable {
@@ -133,6 +134,23 @@ public final class QTLiveCatalogStore {
     public private(set) var searchPhases: [String: QTLivePhase] = [:]
     /// Album/artist keys (titles or names from the mock-era navigation API) resolved to browse ids.
     @ObservationIgnored private var resolvedKeys: [String: String] = [:]
+    /// Saved-to-library state of albums (their `OLAK…` id) and other people's playlists, as their pages said.
+    public private(set) var savedStates: [String: Bool] = [:]
+    /// Subscriptions by channel id, as artist pages said.
+    public private(set) var subscriptions: [String: Bool] = [:]
+
+    // MARK: Account
+
+    /// Likes, playlist edits, subscriptions and saved albums: to the account or kept on this Mac.
+    public let writer: QTAccountWriter
+    /// The signed-in Google account and its brand accounts (`account/accounts_list`), once asked for.
+    public private(set) var identities: [QTAccountIdentity] = []
+    /// A switch to another identity is under way (Settings and the Account menu show it).
+    public private(set) var switchingIdentity: QTAccountIdentity?
+    /// The app's own store keeps local changes between launches; tests and scripted runs don't.
+    @ObservationIgnored var persistsLocalChanges = false
+    /// The brand account the player page was confirmed to act as this session.
+    @ObservationIgnored private var pinnedBrand: String?
 
     /// UserDefaults key earlier builds set when the user picked "Use Demo Library" on the signed-out screen. Guest
     /// mode replaced the demo library; the key is removed at launch and never read.
@@ -159,23 +177,26 @@ public final class QTLiveCatalogStore {
         if launch.string("qt.auth.store") == "memory" {
             // WebKit's session jar is already per process and never persisted; only the Keychain item is swapped.
             self.init(client: client, auth: QTAuthController(sessionStore: QTSessionStore(store: QTMemorySecureStore()),
-                                                             client: client))
+                                                             client: client), edits: .shared)
+            persistsLocalChanges = true
             return
         }
         #else
         let client = QTInnerTubeClient(configuration: configuration)
         #endif
-        self.init(client: client, auth: QTAuthController(client: client))
+        self.init(client: client, auth: QTAuthController(client: client), edits: .shared)
+        persistsLocalChanges = true
     }
 
     /// Tests: an injected client (fake transport) and auth controller (memory Keychain + memory cookie jar).
     init(client: QTInnerTubeClient, auth: QTAuthController, defaults: UserDefaults = .standard,
-         playbackServices: QTPlaybackServices = .shared) {
+         playbackServices: QTPlaybackServices = .shared, edits: QTPlaylistEdits = QTPlaylistEdits()) {
         hl = QTInnerTubeConfiguration.hl(for: QTLoc.language)
         self.client = client
         self.auth = auth
         self.defaults = defaults
         self.playbackServices = playbackServices
+        writer = QTAccountWriter(edits: edits)
         service = QTInnerTubeCatalog(client: client, homePages: 3, maxPlaylistPages: 50)
     }
 
@@ -199,10 +220,17 @@ public final class QTLiveCatalogStore {
         #endif
         guard Self.wantsLive(model.launch) else {
             mode = .mock
+            writer.attach(model: model, store: self)
             return
         }
         mode = .restoring
         model.catalog = Self.emptyCatalog
+        // Changes kept on this Mac survive relaunches — but never from scripted (screenshot / test) runs.
+        if persistsLocalChanges, model.launch.readyFile == nil {
+            writer.edits.storageURL = QTPlaylistEdits.defaultStorageURL()
+            writer.edits.use(profile: "main", reload: true)
+        }
+        writer.attach(model: model, store: self)
         // Screenshot states (session-only): guest mode without touching the Keychain.
         if model.launch.bool("qt.live.signedOut") == true {
             Task { await client.setAllowsAccountWrites(false) }
@@ -294,8 +322,13 @@ public final class QTLiveCatalogStore {
 
     private func enterLive() async {
         mode = .live
+        writer.edits.use(profile: auth.brandAccountId ?? "main")
+        writer.publishLikes()
         let hold = QTReadiness.shared.hold("live.initial")
         defer { QTReadiness.shared.release(hold) }
+        // A brand account saved last time: the player page's session is fresh from the Keychain, so it moves to that
+        // identity again (in the background; `confirmSavedIdentity`).
+        if let brand = auth.brandAccountId, brand != pinnedBrand { Task { await confirmSavedIdentity() } }
         // The session is in the player's jar now: the saved queue (if any) cues signed in.
         await model?.applyLaunchPlayback()
         // Premium + account region first: `gl` shapes Home.
@@ -307,6 +340,8 @@ public final class QTLiveCatalogStore {
         async let liked: Void = loadLiked()
         _ = await (home, library, liked)
         applyLaunchDestination()
+        // Brand accounts for the Account menu's picker (one read of the account list).
+        if identities.isEmpty { await loadIdentities() }
     }
 
     /// Autoplay after the queue runs out: YouTube Music's radio for the last track (`next` with `RDAMVM<id>`,
@@ -432,8 +467,9 @@ public final class QTLiveCatalogStore {
     private func leaveLibraryForGuest() {
         resetPages()
         model?.catalog = Self.emptyCatalog
-        model?.player.likedTrackIDs = []
+        identities = []
         enterGuest()
+        writer.reset()
     }
 
     private func observeAuth() {
@@ -540,6 +576,7 @@ public final class QTLiveCatalogStore {
         artistPages = [:]; artistPhases = [:]; explore = nil; explorePhase = .idle
         exploreSections = [:]; exploreSectionPhases = [:]; moodsPage = nil
         searchResults = [:]; searchPhases = [:]; resolvedKeys = [:]
+        savedStates = [:]; subscriptions = [:]
         didApplyLaunchPlayback = false
     }
 
@@ -572,6 +609,7 @@ public final class QTLiveCatalogStore {
     /// Every track the app has seen goes into `catalog.tracks` (drag and drop, album/artist lookups by title).
     private func remember(_ tracks: [QTTrack]) {
         guard !tracks.isEmpty else { return }
+        if mode == .live { writer.noteLikeStatus(tracks) }
         updateCatalog { c in
             var known = Set(c.tracks.map(\.videoId))
             c.tracks += tracks.filter { known.insert($0.videoId).inserted }
@@ -624,11 +662,12 @@ public final class QTLiveCatalogStore {
         guard mode == .live, force || !likedPhase.isLoadedOrLoading else { return }
         await run("liked") { [self] in
             likedPhase = .loading
+            let started = writer.noteLikedLoadStarted()
             do {
                 let first = try await client.likedSongs()
                 reportedTrackCounts["LM"] = first.totalTrackCount
                 var tracks = first.playlist.tracks ?? []
-                setLiked(tracks)
+                setLiked(tracks, started: started)
                 likedPhase = .loaded
                 await applyLaunchPlaybackOnce()
                 // The rest arrives in the background, page by page.
@@ -638,7 +677,7 @@ public final class QTLiveCatalogStore {
                 while let t = token, pages < service.maxPlaylistPages, mode == .live {
                     guard let more = try? await client.playlistContinuation(t) else { break }
                     tracks += more.tracks
-                    setLiked(tracks)
+                    setLiked(tracks, started: started)
                     token = more.continuation
                     pages += 1
                 }
@@ -649,9 +688,11 @@ public final class QTLiveCatalogStore {
         }
     }
 
-    private func setLiked(_ tracks: [QTTrack]) {
-        updateCatalog { $0.liked = QTPlaylist(id: "LM", title: .localized("Liked Songs"), kind: .liked, tracks: tracks) }
-        model?.player.likedTrackIDs = Set(tracks.map(\.videoId))
+    /// Liked Songs as paged in so far. Likes confirmed while it pages stay (the writer puts them back), and hearts
+    /// keep any like still on its way (`QTPlaylistEdits.pending`) — a page never clobbers a change.
+    private func setLiked(_ tracks: [QTTrack], started: Date) {
+        let list = writer.likedPageLoaded(tracks, started: started)
+        updateCatalog { $0.liked = QTPlaylist(id: "LM", title: .localized("Liked Songs"), kind: .liked, tracks: list) }
         remember(tracks)
     }
 
@@ -668,12 +709,21 @@ public final class QTLiveCatalogStore {
             libraryPhase = .loading
             do {
                 let lists = try await service.libraryPlaylists()
+                // The account's own playlists name it as their owner (a hint until a page or YouTube's
+                // add-to-playlist list says for sure).
+                let me = Set([auth.account?.name, auth.account?.handle].compactMap { $0 }.filter { !$0.isEmpty })
                 updateCatalog { c in
-                    // Keep tracks of playlists already opened.
+                    // Keep tracks (and what pages said) of playlists already opened.
                     let opened = Dictionary(c.playlists.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
                     c.playlists = lists.map { p in
                         var p = p
-                        if p.tracks == nil { p.tracks = opened[p.id]?.tracks }
+                        if let known = opened[p.id] {
+                            if p.tracks == nil { p.tracks = known.tracks }
+                            p.isEditable = p.isEditable ?? known.isEditable
+                            p.privacy = p.privacy ?? known.privacy
+                            p.description = p.description ?? known.description
+                        }
+                        if p.isEditable == nil, let owner = p.owner, me.contains(owner) { p.isEditable = true }
                         return p
                     }
                 }
@@ -757,20 +807,26 @@ public final class QTLiveCatalogStore {
 
     // MARK: Playlists
 
-    /// The playlist for an id: a library playlist (sidebar) or one opened from elsewhere.
+    /// The playlist for an id: a library playlist (sidebar), one opened from elsewhere, or one made here — with its
+    /// renames applied (nil once deleted).
     public func playlist(_ id: String) -> QTPlaylist? {
         if id == "LM" || id == "VLLM" { return model?.catalog.liked }
-        return model?.catalog.playlists.first { $0.id == id } ?? otherPlaylists[id]
+        if let made = writer.edits.createdPlaylist(id) { return made }
+        return (model?.catalog.playlists.first { $0.id == id } ?? otherPlaylists[id]).flatMap(writer.edits.resolved)
     }
 
     public func playlistPhase(_ id: String) -> QTLivePhase {
         if id == "LM" || id == "VLLM" { return likedPhase }
+        if Self.isMadeHere(id) { return .loaded }
         return playlistPhases[id] ?? .idle
     }
 
+    /// A playlist made on this Mac, or one still being created in the account: no page to load.
+    static func isMadeHere(_ id: String) -> Bool { id.hasPrefix("local:") || id.hasPrefix("pending:") }
+
     /// Loads a playlist's tracks: the first page shows at once, the rest streams in behind it.
     public func loadPlaylist(_ id: String, force: Bool = false) async {
-        guard mode.browsesYouTube else { return }
+        guard mode.browsesYouTube, !Self.isMadeHere(id) else { return }
         if id == "LM" || id == "VLLM" { await loadLiked(force: force); return }
         guard force || !(playlistPhases[id] ?? .idle).isLoadedOrLoading else { return }
         await run("playlist:\(id)") { [self] in
@@ -792,6 +848,7 @@ public final class QTLiveCatalogStore {
                     return
                 }
                 reportedTrackCounts[id] = first.totalTrackCount
+                if let saved = first.isSaved { savedStates[QTInnerTube.rawPlaylistId(id)] = saved }
                 var p = first.playlist
                 p.id = id
                 if let known {
@@ -834,6 +891,168 @@ public final class QTLiveCatalogStore {
         }
     }
 
+    // MARK: Confirmed writes (QTAccountWriter)
+
+    /// A like or unlike YouTube confirmed: Liked Songs gains (at the top) or loses the song.
+    func confirmLike(_ track: QTTrack, _ liked: Bool) {
+        guard mode == .live else { return }
+        updateCatalog { c in
+            var tracks = c.liked.tracks ?? []
+            let had = tracks.contains { $0.videoId == track.videoId }
+            if liked, !had { tracks.insert(track, at: 0) }
+            if !liked { tracks.removeAll { $0.videoId == track.videoId } }
+            c.liked.tracks = tracks
+        }
+        if let n = reportedTrackCounts["LM"] { reportedTrackCounts["LM"] = max(0, n + (liked ? 1 : -1)) }
+        songsPhase = songsPhase == .loaded ? .idle : songsPhase
+    }
+
+    /// Songs YouTube added to a playlist (with their new entry ids).
+    func confirmAdd(_ tracks: [QTTrack], to id: String) {
+        guard var p = rawPlaylist(id) else { return }
+        if p.tracks != nil {
+            p.tracks! += tracks
+            store(p)
+        } else {
+            playlistPhases[id] = .idle
+        }
+        if let n = reportedTrackCounts[id] { reportedTrackCounts[id] = n + tracks.count }
+    }
+
+    func confirmRemove(_ setVideoIDs: Set<String>, from id: String) {
+        guard var p = rawPlaylist(id), let tracks = p.tracks else { return }
+        p.tracks = tracks.filter { $0.setVideoId.map { !setVideoIDs.contains($0) } ?? true }
+        let removed = tracks.count - (p.tracks?.count ?? 0)
+        store(p)
+        if let n = reportedTrackCounts[id] { reportedTrackCounts[id] = max(0, n - removed) }
+    }
+
+    func confirmOrder(_ videoIDs: [String], in id: String) {
+        guard var p = rawPlaylist(id), let tracks = p.tracks else { return }
+        let rank = Dictionary(videoIDs.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
+        p.tracks = tracks.enumerated().sorted {
+            (rank[$0.element.videoId] ?? Int.max, $0.offset) < (rank[$1.element.videoId] ?? Int.max, $1.offset)
+        }.map(\.element)
+        store(p)
+    }
+
+    func confirmDetails(_ id: String, title: String?, description: String?, privacy: QTPlaylistPrivacy?) {
+        guard var p = rawPlaylist(id) else { return }
+        if let title { p.title = .verbatim(title) }
+        if let description { p.description = description }
+        if let privacy { p.privacy = privacy }
+        store(p)
+    }
+
+    func confirmDelete(_ id: String) {
+        updateCatalog { $0.playlists.removeAll { $0.id == id } }
+        otherPlaylists[id] = nil
+        playlistPhases[id] = nil
+        reportedTrackCounts[id] = nil
+    }
+
+    /// A playlist YouTube made: it joins the library at the top and replaces its placeholder (page and history
+    /// follow); its own page loads from YouTube when shown (rows then carry their entry ids).
+    func confirmCreate(_ made: QTPlaylist, replacing placeholder: String) {
+        var p = made
+        p.isEditable = true
+        updateCatalog { c in
+            c.playlists.removeAll { $0.id == p.id }
+            c.playlists.insert(p, at: 0)
+        }
+        playlistPhases[p.id] = .idle
+        QTNavigator.shared.replacePlaylist(placeholder, with: p.id)
+        Task { await loadLibraryPlaylists(force: true) }
+    }
+
+    func confirmSaved(_ saved: Bool, playlistID raw: String) {
+        savedStates[raw] = saved
+        if albumsPhase.isLoadedOrLoading { albumsPhase = .idle }
+        // Saved playlists are in the sidebar.
+        if !raw.hasPrefix("OLAK") { Task { await loadLibraryPlaylists(force: true) } }
+    }
+
+    func confirmSubscribed(_ subscribed: Bool, channelID: String) {
+        subscriptions[channelID] = subscribed
+        if artistsPhase.isLoadedOrLoading { artistsPhase = .idle }
+    }
+
+    /// Playlists YouTube offers to add to are the account's own.
+    func noteEditable(_ options: [QTPlaylistOption]) {
+        let ids = Set(options.map(\.id))
+        updateCatalog { c in
+            for i in c.playlists.indices where ids.contains(QTInnerTube.rawPlaylistId(c.playlists[i].id)) {
+                c.playlists[i].isEditable = true
+            }
+        }
+    }
+
+    /// A playlist as loaded, without this Mac's changes.
+    private func rawPlaylist(_ id: String) -> QTPlaylist? {
+        model?.catalog.playlists.first { $0.id == id } ?? otherPlaylists[id]
+    }
+
+    // MARK: Brand accounts
+
+    /// Reads the account's identities (the Google account and its brand accounts). Settings › Account and the
+    /// Account menu ask when they open; a single identity shows no picker.
+    public func loadIdentities() async {
+        guard mode == .live, let list = try? await client.accounts() else { return }
+        identities = list
+    }
+
+    /// The identity the session acts as (`auth.brandAccountId`), from the list.
+    public var activeIdentity: QTAccountIdentity? {
+        identities.first { $0.brandId == auth.brandAccountId }
+    }
+
+    /// Switches to another identity: queued writes finish first; the player page moves and must confirm
+    /// (`QTAuthController.switchIdentity`), then the library reloads as that identity and playback follows.
+    public func switchIdentity(to identity: QTAccountIdentity) async {
+        guard mode == .live, identity.brandId != auth.brandAccountId, switchingIdentity == nil else { return }
+        switchingIdentity = identity
+        defer { switchingIdentity = nil }
+        await writer.idle()
+        do {
+            try await auth.switchIdentity(to: identity)
+        } catch {
+            model?.showToast(QTLoc.tr("Couldn’t switch to %@", table: .live, identity.name))
+            return
+        }
+        pinnedBrand = identity.brandId
+        identityDidChange()
+        await loadIdentities()
+    }
+
+    /// Launch with a saved brand account: the player page is moved to it again (its session came from the
+    /// Keychain). If that can't be confirmed, the app goes back to the Google account itself rather than show one
+    /// identity's library while plays count for another.
+    private func confirmSavedIdentity() async {
+        guard let brand = auth.brandAccountId else { return }
+        await loadIdentities()
+        if let target = identities.first(where: { $0.brandId == brand }), let url = target.signinURL,
+           (try? await auth.identitySwitcher.switchIdentity(to: url, brandId: brand, dataStore: auth.webDataStore)) != nil {
+            pinnedBrand = brand
+            playbackServices.sessionDidChange()
+            return
+        }
+        guard mode == .live, auth.brandAccountId == brand else { return }
+        let name = activeIdentity?.name
+        await auth.useMainIdentity()
+        identityDidChange()
+        model?.showToast(name.map { QTLoc.tr("Couldn’t switch to %@", table: .live, $0) }
+                         ?? QTLoc.tr("Switched to your Google account", table: .live))
+    }
+
+    /// The session acts as another identity now: its library replaces the old one, playback reloads signed in as it.
+    private func identityDidChange() {
+        writer.reset()
+        resetPages()
+        model?.catalog = Self.emptyCatalog
+        playbackServices.sessionDidChange()
+        Task { await enterLive() }
+    }
+
     // MARK: Album / artist
 
     /// Browse id for an album/artist key: ids pass through; titles/names (mock-era navigation) are looked up in
@@ -865,6 +1084,7 @@ public final class QTLiveCatalogStore {
                 guard let id else { throw QTInnerTubeError.parse("album") }
                 let page = try await client.album(id)
                 albumPages[key] = page
+                if let pid = page.playlistId, let saved = page.isSaved { savedStates[QTInnerTube.rawPlaylistId(pid)] = saved }
                 remember(page.album.tracks ?? [])
                 albumPhases[key] = .loaded
             } catch {
@@ -887,6 +1107,7 @@ public final class QTLiveCatalogStore {
                 guard let id else { throw QTInnerTubeError.parse("artist") }
                 let page = try await client.artist(id)
                 artistPages[key] = page
+                if let channel = page.channelId, let subscribed = page.isSubscribed { subscriptions[channel] = subscribed }
                 remember(page.songs + page.videos)
                 artistPhases[key] = .loaded
             } catch {

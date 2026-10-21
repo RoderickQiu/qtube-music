@@ -14,6 +14,10 @@ import SwiftUI
 struct QTAccountSnapshot: Equatable {
     var state: QTAuthState
     var account: QTAccountInfo?
+    /// The Google account and its brand accounts (a picker when there's more than one).
+    var identities: [QTAccountIdentity] = []
+    /// The identity in use (`brandId`, nil = the Google account itself).
+    var activeBrandId: String?
 
     var name: String? {
         if let n = account?.name, !n.isEmpty { return n }
@@ -35,9 +39,15 @@ struct QTAccountSnapshot: Equatable {
     /// `-qt.desktop.accountPreview signedIn|premium|signingIn|expired|signedOut` (screenshots; no Keychain access).
     static func preview(_ argument: String?) -> QTAccountSnapshot? {
         let sample = QTAccountInfo(name: "Alex Rivera", handle: "@alexrivera")
+        // A Google account with one brand account (channel), for the identity picker.
+        let identities = [QTAccountIdentity(name: sample.name, handle: sample.handle, isSelected: true),
+                          QTAccountIdentity(name: "Alex Rivera Music", handle: "@alexriveramusic",
+                                            brandId: "100000000000000000001")]
         switch argument {
         case "signedIn": return QTAccountSnapshot(state: .signedIn(accountName: sample.name, isPremium: false), account: sample)
-        case "premium": return QTAccountSnapshot(state: .signedIn(accountName: sample.name, isPremium: true), account: sample)
+        case "premium":
+            return QTAccountSnapshot(state: .signedIn(accountName: sample.name, isPremium: true), account: sample,
+                                     identities: identities)
         case "signingIn": return QTAccountSnapshot(state: .signingIn, account: nil)
         case "expired": return QTAccountSnapshot(state: .sessionExpired, account: sample)
         case "signedOut": return QTAccountSnapshot(state: .signedOut, account: nil)
@@ -62,7 +72,16 @@ struct QTAccountSettings: View {
         if let p = QTAccountSnapshot.preview(model.launch.string(Self.previewKey)) { return p }
         #endif
         guard let auth = model.authController else { return QTAccountSnapshot(state: .signedOut, account: nil) }
-        return QTAccountSnapshot(state: auth.state, account: auth.account)
+        return QTAccountSnapshot(state: auth.state, account: auth.account, identities: QTLiveCatalogStore.shared.identities,
+                                 activeBrandId: auth.brandAccountId)
+    }
+
+    private var isPreview: Bool {
+        #if DEBUG
+        return QTAccountSnapshot.preview(model.launch.string(Self.previewKey)) != nil
+        #else
+        return false
+        #endif
     }
 
     var body: some View {
@@ -85,6 +104,9 @@ struct QTAccountSettings: View {
                 .padding(.vertical, 4)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("qt.settings.account.identity")
+                if snap.identities.count > 1, case .signedIn = snap.state {
+                    QTIdentityPicker(identities: snap.identities, activeBrandId: snap.activeBrandId, isPreview: isPreview)
+                }
             } footer: {
                 if snap.state != .signedOut, snap.state != .signingIn {
                     HStack(spacing: 4) {
@@ -96,6 +118,19 @@ struct QTAccountSettings: View {
                     .font(.callout)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+            }
+            Section {
+                Toggle(QTLoc.tr("Sync likes and playlists to YouTube Music", table: .desktop), isOn: Binding(
+                    get: { model.settings.settings.syncsToYouTubeMusic },
+                    set: { on in model.settings.update { $0.syncsToYouTubeMusic = on } }))
+                    .accessibilityIdentifier("qt.settings.account.sync")
+            } footer: {
+                Text(QTLoc.tr(model.settings.settings.syncsToYouTubeMusic
+                              ? "Likes, playlists, subscriptions and saved albums change in your YouTube Music account."
+                              : "Likes and playlist changes stay on this Mac.", table: .desktop))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             Section {
                 #if DEBUG
@@ -132,7 +167,11 @@ struct QTAccountSettings: View {
                 Task { await QTLiveCatalogStore.shared.signOut() }
             }
         } message: {
-            Text(QTLoc.tr("Your library and likes stay in your YouTube Music account.", table: .desktop))
+            Text(QTLoc.tr("Your YouTube Music library stays in your account.", table: .desktop))
+        }
+        .task(id: snapshot.state) {
+            // The brand accounts (a read of the account list) — only when this tab is open and signed in.
+            if case .signedIn = snapshot.state, !isPreview { await QTLiveCatalogStore.shared.loadIdentities() }
         }
     }
 
@@ -191,6 +230,46 @@ struct QTAccountSettings: View {
     /// and its InnerTube client; a successful sign-in switches the window to the user's library.
     private func signIn() {
         QTLiveCatalogStore.shared.signIn()
+    }
+}
+
+/// The identity picker: the Google account and its brand accounts (channels). Choosing one moves the library, likes,
+/// playlist changes and plays to it (`QTLiveCatalogStore.switchIdentity`); a spinner shows while the player page
+/// switches, and nothing changes if it can't be confirmed.
+struct QTIdentityPicker: View {
+    let identities: [QTAccountIdentity]
+    let activeBrandId: String?
+    var isPreview = false
+    @State private var previewSelection: String?
+
+    var body: some View {
+        let store = QTLiveCatalogStore.shared
+        let selection = Binding<String>(
+            get: { previewSelection ?? store.switchingIdentity?.id ?? activeBrandId ?? "primary" },
+            set: { id in
+                if isPreview { previewSelection = id; return }
+                guard let target = identities.first(where: { $0.id == id }) else { return }
+                Task { await store.switchIdentity(to: target) }
+            })
+        HStack(spacing: QTTheme.Spacing.xs) {
+            Picker(QTLoc.tr("Account", table: .desktop), selection: selection) {
+                ForEach(identities) { identity in
+                    Text(verbatim: Self.title(identity, among: identities)).tag(identity.id)
+                }
+            }
+            .pickerStyle(.menu)
+            .disabled(store.switchingIdentity != nil)
+            if store.switchingIdentity != nil {
+                ProgressView().controlSize(.small)
+            }
+        }
+        .accessibilityIdentifier("qt.settings.account.identities")
+    }
+
+    /// The name; with the handle when two identities share a name.
+    static func title(_ identity: QTAccountIdentity, among all: [QTAccountIdentity]) -> String {
+        guard let handle = identity.handle, all.filter({ $0.name == identity.name }).count > 1 else { return identity.name }
+        return "\(identity.name) (\(handle))"
     }
 }
 

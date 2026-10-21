@@ -107,6 +107,28 @@ public final class QTNavigator {
         syncSidebar()
     }
 
+    /// A playlist is gone (deleted, or a new one that couldn't be made): its page and history entries go, and a page
+    /// showing it returns to the one before (Home when there is none).
+    public func leavePlaylist(_ id: String) {
+        let gone = QTDestination.section(.playlist(id))
+        backStack.removeAll { $0 == gone }
+        forwardStack.removeAll { $0 == gone }
+        guard current == gone else { return }
+        current = backStack.popLast() ?? .section(.home)
+        syncSidebar()
+    }
+
+    /// A new playlist got its real id: the page (and its history) follows without a new history entry.
+    public func replacePlaylist(_ oldID: String, with newID: String) {
+        let old = QTDestination.section(.playlist(oldID))
+        let new = QTDestination.section(.playlist(newID))
+        backStack = backStack.map { $0 == old ? new : $0 }
+        forwardStack = forwardStack.map { $0 == old ? new : $0 }
+        guard current == old else { return }
+        current = new
+        syncSidebar()
+    }
+
     /// Called when `QTAppModel.sidebarSelection` changes (sidebar click, ⌘1–4, other areas).
     public func sidebarSelectionChanged(to item: QTSidebarItem) {
         guard !isSyncingSidebar, current != .section(item) else { return }

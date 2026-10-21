@@ -44,6 +44,12 @@ public final class QTAppModel {
     /// Song⇄Video: true when the video rendition is shown.
     public var isVideoMode = false
     public var searchText = ""
+    /// The New / Edit Playlist sheet over the main window (nil = none).
+    public var playlistSheet: QTPlaylistSheetRequest?
+    /// A playlist waiting for "Delete “x”?" to be answered.
+    public var playlistToDelete: QTPlaylist?
+    /// The Settings tab to show next (Account › Account Settings…); the Settings window takes it and clears it.
+    public var settingsTabRequest: QTSettingsTab?
     public private(set) var toast: QTToast?
     @ObservationIgnored private var toastTask: Task<Void, Never>?
     /// Launch playback ran (it runs once per process — reopening the main window must not touch playback).
@@ -81,6 +87,7 @@ public final class QTAppModel {
             if let v = launch.stageBackground { s.stageBackground = v }
             if let v = launch.translation { s.lyricsTranslation = v }
             if let v = launch.bool("qt.playback.native") { s.playbackEffects.nativeEngine = v }
+            if let v = launch.bool("qt.account.sync") { s.syncsToYouTubeMusic = v }
             if let v = QTLyricsSession.unofficialSources(argument: launch.string("qt.lyrics.unofficial")) {
                 s.unofficialLyricsSources = v
             }

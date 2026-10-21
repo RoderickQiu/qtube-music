@@ -677,9 +677,14 @@ struct QTTrackContextMenu: View {
             Button(QTLoc.tr("Add to Playlist")) { _ = QTAccountGate.allows(.addToPlaylist) }
                 .disabled(!playable)
         } else {
+            // Same choices as the track tables' submenu (QTAddToPlaylistMenu): New Playlist…, then the playlists the
+            // song can go into, checked when it's already there.
             Menu(QTLoc.tr("Add to Playlist")) {
-                ForEach(model.catalog.playlists) { p in
-                    Button(p.title.resolved) { QTTrackActions.add([track], to: p) }
+                Button(QTLoc.tr("New Playlist…", table: .main)) { QTPlaylistActions.newPlaylist(with: [track]) }
+                let targets = QTAddToPlaylistMenu.targets(options: nil, excluding: nil, tracks: [track])
+                if !targets.isEmpty { Divider() }
+                ForEach(targets, id: \.0.id) { p, holds in
+                    Toggle(p.title.resolved, isOn: Binding(get: { holds }, set: { _ in QTTrackActions.add([track], to: p) }))
                 }
             }
             .disabled(!playable)

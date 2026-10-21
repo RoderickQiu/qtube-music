@@ -424,12 +424,14 @@ final class QTFlippedView: NSView {
     override var isFlipped: Bool { true }
 }
 
-/// The table: Finder keyboard behaviour (↩ plays, ⌥↩ plays next, Space play/pause, ⌘C copies links),
-/// scrolls rows into view below the pinned chrome.
+/// The table: Finder keyboard behaviour (↩ plays, ⌥↩ plays next, Space play/pause, ⌘C copies links, ⌫ / Edit ›
+/// Delete removes the selection from a playlist the account owns), scrolls rows into view below the pinned chrome.
 final class QTTrackNSTableView: NSTableView {
     var onReturn: ((_ option: Bool) -> Void)?
     var onSpace: (() -> Void)?
     var onCopy: (() -> Void)?
+    /// ⌫ / ⌦ / Edit › Delete; nil when the list can't be edited (the key then beeps like any read-only list).
+    var onDelete: (() -> Void)?
     var onScrollRowToVisible: ((Int) -> Void)?
     /// Frame size the page lays out; NSTableView would otherwise stretch itself to the clip view's width.
     var pinnedSize: NSSize?
@@ -446,10 +448,14 @@ final class QTTrackNSTableView: NSTableView {
         case 49 where mods.isEmpty: // space
             onSpace?()
             return
+        case 51, 117: // delete, forward delete (⌘⌫ too, like Music)
+            if mods.isEmpty || mods == .command, let onDelete, selectedRow >= 0 { onDelete(); return }
         default: break
         }
         super.keyDown(with: event)
     }
+
+    @objc func delete(_ sender: Any?) { onDelete?() }
 
     override func scrollRowToVisible(_ row: Int) {
         if let onScrollRowToVisible { onScrollRowToVisible(row) } else { super.scrollRowToVisible(row) }
@@ -459,6 +465,7 @@ final class QTTrackNSTableView: NSTableView {
 
     override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
         if item.action == #selector(copy(_:)) { return selectedRow >= 0 }
+        if item.action == #selector(delete(_:)) { return onDelete != nil && selectedRow >= 0 }
         return super.validateUserInterfaceItem(item)
     }
 }

@@ -31,6 +31,16 @@
         }
       }
     },
+    "Account Settings…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "账户设置…"
+          }
+        }
+      }
+    },
     "Acoustic" : {
       "localizations" : {
         "zh-Hans" : {
@@ -467,6 +477,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Last.fm 暂不接受播放记录，请在设置中检查 API 密钥。"
+          }
+        }
+      }
+    },
+    "Likes and playlist changes stay on this Mac." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "喜欢和播放列表的更改只保存在这台 Mac 上。"
+          }
+        }
+      }
+    },
+    "Likes, playlists, subscriptions and saved albums change in your YouTube Music account." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "喜欢、播放列表、订阅和收藏的专辑会同步更改你的 YouTube Music 账户。"
           }
         }
       }
@@ -1101,6 +1131,26 @@
         }
       }
     },
+    "Sync Likes and Playlists" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同步喜欢和播放列表"
+          }
+        }
+      }
+    },
+    "Sync likes and playlists to YouTube Music" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将喜欢和播放列表同步到 YouTube Music"
+          }
+        }
+      }
+    },
     "System" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1307,6 +1357,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "YouTube 播放器不支持这些功能。打开原生引擎即可使用。"
+          }
+        }
+      }
+    },
+    "Your YouTube Music library stays in your account." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的 YouTube Music 资料库会保留在账户中。"
           }
         }
       }

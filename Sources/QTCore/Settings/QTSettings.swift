@@ -193,6 +193,9 @@ public struct QTSettings: Codable, Sendable, Hashable {
     public var playbackEffects = QTPlaybackEffectsPrefs()
     /// Settings › Shortcuts: system-wide shortcuts. None by default (media keys already work).
     public var globalHotKeys = QTHotKeyBindings()
+    /// Settings › Account › "Sync likes and playlists to YouTube Music" (on by default): likes, playlist edits,
+    /// subscriptions and saved albums change the signed-in account. Off: they stay on this Mac.
+    public var syncsToYouTubeMusic = true
 
     public init() {}
 
@@ -216,6 +219,7 @@ public struct QTSettings: Codable, Sendable, Hashable {
         miniPlayer = (try? c.decodeIfPresent(QTMiniPlayerPrefs.self, forKey: .miniPlayer)) ?? d.miniPlayer
         playbackEffects = (try? c.decodeIfPresent(QTPlaybackEffectsPrefs.self, forKey: .playbackEffects)) ?? d.playbackEffects
         globalHotKeys = (try? c.decodeIfPresent(QTHotKeyBindings.self, forKey: .globalHotKeys)) ?? d.globalHotKeys
+        syncsToYouTubeMusic = (try? c.decodeIfPresent(Bool.self, forKey: .syncsToYouTubeMusic)) ?? d.syncsToYouTubeMusic
     }
 }
 

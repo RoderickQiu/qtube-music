@@ -30,6 +30,13 @@ public enum QTAvailability: String, Codable, Sendable, Hashable {
     public var isPlayable: Bool { self == .playable }
 }
 
+/// Whether the account likes a song (YouTube Music's `likeStatus`, from row menus and `next`).
+public enum QTLikeStatus: String, Codable, Sendable, Hashable {
+    case like = "LIKE"
+    case indifferent = "INDIFFERENT"
+    case dislike = "DISLIKE"
+}
+
 /// A lightweight reference to an artist as it appears on a track or album.
 public struct QTArtistRef: Codable, Sendable, Hashable {
     /// Channel / browse id (`UC…`), nil when YouTube Music doesn't link the name.
@@ -113,6 +120,11 @@ public struct QTTrack: Codable, Sendable, Hashable, Identifiable {
     public var palette: QTArtworkPalette?
     /// Best known lyrics timing for list badges ("Word lyrics"). nil = unknown until lyrics are fetched.
     public var lyricsHint: QTLyricsSyncKind?
+    /// This row's entry id in a playlist (`playlistSetVideoId`): what removing or moving the row needs. Only on rows
+    /// of a playlist page; nil elsewhere.
+    public var setVideoId: String?
+    /// Whether the account likes the song, when the row said so (signed-in pages only).
+    public var likeStatus: QTLikeStatus?
 
     public init(
         videoId: String,
@@ -127,7 +139,9 @@ public struct QTTrack: Codable, Sendable, Hashable, Identifiable {
         isExplicit: Bool = false,
         availability: QTAvailability = .playable,
         palette: QTArtworkPalette? = nil,
-        lyricsHint: QTLyricsSyncKind? = nil
+        lyricsHint: QTLyricsSyncKind? = nil,
+        setVideoId: String? = nil,
+        likeStatus: QTLikeStatus? = nil
     ) {
         self.videoId = videoId
         self.title = title
@@ -142,6 +156,8 @@ public struct QTTrack: Codable, Sendable, Hashable, Identifiable {
         self.availability = availability
         self.palette = palette
         self.lyricsHint = lyricsHint
+        self.setVideoId = setVideoId
+        self.likeStatus = likeStatus
     }
 
     /// "Artist A, Artist B" — joined with the locale's list format.

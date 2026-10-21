@@ -370,8 +370,11 @@ struct QTAlbumPageView: View {
 
     /// The collection id matches `QTTrackCollection.listKey(for: .album(key))`, so filter/sort/scroll survive Back.
     static func collection(_ page: QTAlbumPage, key: String) -> QTTrackCollection {
-        QTTrackCollection(id: "album:\(key)", kind: .album, title: page.album.title, artwork: page.album.artwork,
-                          tracks: page.album.tracks ?? [])
+        var c = QTTrackCollection(id: "album:\(key)", kind: .album, title: page.album.title, artwork: page.album.artwork,
+                                  tracks: page.album.tracks ?? [])
+        // Add to Library saves the album's playlist (`OLAK…`); the demo's albums have none, so they get a stand-in.
+        c.libraryID = page.playlistId ?? (QTLiveCatalogStore.shared.mode == .mock ? "demo-album-\(key)" : nil)
+        return c
     }
 }
 
@@ -511,6 +514,7 @@ struct QTArtistPageContent: View {
             }
             .qtGlassButton(.primary)
             .accessibilityIdentifier("qt.artist.play")
+            .disabled(!songs.contains(where: \.availability.isPlayable))
             Button {
                 QTTrackActions.shuffle(songs, source: source)
             } label: {
@@ -518,9 +522,42 @@ struct QTArtistPageContent: View {
             }
             .qtGlassButton(.secondary)
             .accessibilityIdentifier("qt.artist.shuffle")
+            .disabled(!songs.contains(where: \.availability.isPlayable))
+            subscribe
         }
         .controlSize(.large)
-        .disabled(!songs.contains(where: \.availability.isPlayable))
+    }
+
+    /// The channel Subscribe acts on: the page's own (signed in), or the artist's id in the demo library.
+    private var channelID: String? {
+        let store = QTLiveCatalogStore.shared
+        if store.mode == .mock { return page.channelId ?? page.artist.id }
+        return store.hasLibrary ? page.channelId : nil
+    }
+
+    /// Subscribe / Subscribed, like YouTube Music's button; clicking Subscribed unsubscribes (with Undo).
+    @ViewBuilder private var subscribe: some View {
+        if let channel = channelID {
+            let writer = QTAccountWriter.shared
+            let subscribed = writer.isSubscribed(channel) ?? page.isSubscribed ?? false
+            Button {
+                let name = page.artist.name
+                writer.setSubscribed(!subscribed, channelID: channel, name: name)
+                let message = switch (subscribed, writer.savesToAccount) {
+                case (false, true): QTLoc.tr("Subscribed to %@", table: .main, name)
+                case (true, true): QTLoc.tr("Unsubscribed from %@", table: .main, name)
+                case (false, false): QTLoc.tr("Subscribed to %@ on this Mac", table: .main, name)
+                case (true, false): QTLoc.tr("Unsubscribed from %@ on this Mac", table: .main, name)
+                }
+                QTAppModel.shared.showToast(message) { writer.setSubscribed(subscribed, channelID: channel, name: name) }
+            } label: {
+                Label(QTLoc.tr(subscribed ? "Subscribed" : "Subscribe", table: .main),
+                      systemImage: subscribed ? "checkmark" : "plus")
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .qtGlassButton(.secondary)
+            .accessibilityIdentifier("qt.artist.subscribe")
+        }
     }
 }
 

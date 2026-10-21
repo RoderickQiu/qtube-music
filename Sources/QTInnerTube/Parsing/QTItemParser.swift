@@ -118,7 +118,8 @@ enum QTItemParser {
                 videoId: videoId, title: title, artists: artists,
                 album: subtitleRuns.albumRef ?? context.album, duration: duration,
                 artwork: artwork.isEmpty ? context.albumArtwork : artwork, musicVideoType: type,
-                isExplicit: isExplicit(r), availability: availability(r))
+                isExplicit: isExplicit(r), availability: availability(r),
+                setVideoId: setVideoId(r), likeStatus: likeStatus(menu: r["menu"]))
             if type.isVideo, let audioId = QTParse.creditsVideoId(menu: r["menu"]), audioId != videoId {
                 track.counterpart = QTCounterpart(videoId: audioId, musicVideoType: .atv)
             }
@@ -238,6 +239,30 @@ enum QTItemParser {
         return "unavailable:" + (menuID ?? entry ?? title)
     }
 
+    /// A playlist row's entry id: `playlistItemData.playlistSetVideoId`, else the one its "Remove from playlist" menu
+    /// item names (`playlistEditEndpoint.actions[0].setVideoId`, as ytmusicapi reads it).
+    static func setVideoId(_ r: QTJSON) -> String? {
+        if let id = r[path: "playlistItemData", "playlistSetVideoId"].string, !id.isEmpty { return id }
+        for endpoint in r["menu"].all("playlistEditEndpoint") {
+            if let id = endpoint["actions"].array.lazy.compactMap({ $0["setVideoId"].string }).first { return id }
+        }
+        return nil
+    }
+
+    /// The account's like for a row: the menu's like button (`likeButtonRenderer.likeStatus`), else its like toggle,
+    /// whose default action is the *opposite* of the current state (ytmusicapi `parse_like_status`).
+    static func likeStatus(menu: QTJSON) -> QTLikeStatus? {
+        if let raw = menu.first("likeButtonRenderer")?["likeStatus"].string { return QTLikeStatus(rawValue: raw) }
+        for toggle in menu.all("toggleMenuServiceItemRenderer") {
+            switch toggle[path: "defaultServiceEndpoint", "likeEndpoint", "status"].string {
+            case "LIKE"?: return .indifferent
+            case "INDIFFERENT"?: return .like
+            default: continue
+            }
+        }
+        return nil
+    }
+
     static func availability(_ r: QTJSON) -> QTAvailability {
         r["musicItemRendererDisplayPolicy"].string == "MUSIC_ITEM_RENDERER_DISPLAY_POLICY_GREY_OUT" ? .regionLocked
             : .playable
@@ -261,7 +286,7 @@ enum QTItemParser {
             videoId: videoId, title: title, artists: artists, album: byline.albumRef,
             duration: r["lengthText"].text.flatMap(QTParse.duration) ?? 0,
             artwork: QTParse.artwork(r["thumbnail"]), musicVideoType: type,
-            isExplicit: isExplicit(r))
+            isExplicit: isExplicit(r), likeStatus: likeStatus(menu: r["menu"]))
         if type.isVideo, let audioId = QTParse.creditsVideoId(menu: r["menu"]), audioId != videoId {
             track.counterpart = QTCounterpart(videoId: audioId, musicVideoType: .atv)
         }

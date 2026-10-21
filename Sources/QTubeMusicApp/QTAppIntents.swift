@@ -60,7 +60,7 @@ struct QTPreviousTrackIntent: AppIntent {
 
 struct QTLikeCurrentTrackIntent: AppIntent {
     static let title = LocalizedStringResource("Like Current Song", table: "AppIntents")
-    static let description = IntentDescription(LocalizedStringResource("Adds the current song to Liked Songs in QTube Music.", table: "AppIntents"))
+    static let description = IntentDescription(LocalizedStringResource("Likes the song that’s playing: in your YouTube Music account when Sync is on, otherwise on this Mac.", table: "AppIntents"))
     static let openAppWhenRun = false
 
     @MainActor func perform() async throws -> some IntentResult & ProvidesDialog {

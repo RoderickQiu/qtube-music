@@ -34,3 +34,18 @@ Re-record (review the diff; live content changes, so some test expectations may 
 ```sh
 QT_LIVE=1 QT_RECORD=1 swift test --scratch-path .build/<you> --filter QTInnerTubeTests.LiveTests/recordFixtures
 ```
+
+## Hand-built signed-in fixtures
+
+`handbuilt-*.json` were written by hand (2026-10-20), never recorded: no account was used and every id, name and URL
+is made up. Their shapes follow ytmusicapi (`mixins/playlists.py`, `parsers/playlists.py`, `parsers/albums.py`) and
+Kaset (`PlaylistParser`, `AccountsListParser` and their tests). Replace them with recorded ones only after an
+owner-approved signed-in recording run.
+
+| File | Shape of | Used for |
+|---|---|---|
+| `handbuilt-playlist-owned` | `browse VL…` of a playlist the account owns (`musicEditablePlaylistDetailHeaderRenderer`) | `isEditable`, privacy, description, `setVideoId`, `likeStatus` |
+| `handbuilt-playlist-saved` | someone else's playlist with the save toggle on | `isSaved` |
+| `handbuilt-edit-playlist-add` | `browse/edit_playlist` add answer | new `setVideoId`s |
+| `handbuilt-add-to-playlist` | `playlist/get_add_to_playlist` | Add to Playlist options + checkmarks |
+| `handbuilt-accounts-list` | `account/accounts_list` (with one spoofed switch link) | brand accounts |

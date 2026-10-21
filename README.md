@@ -98,8 +98,10 @@ macOS may ask once whether QTube Music can use its Keychain item. Click **Always
   Lyrics come from LRCLIB, the AMLL TTML DB on GitHub, YouTube Music, and NetEase, Kugou and QQ Music only if you
   turn on Unofficial sources. Last.fm and ListenBrainz scrobbling and Discord status are off until you turn them on
   with your own keys or token.
-- **Read-only.** The app doesn't change anything in your YouTube Music account (likes, playlists). Those changes
-  stay in the app for now.
+- **Likes and playlists sync.** Signed in, likes, playlist changes (new, renamed, reordered, deleted playlists,
+  songs added or removed), subscriptions and albums you add to your library change your YouTube Music account, one
+  change at a time. Turn off **Settings › Account › Sync likes and playlists to YouTube Music** to keep them on this
+  Mac only. Brand accounts (channels) can be switched in Settings › Account or the Account menu.
 - **No analytics.** No tracking, no telemetry, no crash reporting service. Translation runs on your Mac.
 
 <img src="docs/images/lyrics.jpg" width="400" alt="Lyrics options: a Traditional Chinese song shown in Simplified characters">

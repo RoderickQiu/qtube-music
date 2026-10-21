@@ -82,8 +82,11 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
         t.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
         t.target = self
         t.doubleAction = #selector(doubleClicked(_:))
-        t.setDraggingSourceOperationMask(.copy, forLocal: true)
+        // Copy out (to the sidebar's playlists, other apps); move within an owned playlist (reorder).
+        t.setDraggingSourceOperationMask([.copy, .move], forLocal: true)
         t.setDraggingSourceOperationMask(.copy, forLocal: false)
+        t.registerForDraggedTypes([.string])
+        t.draggingDestinationFeedbackStyle = .gap
         t.setAccessibilityIdentifier("qt.library.table")
         t.onReturn = { [weak self] option in self?.returnPressed(option: option) }
         t.onSpace = { [weak self] in self?.model.player.togglePlayPause() }
@@ -175,6 +178,10 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
         }
         if first { page.restoreScroll(new.state.scrollY) }
         new.state.focusTable = { [weak self] in self?.focusTable() }
+        page.tableView.onDelete = canRemoveSelection ? { [weak self] in
+            guard let self, let t = self.page?.tableView else { return }
+            self.removeSelection(self.tracks(at: t.selectedRowIndexes))
+        } : nil
     }
 
     private func focusTable() {
@@ -458,21 +465,19 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
         }
         menu.addItem(.separator())
         let add = item(QTLoc.tr("Add to Playlist"), nil, enabled: anyPlayable)
-        let sub = NSMenu()
-        for p in model.catalog.playlists where p.id != config?.collection.playlistID {
-            let pi = item(p.title.resolved, #selector(menuAddToPlaylist(_:)))
-            pi.representedObject = p.id
-            pi.image = NSImage(systemSymbolName: QTIcon.playlist.systemName, accessibilityDescription: nil)
-            sub.addItem(pi)
-        }
         if QTLiveCatalogStore.shared.isGuest {
             // Guest mode: no playlists of one's own; the item offers to sign in.
             add.action = #selector(menuAddToPlaylistAsGuest)
         } else {
-            add.submenu = sub
+            add.submenu = QTAddToPlaylistMenu.make(for: menuTargets.filter(\.availability.isPlayable),
+                                                   excluding: config?.collection.playlistID)
             add.action = #selector(menuNoop)
         }
         menu.addItem(add)
+        if editablePlaylist != nil {
+            menu.addItem(item(QTLoc.tr("Remove from Playlist", table: .main), #selector(menuRemoveFromPlaylist),
+                              key: "\u{8}", mods: []))
+        }
         let allLiked = menuTargets.allSatisfy { model.player.isLiked($0) }
         menu.addItem(item(QTLoc.tr(allLiked ? "Remove from Liked Songs" : "Like"), #selector(menuToggleLike), key: "l", mods: .command))
         menu.addItem(.separator())
@@ -482,6 +487,62 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
     @objc private func menuNoop() {}
 
     @objc private func menuAddToPlaylistAsGuest() { _ = QTAccountGate.allows(.addToPlaylist) }
+
+    @objc private func menuRemoveFromPlaylist() { removeSelection(menuTargets) }
+
+    // MARK: Editing an owned playlist (⌫ removes, drag reorders)
+
+    /// The playlist this table shows when the account owns it (or it was made here; any demo playlist).
+    private var editablePlaylist: QTPlaylist? {
+        guard config?.collection.kind == .playlist, let id = config?.collection.playlistID,
+              let p = QTLiveCatalogStore.shared.playlist(id), QTAccountWriter.shared.canEdit(p) else { return nil }
+        return p
+    }
+
+    /// ⌫ / Edit › Delete: out of an owned playlist, or out of Liked Songs — both with Undo.
+    private func removeSelection(_ tracks: [QTTrack]) {
+        guard !tracks.isEmpty else { return }
+        if config?.collection.kind == .liked {
+            QTTrackActions.toggleLike(tracks.filter { model.player.isLiked($0) })
+        } else if let p = editablePlaylist {
+            QTTrackActions.remove(tracks, from: p)
+        }
+    }
+
+    private var canRemoveSelection: Bool {
+        config?.collection.kind == .liked ? !QTLiveCatalogStore.shared.isGuest : editablePlaylist != nil
+    }
+
+    /// Rows can be dragged into a new order only in an owned playlist shown in its own order, unfiltered.
+    private var canReorder: Bool {
+        guard let state = config?.state, editablePlaylist != nil else { return false }
+        return state.sort.key == .added && state.sort.ascending
+            && state.filter.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    func tableView(_ tableView: NSTableView, validateDrop info: any NSDraggingInfo, proposedRow row: Int,
+                   proposedDropOperation dropOperation: NSTableView.DropOperation) -> NSDragOperation {
+        guard canReorder, (info.draggingSource as? NSTableView) === tableView else { return [] }
+        if dropOperation == .on { tableView.setDropRow(row, dropOperation: .above) }
+        return .move
+    }
+
+    func tableView(_ tableView: NSTableView, acceptDrop info: any NSDraggingInfo, row: Int,
+                   dropOperation: NSTableView.DropOperation) -> Bool {
+        guard canReorder, let p = editablePlaylist, (info.draggingSource as? NSTableView) === tableView else { return false }
+        let moved = tracks(at: draggedRows)
+        guard !moved.isEmpty else { return false }
+        QTAccountWriter.shared.move(moved, in: p, to: row)
+        return true
+    }
+
+    /// Rows of the drag in progress (set when it begins).
+    private var draggedRows = IndexSet()
+
+    func tableView(_ tableView: NSTableView, draggingSession session: NSDraggingSession,
+                   willBeginAt screenPoint: NSPoint, forRowIndexes rowIndexes: IndexSet) {
+        draggedRows = rowIndexes
+    }
 
     @objc private func menuPlay() {
         guard let t = page?.tableView, rows.indices.contains(t.clickedRow) else { return }
@@ -508,11 +569,6 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
     @objc private func menuGoToArtist() {
         guard let artist = menuTargets.first?.artists.first else { return }
         QTNavigator.shared.go(.artist(artist))
-    }
-
-    @objc private func menuAddToPlaylist(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? String, let p = model.catalog.playlists.first(where: { $0.id == id }) else { return }
-        QTTrackActions.add(menuTargets, to: p)
     }
 
     @objc private func menuToggleLike() { QTTrackActions.toggleLike(menuTargets) }
