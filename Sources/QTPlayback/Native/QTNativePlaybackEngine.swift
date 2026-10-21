@@ -108,6 +108,13 @@ public final class QTNativePlaybackEngine: QTPlaybackEngine {
     @ObservationIgnored private var isHandingOver = false
     /// Seconds from asking the web engine for the video to it playing (learned).
     @ObservationIgnored private var webStartEstimate: TimeInterval = 2.5
+    /// Watches the native clock while it should be moving (`checkProgress`).
+    @ObservationIgnored private var watchdog: Task<Void, Never>?
+    @ObservationIgnored private var progress = QTProgressWatch(limit: QTNativePlaybackEngine.stallLimit)
+    /// The current track's graph was restarted after a stall (a second stall falls back).
+    @ObservationIgnored private var restartedAfterStall = false
+    /// The native clock may stand still this long while playing before the graph is restarted (then: fallback).
+    static let stallLimit: TimeInterval = 6
 
     private struct Playing {
         let token: Int
@@ -129,6 +136,7 @@ public final class QTNativePlaybackEngine: QTPlaybackEngine {
         player.onPlayedOut = { [weak self] deck, token in self?.playedOut(deck: deck, token: token) }
         player.onDecodeError = { [weak self] token, error in self?.decodeFailed(token: token, error: error) }
         player.onRouteChange = { [weak self] in self?.reanchor() }
+        player.onOutputFailure = { [weak self] error in self?.fallBackNow("output restart: \(error)") }
         let stream = web.stateUpdates()
         webTask = Task { @MainActor [weak self] in
             for await s in stream {
@@ -242,6 +250,23 @@ public final class QTNativePlaybackEngine: QTPlaybackEngine {
         isNativeActive ? player.spectrum(bandCount: bandCount) : web.spectrum(bandCount: bandCount)
     }
 
+    public var isNetworkAvailable: Bool { web.isNetworkAvailable }
+
+    public var isPausedByListener: Bool { !isNativeActive && web.isPausedByListener }
+
+    /// The web engine drops a stale page; a native track checks its graph (the output may have changed while asleep),
+    /// restarting it, or falling back when it won't run.
+    public func systemDidWake(after sleep: TimeInterval) {
+        web.systemDidWake(after: sleep)
+        guard isNativeActive, current != nil, player.isPlaying, !player.isRunning else { return }
+        do {
+            try player.restartGraph()
+            reanchor()
+        } catch {
+            fallBackNow("output after wake: \(error)")
+        }
+    }
+
     /// The queue's next item (nil: nothing follows in order). Prefetched, and joined gaplessly or crossfaded into.
     public func prepareNext(_ item: QTPlaybackItem?) {
         guard item != nextItem else { return }
@@ -349,6 +374,7 @@ public final class QTNativePlaybackEngine: QTPlaybackEngine {
             web.standDown()
         }
         current = playing
+        restartedAfterStall = false
         isNativeActive = true
         stats.nativeLoads += 1
         stats.lastItag = playing.itag
@@ -480,6 +506,50 @@ public final class QTNativePlaybackEngine: QTPlaybackEngine {
         state.ad = nil
         state.timeline = QTPlaybackTimeline(time: t, rate: status == .playing ? 1 : 0, duration: cur.duration)
         publish()
+        updateWatchdog()
+    }
+
+    // MARK: Progress watchdog
+
+    /// While native audio should be playing, its clock is checked every 2 s.
+    private func updateWatchdog() {
+        progress.reset()
+        guard isNativeActive, state.status == .playing else {
+            watchdog?.cancel()
+            watchdog = nil
+            return
+        }
+        guard watchdog == nil else { return }
+        watchdog = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(2))
+                guard let self, !Task.isCancelled else { return }
+                self.checkProgress()
+            }
+        }
+    }
+
+    /// A clock that stopped (a dead output, a wedged node) restarts the graph once; stopping again falls back to the
+    /// web engine at the same position. Stuck at the very end it is simply over.
+    private func checkProgress() {
+        guard isNativeActive, state.status == .playing, let cur = current, player.isPlaying else { return }
+        let position = player.position(of: cur.token) ?? state.timeline.currentTime
+        guard progress.isStalled(position: position, at: ProcessInfo.processInfo.systemUptime) else { return }
+        progress.reset()
+        if position >= cur.duration - 0.5 {
+            playedOut(deck: player.active, token: cur.token)
+        } else if restartedAfterStall {
+            fallBackNow("stalled at \(String(format: "%.1f", position)) s")
+        } else {
+            restartedAfterStall = true
+            QTNativeAudioPlayer.log.error("native: the clock stalled at \(position, format: .fixed(precision: 1)) s; restarting the graph")
+            do {
+                try player.restartGraph()
+                reanchor()
+            } catch {
+                fallBackNow("restart after a stall: \(error)")
+            }
+        }
     }
 
     /// Re-reads the clock after the output device changed.
@@ -494,6 +564,8 @@ public final class QTNativePlaybackEngine: QTPlaybackEngine {
         if isNativeActive || current != nil { player.stop() }
         current = nil
         isNativeActive = false
+        watchdog?.cancel()
+        watchdog = nil
     }
 
     private func webStateChanged(_ s: QTPlaybackState) {
@@ -557,6 +629,7 @@ public final class QTNativePlaybackEngine: QTPlaybackEngine {
         }
         prepared = nil
         current = p
+        restartedAfterStall = false
         stats.crossfades += 1
         stats.lastItag = p.itag
         nextItem = nil
@@ -570,6 +643,7 @@ public final class QTNativePlaybackEngine: QTPlaybackEngine {
         if let p = prepared, deck === player.active, deck.chains(p.token, on: player) {
             prepared = nil
             current = p
+            restartedAfterStall = false
             nextItem = nil
             stats.gaplessSeams += 1
             stats.lastItag = p.itag
@@ -583,6 +657,7 @@ public final class QTNativePlaybackEngine: QTPlaybackEngine {
         state.timeline = QTPlaybackTimeline(time: cur.duration, rate: 0, duration: cur.duration)
         state.status = .ended
         publish()
+        updateWatchdog()
     }
 
     private func decodeFailed(token: Int, error: any Error) {
@@ -664,6 +739,26 @@ public final class QTNativePlaybackEngine: QTPlaybackEngine {
     public var debugNativePosition: TimeInterval? {
         guard let cur = current else { return nil }
         return player.position(of: cur.token)
+    }
+}
+
+/// Notices a clock that stopped moving while it should play (the native engine's watchdog).
+struct QTProgressWatch {
+    let limit: TimeInterval
+    private var last: (position: TimeInterval, uptime: TimeInterval)?
+
+    init(limit: TimeInterval) { self.limit = limit }
+
+    /// Forget the last reading (play, pause, seek, a new track).
+    mutating func reset() { last = nil }
+
+    /// One reading while playing: true once the position hasn't moved for `limit` seconds.
+    mutating func isStalled(position: TimeInterval, at uptime: TimeInterval) -> Bool {
+        guard let last, abs(position - last.position) <= 0.05 else {
+            self.last = (position, uptime)
+            return false
+        }
+        return uptime - last.uptime >= limit
     }
 }
 

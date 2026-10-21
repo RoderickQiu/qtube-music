@@ -246,6 +246,8 @@ final class QTFakePlayerPages {
     var standby = Standby.readyQuickly
     var account: [String: Any] = ["loggedIn": true, "premium": true]
     var onCall: ((Page, String, [Any]) -> Void)?
+    /// Commands the main page doesn't take (a dead page answers nothing).
+    var refuses: Set<String> = []
     private(set) var log: [Call] = []
     /// In-page loads (`__qtBridge.load`) on the main page.
     private(set) var mainLoads: [Load] = []
@@ -268,8 +270,8 @@ final class QTFakePlayerPages {
         }
     }
 
-    init() {
-        var configuration = QTWebPlaybackEngine.Configuration(isSilent: true, freezeAfterPause: nil)
+    init(freezeAfterPause: Duration? = nil) {
+        var configuration = QTWebPlaybackEngine.Configuration(isSilent: true, freezeAfterPause: freezeAfterPause)
         configuration.seamlessModeSwitch = true
         engine = QTWebPlaybackEngine(configuration: configuration, dataStore: .nonPersistent())
         engine.modeSwitchStandbyTimeout = 4
@@ -341,6 +343,7 @@ final class QTFakePlayerPages {
         let page = page(of: view)
         log.append(Call(page: page, name: name, args: args))
         onCall?(page, name, args)
+        if page == .main, refuses.contains(name) { return nil }
         switch (page, name) {
         case (.main, "load"):
             let videoID = args[0] as? String ?? ""

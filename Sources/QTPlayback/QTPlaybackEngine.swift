@@ -184,6 +184,14 @@ public protocol QTPlaybackEngine: AnyObject {
     /// Repeat All wrap). Engines with gapless/crossfade prefetch it and may move on to it by themselves: they then
     /// report a state whose item is this one (same `queueID`), and the queue advances without loading.
     func prepareNext(_ item: QTPlaybackItem?)
+    /// False while the system reports no usable network path (the queue waits instead of skipping). Default true.
+    var isNetworkAvailable: Bool { get }
+    /// The current pause came from the listener outside the app's own commands (the Picture in Picture window's
+    /// controls): the queue takes it as the listener's pause instead of resuming. Default false.
+    var isPausedByListener: Bool { get }
+    /// The Mac woke after sleeping `sleep` seconds (the queue paused it on the way down). Engines check their
+    /// output and drop state that went stale. Default: nothing.
+    func systemDidWake(after sleep: TimeInterval)
 }
 
 public extension QTPlaybackEngine {
@@ -194,6 +202,12 @@ public extension QTPlaybackEngine {
     func spectrum(bandCount: Int) -> [Float]? { nil }
 
     func prepareNext(_ item: QTPlaybackItem?) {}
+
+    var isNetworkAvailable: Bool { true }
+
+    var isPausedByListener: Bool { false }
+
+    func systemDidWake(after sleep: TimeInterval) {}
 
     /// The web engine behind this engine: itself, or the one the native engine wraps (videos, the video surface).
     var webEngine: QTWebPlaybackEngine? {

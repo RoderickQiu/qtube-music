@@ -21,6 +21,11 @@
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "%1$lld 首 · %2$@" } }
       }
     },
+    "Couldn’t load more songs" : {
+      "localizations" : {
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "无法载入更多歌曲" } }
+      }
+    },
     "Couldn’t play “%@”" : {
       "localizations" : {
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "无法播放“%@”" } }
@@ -36,9 +41,24 @@
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "正在载入" } }
       }
     },
+    "Playback paused — no connection" : {
+      "localizations" : {
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "没有网络连接，已暂停播放" } }
+      }
+    },
     "Playback stopped — the next songs couldn’t play" : {
       "localizations" : {
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "已停止播放：接下来的歌曲无法播放" } }
+      }
+    },
+    "Playback was interrupted" : {
+      "localizations" : {
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "播放被中断" } }
+      }
+    },
+    "Resume" : {
+      "localizations" : {
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "继续播放" } }
       }
     },
     "You’re offline — playback continues when you reconnect" : {
