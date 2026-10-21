@@ -260,9 +260,11 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
             case .superseded:
                 throw CancellationError()
             case .fallBack:
-                // Load it in the page instead, from where playback is now and as the listener wants it now.
+                // Load it in the page instead, from where playback is now and as the listener wants it now: the app's
+                // intent (a pause during the switch dropped it), not the old page's moment — WebKit pauses that page
+                // when a video slot takes it, and a cued reload holds its pre-roll paused (live soak 2026-10-21).
                 item.startTime = max(0, state.timeline.currentTime + shift)
-                autoplay = state.status == .playing
+                autoplay = intendsPlayback
             }
         }
         if isModeSwitch, let from = previousMode {
@@ -557,6 +559,12 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
     /// From the Picture in Picture window's own controls (or closing it): the listener's pause, not the page's.
     public var isPausedByListener: Bool {
         state.status == .paused && (pictureInPictureIntent == false || video.isPictureInPictureActive)
+    }
+
+    /// The bridge reported the PiP window's pause (or its closing) — not just any pause while the window is open: a
+    /// track that comes up paused under PiP hasn't been paused by anyone.
+    public var isListenerPauseReported: Bool {
+        state.status == .paused && pictureInPictureIntent == false
     }
 
     /// Play from the Picture in Picture window: the listener's, though the app had paused.

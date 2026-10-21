@@ -193,6 +193,10 @@ public protocol QTPlaybackEngine: AnyObject {
     /// The current pause came from the listener outside the app's own commands (the Picture in Picture window's
     /// controls): the queue takes it as the listener's pause instead of resuming. Default false.
     var isPausedByListener: Bool { get }
+    /// Stricter: the listener's pause was actually reported (the bridge saw the PiP window's own pause), not merely a
+    /// pause while that window is open. A track that hasn't started yet only counts this one. Default:
+    /// `isPausedByListener`.
+    var isListenerPauseReported: Bool { get }
     /// The current play came from the listener outside the app's own commands (Play in the Picture in Picture window
     /// after the app had paused): the queue takes it as the listener's play. Default false.
     var isResumedByListener: Bool { get }
@@ -218,6 +222,8 @@ public extension QTPlaybackEngine {
     var isNetworkAvailable: Bool { true }
 
     var isPausedByListener: Bool { false }
+
+    var isListenerPauseReported: Bool { isPausedByListener }
 
     func systemDidWake(after sleep: TimeInterval) {}
 

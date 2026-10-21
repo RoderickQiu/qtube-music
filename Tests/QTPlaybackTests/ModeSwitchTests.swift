@@ -134,6 +134,26 @@ import WebKit
         #expect(pages.engine.standby == nil)
     }
 
+    /// Live soak 2026-10-21: WebKit paused the old page as the video slot took it, the standby rolled a pre-roll, and
+    /// the fallback reload followed the old page's moment — cued, so the bridge's hold paused its pre-roll at once.
+    @Test func theFallbackReloadFollowsTheIntentNotTheOldPagesPause() async throws {
+        let pages = QTFakePlayerPages()
+        pages.standby = .neverReady
+        try await startSong(pages)
+        let switching = Task { try await pages.engine.load(videoItem(pages.engine), autoplay: true) }
+        try await pages.until { !pages.standbyURLs.isEmpty }
+        pages.engine.receive(["type": "state", "gen": pages.engine.generation, "vid": Self.songID, "match": true, "t": 31.0,
+                              "d": 200.0, "paused": true, "ps": 2, "buffering": false, "ad": NSNull(), "rs": 4])
+        #expect(pages.engine.state.status == .paused)
+        let standby = try #require(pages.engine.standby)
+        standby.receive(["type": "state", "gen": standby.generation, "vid": "ADad0000001", "match": true, "t": 0.0, "d": 15.0,
+                         "paused": false, "ps": 1, "buffering": false, "ad": ["duration": 15.0, "remaining": 15.0], "rs": 4])
+        try await switching.value
+        #expect(pages.engine.lastSeamlessFallback == "standby ad")
+        let load = try #require(pages.mainLoads.last)
+        #expect(load.videoID == Self.videoID && load.autoplay, "the listener still wants music")
+    }
+
     @Test func cancellingMidCrossfadeGivesTheOldPageItsVolumeBack() async throws {
         let pages = QTFakePlayerPages()
         try await startSong(pages)
@@ -254,6 +274,14 @@ final class QTFakePlayerPages {
     var refusesToStart = StartRefusal.never
     /// The main page's current track is one it won't start.
     private var isRefusingStart = false
+    /// What the main page's in-page loads show first: a pre-roll that comes up paused and plays on Play, or one that
+    /// stays paused whatever is asked (live soak 2026-10-21, Song⇄Video). A fresh page plays the item.
+    enum PreRoll { case none, pausedUntilPlay, stuck }
+    var preRoll = PreRoll.none
+    /// The main page's video floats in the Picture in Picture window (its samples say so).
+    var pictureInPicture = false
+    private var mainAd = PreRoll.none
+    private var mainLoadStart: TimeInterval = 0
     private(set) var log: [Call] = []
     /// In-page loads (`__qtBridge.load`) on the main page.
     private(set) var mainLoads: [Load] = []
@@ -317,6 +345,7 @@ final class QTFakePlayerPages {
             navigations.append(url)
             let gen = engine.generation
             isRefusingStart = refusesToStart == .everywhere
+            mainAd = .none
             let plays = !isRefusingStart
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(20))
@@ -360,15 +389,36 @@ final class QTFakePlayerPages {
             let gen = args[3] as? Int ?? engine.generation
             mainLoads.append(Load(videoID: videoID, start: start, autoplay: autoplay))
             isRefusingStart = refusesToStart != .never
-            let plays = autoplay && !isRefusingStart
+            mainAd = preRoll
+            mainLoadStart = start
+            let plays = autoplay && !isRefusingStart && mainAd == .none
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(20))
                 self.main.set(time: start, playing: plays)
-                self.engine.receive(self.sample(gen: gen, videoID: videoID, time: start, paused: !plays))
+                if self.mainAd != .none {
+                    self.engine.receive(self.adSample(gen: gen, paused: true))
+                } else {
+                    self.engine.receive(self.sample(gen: gen, videoID: videoID, time: start, paused: !plays))
+                }
             }
             return true
         case (.main, "sample"):
             return ["t": main.now, "rs": 4, "paused": !main.playing] as [String: Any]
+        case (.main, "play") where mainAd != .none:
+            let gen = engine.generation, videoID = engine.requestedVideoID ?? "", start = mainLoadStart
+            if mainAd == .stuck {
+                Task { @MainActor in self.engine.receive(self.adSample(gen: gen, paused: true)) }
+                return true
+            }
+            // The ad plays, then the content.
+            mainAd = .none
+            Task { @MainActor in
+                self.engine.receive(self.adSample(gen: gen, paused: false))
+                try? await Task.sleep(for: .milliseconds(30))
+                self.main.set(time: start, playing: true)
+                self.engine.receive(self.sample(gen: gen, videoID: videoID, time: start, paused: false))
+            }
+            return true
         case (.main, "play"):
             // Taken, but a track the page won't start stays where it is: paused at its start.
             if isRefusingStart {
@@ -401,8 +451,16 @@ final class QTFakePlayerPages {
         }
     }
 
+    /// A 15 s pre-roll at its start.
+    private func adSample(gen: Int, paused: Bool) -> [String: Any] {
+        var s = sample(gen: gen, videoID: "ADad0000001", time: 0, paused: paused)
+        s["d"] = 15.0
+        s["ad"] = ["duration": 15.0, "remaining": 15.0] as [String: Any]
+        return s
+    }
+
     private func sample(gen: Int, videoID: String, time: TimeInterval, paused: Bool) -> [String: Any] {
         ["type": "state", "gen": gen, "vid": videoID, "match": true, "t": time, "d": 200.0, "paused": paused,
-         "ps": paused ? 2 : 1, "buffering": false, "ad": NSNull(), "rs": 4]
+         "ps": paused ? 2 : 1, "buffering": false, "ad": NSNull(), "rs": 4, "pip": pictureInPicture]
     }
 }

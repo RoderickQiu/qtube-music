@@ -9,8 +9,8 @@ import QTCore
 // - a pause nobody asked for (YouTube's "Still listening?", WebKit) is undone once after a short grace; a second one
 //   soon after stops fighting and says so once. A pause (or Play) from the Picture in Picture window is the
 //   listener's own: the queue's intent follows it. A track that hasn't started since it loaded (the page came up
-//   paused at its start) isn't interrupted, it is starting: Play again, then the same item on a fresh page, Play
-//   once more there — and only then stop and say so.
+//   paused at its start), or a paused ad, isn't interrupted, it is starting: Play again, then the same item on a
+//   fresh page, Play once more there — and only then stop and say so.
 // - the engine playing another item than the queue's current one (a stale gapless chain), or none, for 2 s reloads
 //   the queue's track (or moves on, when the old one had ended);
 // - an end or failure the queue missed (it came while a load was in flight) is acted on after 3 s;
@@ -316,14 +316,14 @@ extension QTQueueController {
             watch.pausedSince = nil
             return
         }
-        if engine.isPausedByListener {
+        if isListenersPause(s) {
             // The Picture in Picture window's pause: the listener's own (normally adopted as it arrived).
             listenerPausedOutsideApp()
             return
         }
         let since = watch.pausedSince ?? now
         watch.pausedSince = since
-        guard watch.hasStarted else {
+        guard !isStarting(s) else {
             coaxStart(current, pausedFor: now - since)
             return
         }
@@ -340,7 +340,8 @@ extension QTQueueController {
     }
 
     /// Paused before the track ever started (YouTube's page sometimes brings a new track up paused at its start and
-    /// ignores the first Play): not an interruption, so it never uses up the one silent resume. Play again after the
+    /// ignores the first Play), or on an ad (a Song⇄Video reload's pre-roll): not an interruption, so it never uses
+    /// up the one silent resume. Play again after the
     /// grace; still paused a while later, the same item on a fresh page at its position (the watch page's own
     /// autoplay); Play once more there; only then stop and say so. Each step waits for the page's answer: the grace
     /// right after a load, `startPatience` after a Play.
@@ -398,13 +399,27 @@ extension QTQueueController {
     /// next track plays on). The media already did it; nothing is sent back to the engine, which would fight it.
     func adoptListenerControl(_ s: QTPlaybackState, previous: QTPlaybackState) {
         guard s.status != previous.status, let current = queue.nowPlaying, agrees(s.item, with: current) else { return }
-        if s.status == .paused, wantsPlayback, engine.isPausedByListener {
+        if s.status == .paused, wantsPlayback, isListenersPause(s) {
             listenerPausedOutsideApp()
         } else if s.status == .playing, !wantsPlayback, engine.isResumedByListener {
             wantsPlayback = true
             watch.listenerResumed()
             superviseSoon()
         }
+    }
+
+    /// The current item hasn't started: its content never played since it loaded, or an ad shows (before the content,
+    /// or between ads of a pod). Ads play for free accounts, so a paused one is played on — never skipped, and never
+    /// taken for "Still listening?".
+    func isStarting(_ s: QTPlaybackState) -> Bool {
+        !watch.hasStarted || s.ad != nil
+    }
+
+    /// The engine's pause is the listener's own (Picture in Picture). For a track that is still starting only a pause
+    /// the bridge actually reported counts: one that merely happens while the PiP window is open is the page not
+    /// starting it (`coaxStart`), else the next track would sit silent under PiP with nobody told.
+    func isListenersPause(_ s: QTPlaybackState) -> Bool {
+        isStarting(s) ? engine.isListenerPauseReported : engine.isPausedByListener
     }
 
     /// The listener paused outside the app: the queue's intent only (the media is paused already).

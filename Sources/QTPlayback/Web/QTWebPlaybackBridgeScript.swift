@@ -576,7 +576,9 @@ enum QTWebPlaybackBridgeScript {
         },
         play() { thaw(); S.hold = false; const p = player(); if (!p) return false;
                  if (S.endedGen === S.gen) { S.endedGen = -1; p.seekTo(0, true); }
-                 p.playVideo(); return true; },
+                 // A paused ad may ignore playVideo: its own media plays it on (ads are played, never skipped).
+                 p.playVideo(); const v = video(); if (v && v.paused && isAd(p)) try { v.play().catch(() => {}); } catch (_) {}
+                 return true; },
         pause() { S.hold = true; pauseNow(); report(true); return true; },
         seek(t) { thaw(); const p = player(); if (!p || isAd(p)) return false;
                   if (S.endedGen === S.gen && t < num(p.getDuration()) - 1) S.endedGen = -1;
