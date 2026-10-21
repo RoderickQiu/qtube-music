@@ -45,7 +45,7 @@ swift test  --scratch-path .build/<you> --disable-xctest
 - **Keep `--disable-xctest` for now.** Every suite uses Swift Testing, so the XCTest pass has nothing to run. A
   plain `swift test` still runs that pass first, and on this host (Xcode 27.1, macOS 27) the `QTUITests.xctest`
   runner hangs in it, blocked in a CFPreferences XPC call. Re-checked 2026-10-19.
-- **Current result:** 467 tests in 79 suites pass (after the R5 integration). They need no network and none of the git-ignored data.
+- **Current result:** 562 tests in 93 suites pass (after global shortcuts). They need no network and none of the git-ignored data.
 - **Opt-in suites** are gated by environment variables:
   - `QT_LIVE=1`: live, anonymous InnerTube, lyrics and playback.
   - `QT_RECORD=1`: re-record the InnerTube fixtures.

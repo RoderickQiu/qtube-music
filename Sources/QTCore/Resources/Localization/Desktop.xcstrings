@@ -1,6 +1,16 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "%@ uses this by default" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 默认使用此快捷键"
+          }
+        }
+      }
+    },
     "%lld pt" : {
       "localizations" : {
         "zh-Hans" : {
@@ -151,6 +161,26 @@
         }
       }
     },
+    "Clear Shortcut" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "清除快捷键"
+          }
+        }
+      }
+    },
+    "Click to record a shortcut" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "点按以录制快捷键"
+          }
+        }
+      }
+    },
     "Close Mini Player" : {
       "localizations" : {
         "zh-Hans" : {
@@ -251,6 +281,16 @@
         }
       }
     },
+    "Edit…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "编辑…"
+          }
+        }
+      }
+    },
     "Electronic" : {
       "localizations" : {
         "zh-Hans" : {
@@ -277,6 +317,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "实验性功能。直接播放 Premium 歌曲，支持无缝播放、淡入淡出和均衡器。视频仍由 YouTube 播放器播放。"
+          }
+        }
+      }
+    },
+    "Fills in the empty ones with ⌃⌥⌘ shortcuts" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "为未设置的项目填入 ⌃⌥⌘ 快捷键"
           }
         }
       }
@@ -331,12 +381,32 @@
         }
       }
     },
+    "Global Shortcuts" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全局快捷键"
+          }
+        }
+      }
+    },
     "Hide Panel" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "隐藏面板"
+          }
+        }
+      }
+    },
+    "Include ⌘ or ⌃" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "需包含 ⌘ 或 ⌃"
           }
         }
       }
@@ -407,6 +477,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Last.fm 暂不接受播放记录，请在设置中检查 API 密钥。"
+          }
+        }
+      }
+    },
+    "Like/Unlike" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "喜欢/取消喜欢"
           }
         }
       }
@@ -487,6 +567,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "需要登录 YouTube Music Premium 账户。"
+          }
+        }
+      }
+    },
+    "Next Song" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "下一首"
+          }
+        }
+      }
+    },
+    "None" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无"
           }
         }
       }
@@ -581,6 +681,16 @@
         }
       }
     },
+    "Play/Pause" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "播放/暂停"
+          }
+        }
+      }
+    },
     "Playback" : {
       "localizations" : {
         "zh-Hans" : {
@@ -621,6 +731,16 @@
         }
       }
     },
+    "Previous Song" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上一首"
+          }
+        }
+      }
+    },
     "Quit QTube Music" : {
       "localizations" : {
         "zh-Hans" : {
@@ -637,6 +757,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "节奏布鲁斯"
+          }
+        }
+      }
+    },
+    "Record Shortcut" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "录制快捷键"
+          }
+        }
+      }
+    },
+    "Records a shortcut that works in any app" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "录制一个在任何应用中都能使用的快捷键"
           }
         }
       }
@@ -741,6 +881,16 @@
         }
       }
     },
+    "Same as %@ in the menu bar" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "与菜单栏中的“%@”相同"
+          }
+        }
+      }
+    },
     "Saved" : {
       "localizations" : {
         "zh-Hans" : {
@@ -801,12 +951,32 @@
         }
       }
     },
+    "Set Up…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "设置…"
+          }
+        }
+      }
+    },
     "Shared Secret" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "共享密钥"
+          }
+        }
+      }
+    },
+    "Shortcuts" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "快捷键"
           }
         }
       }
@@ -827,6 +997,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "显示面板"
+          }
+        }
+      }
+    },
+    "Show QTube Music" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示 QTube Music"
           }
         }
       }
@@ -867,6 +1047,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "显示我正在听的歌"
+          }
+        }
+      }
+    },
+    "Show/Hide Desktop Lyrics" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示/隐藏桌面歌词"
+          }
+        }
+      }
+    },
+    "Show/Hide Mini Player" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示/隐藏迷你播放器"
           }
         }
       }
@@ -1001,6 +1201,16 @@
         }
       }
     },
+    "These work in any app, even with QTube Music in the background. Media keys and the Shortcuts app control playback without them." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "即使 QTube Music 在后台，这些快捷键也能在任何应用中使用。不设置它们，媒体键和“快捷指令”App 也能控制播放。"
+          }
+        }
+      }
+    },
     "This Mac doesn’t support Apple Intelligence" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1041,6 +1251,16 @@
         }
       }
     },
+    "Type Shortcut" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按下快捷键"
+          }
+        }
+      }
+    },
     "Unlock Desktop Lyrics" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1071,6 +1291,16 @@
         }
       }
     },
+    "Use Suggested Shortcuts" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用建议的快捷键"
+          }
+        }
+      }
+    },
     "Use your own API key" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1087,6 +1317,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "使用自己的应用 ID"
+          }
+        }
+      }
+    },
+    "Used by another app" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已被其他应用使用"
+          }
+        }
+      }
+    },
+    "Used by macOS (System Settings › Keyboard › Keyboard Shortcuts)" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已被 macOS 使用（系统设置 › 键盘 › 键盘快捷键）"
           }
         }
       }
@@ -1187,6 +1437,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "你的资料库和喜欢的音乐会保留在 YouTube Music 账户中。"
+          }
+        }
+      }
+    },
+    "macOS didn’t accept this shortcut" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS 不接受此快捷键"
           }
         }
       }

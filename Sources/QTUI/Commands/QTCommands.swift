@@ -233,6 +233,16 @@ public struct QTKeyboardShortcutsView: View {
         ]
     }
 
+    @Environment(\.openSettings) private var openSettings
+
+    /// Settings › Shortcuts: the ones set, in action order.
+    private var globalRows: [Row] {
+        let bindings = QTAppModel.shared.settings.settings.globalHotKeys
+        return QTGlobalHotKeyAction.allCases.compactMap { action in
+            bindings[action].map { Row(title: QTGlobalHotKeys.title(for: action), keys: QTKeyboardLayout.shared.display($0)) }
+        }
+    }
+
     public var body: some View {
         Form {
             ForEach(groups, id: \.0) { title, rows in
@@ -243,6 +253,22 @@ public struct QTKeyboardShortcutsView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
+                }
+            }
+            // Global shortcuts work in any app (Settings › Shortcuts); none until the user sets them.
+            Section(QTLoc.tr("Global Shortcuts", table: .desktop)) {
+                ForEach(globalRows) { row in
+                    LabeledContent(row.title) {
+                        Text(verbatim: row.keys)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                LabeledContent(globalRows.isEmpty ? QTLoc.tr("None", table: .desktop) : "") {
+                    Button(QTLoc.tr(globalRows.isEmpty ? "Set Up…" : "Edit…", table: .desktop)) {
+                        QTSettingsNavigation.shared.requestedTab = .shortcuts
+                        openSettings()
+                    }
+                    .accessibilityIdentifier("qt.keyboardShortcuts.global")
                 }
             }
         }
