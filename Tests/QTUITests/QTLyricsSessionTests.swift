@@ -221,7 +221,7 @@ final class QTRecordedInnerTubeTransport: QTHTTPTransport, @unchecked Sendable {
         #expect(session.offset == 0.2)
         #expect(session.document?.offset == 0.2)
         try await Task.sleep(for: .milliseconds(600))
-        #expect(await cache.offset(for: Self.hero.videoId) == 0.2)
+        #expect(await cache.offset(for: Self.hero.videoId, version: "netease:1") == 0.2)
 
         let again = try makeSession(settings, cache: cache)
         again.load(Self.hero)
@@ -281,6 +281,79 @@ final class QTRecordedInnerTubeTransport: QTHTTPTransport, @unchecked Sendable {
         session.retryIfUnreachable(force: true)
         await settle(session)
         #expect(session.phase == .loaded)
+    }
+
+    func waitUntil(_ condition: @MainActor () -> Bool) async {
+        let start = ContinuousClock.now
+        while !condition(), ContinuousClock.now - start < .seconds(5) { try? await Task.sleep(for: .milliseconds(5)) }
+    }
+
+    /// "Report Wrong Lyrics" is one call: the next version shows at once, and a relaunch keeps it away.
+    @Test func reportWrongShowsTheNextVersionAndSticks() async throws {
+        let settings = makeSettings(unofficial: .init(netease: true))
+        let cache = try QTLyricsCache(url: nil)
+        let store = QTLyricsVersionStore()
+        var netease = QTSessionStubProvider(source: .netease, mode: QTSessionStubMode(.found).get)
+        netease.ids = ["1", "2"]
+        let session = QTLyricsSession(settings: settings, resolver: QTLyricsResolver(providers: [netease], cache: cache),
+                                      isMockTrack: { $0.videoId.hasPrefix("ne") }, versionStore: store)
+        session.load(Self.hero)
+        await settle(session)
+        #expect(session.chosenVersionID == "netease:1")
+        #expect(store.versions[Self.hero.videoId]?.count == 2)
+
+        store.reportWrong(Self.hero.videoId)
+        await waitUntil { session.chosenVersionID == "netease:2" }
+        #expect(session.chosenVersionID == "netease:2")
+        #expect(!session.versions.contains { $0.id == "netease:1" })
+        #expect(store.versions[Self.hero.videoId]?.map(\.id) == ["netease:2"])
+        #expect(await cache.rejectedVersionIDs(for: Self.hero.videoId) == ["netease:1"])
+
+        let again = try makeSession(settings, ids: ["1", "2"], cache: cache)
+        again.reload()
+        again.load(Self.hero)
+        await settle(again)
+        #expect(again.chosenVersionID == "netease:2")
+    }
+
+    @Test func noLyricsForThisSong() async throws {
+        let settings = makeSettings(unofficial: .init(netease: true))
+        let cache = try QTLyricsCache(url: nil)
+        let session = try makeSession(settings, ids: ["1", "2"], cache: cache)
+        session.load(Self.hero)
+        await settle(session)
+        #expect(session.document != nil)
+        session.turnOffLyrics()
+        await waitUntil { session.isLyricsOff }
+        #expect(session.document == nil)
+        #expect(session.phase == .notFound)
+        #expect(session.versions.count == 2)
+
+        let again = try makeSession(settings, ids: ["1", "2"], cache: cache)
+        again.load(Self.hero)
+        await settle(again)
+        #expect(again.isLyricsOff)
+        #expect(again.document == nil)
+        again.unpin()
+        await waitUntil { again.document != nil }
+        #expect(!again.isLyricsOff)
+        #expect(again.chosenVersionID == "netease:1")
+    }
+
+    /// Each version keeps its own timing: pinning another one doesn't carry the nudge over.
+    @Test func offsetFollowsTheVersion() async throws {
+        let cache = try QTLyricsCache(url: nil)
+        let session = try makeSession(makeSettings(unofficial: .init(netease: true)), ids: ["1", "2"], cache: cache)
+        session.load(Self.hero)
+        await settle(session)
+        session.nudgeOffset(by: 0.3)
+        try await Task.sleep(for: .milliseconds(500))
+        session.pin(versionID: "netease:2")
+        await waitUntil { session.chosenVersionID == "netease:2" }
+        #expect(session.offset == 0)
+        session.unpin()
+        await waitUntil { session.chosenVersionID == "netease:1" }
+        #expect(session.offset == 0.3)
     }
 
     @Test func launchArgumentForUnofficialSources() {

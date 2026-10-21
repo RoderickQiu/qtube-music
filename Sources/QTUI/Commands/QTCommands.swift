@@ -5,7 +5,7 @@ import SwiftUI
 // Owner: builder "desktop". The full menu bar (draft §8, HANDOFF §5 keyboard map):
 //   QTube Music (system + Check for Updates… from the app target) · File (Close Window ⌘W) · Edit (+ Search Music ⌘K, Filter ⌘F) · View (panel ⌥⌘N,
 //   sections ⌘1–7 in sidebar order, Back ⌘[ / Forward ⌘] through QTNavigator, system sidebar / full screen) · Controls (Space, ⌘←/→, ⌘L, shuffle, repeat, ⌘↑/↓ volume,
-//   ⇧⌘V, ⇧⌘P, ⇧⌘F, ⇧⌘M, ⇧⌘L, ⌥↑/↓) · Window (system + "QTube Music" ⌘0) · Help (Keyboard Shortcuts ⌘/).
+//   ⇧⌘V, ⇧⌘P, ⇧⌘F, ⇧⌘M, ⇧⌘L, ⌥↑/↓, Lyrics Source ›) · Window (system + "QTube Music" ⌘0) · Help (Keyboard Shortcuts ⌘/).
 // Esc closes the Stage / its drawer inside the Stage view (`.cancelAction`), not as a menu item, so popovers and
 // sheets keep their own Esc. Text-editing collisions (Space, ⌘←…) are routed to the text field (QTKeyRouting).
 
@@ -130,6 +130,12 @@ public struct QTCommands: Commands {
             Button(QTLoc.tr("Lyrics Later")) { QTLyricsTiming.nudge(model, by: -QTLyricsTiming.step) }
                 .keyboardShortcut(.downArrow, modifiers: .option)
                 .disabled(player.lyrics == nil)
+            // The same choices as the lyrics options popover: Automatic, the versions found, No Lyrics for This Song,
+            // Report Wrong Lyrics.
+            Menu(QTLoc.tr("Lyrics Source", table: .lyrics)) {
+                QTLyricsSourceMenu(model: model)
+            }
+            .disabled(player.nowPlaying == nil)
         }
 
         // Window: the main window scene lists itself with ⌘0 (set on the scene in the app target); bringing it
