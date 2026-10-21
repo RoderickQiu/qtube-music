@@ -17,6 +17,8 @@ public sources. No requests went to YouTube or Google. Line numbers are as of co
 > then reloaded on a fresh page); run 2 found a pre-roll ad on Song⇄Video held paused (fixed); run 3 passed 12/13 —
 > the one miss was 46 s of silence at a track change, which the logs show was a Wi‑Fi outage the system still
 > reported as online (now shown as loading, never "interrupted", and playing ~1 s after the network returns).
+> Run 4, on the final build, passed 13/13 (no silent stops, every track change and radio continuation on time,
+> pause / offline / Song⇄Video / window / display-sleep scenarios, one Now Playing entry, flat memory).
 > Still open: the owner's one-time real sign-in test (§4 checklist), a signed-in fixture capture to confirm the
 > hand-built response shapes (§1, §2, §5), and installing.
 
