@@ -208,7 +208,8 @@ extension QTAccountWriterTests {
         #expect(QTAccountContext.accountKey(dataSyncId: "") == nil)
         #expect(QTLiveCatalogStore.localProfile(accountKey: "acct-a", brand: nil) == "acct-a")
         #expect(QTLiveCatalogStore.localProfile(accountKey: "acct-a", brand: "123") == "acct-a/123")
-        #expect(QTLiveCatalogStore.localProfile(accountKey: nil, brand: "123") == nil)
+        #expect(QTLiveCatalogStore.localProfile(accountKey: nil, brand: "123") == "123", "provisional until known")
+        #expect(QTLiveCatalogStore.localProfile(accountKey: nil, brand: nil) == "main")
     }
 
     @Test func localChangesBelongToOneGoogleAccount() throws {

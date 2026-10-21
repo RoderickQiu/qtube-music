@@ -71,6 +71,10 @@ struct QTLikeCurrentTrackIntent: AppIntent {
             return .result(dialog: IntentDialog(LocalizedStringResource("Nothing is playing.", table: "AppIntents")))
         case .signInRequired:
             return .result(dialog: IntentDialog(LocalizedStringResource("Sign in to YouTube Music in QTube Music to like songs.", table: "AppIntents")))
+        case .switchingAccounts:
+            return .result(dialog: IntentDialog(LocalizedStringResource("QTube Music is switching accounts. Try again in a moment.", table: "AppIntents")))
+        case .notLiked:
+            return .result(dialog: IntentDialog(LocalizedStringResource("QTube Music couldn’t like this song.", table: "AppIntents")))
         }
     }
 }

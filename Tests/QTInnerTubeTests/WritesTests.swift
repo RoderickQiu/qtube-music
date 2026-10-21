@@ -53,6 +53,17 @@ import Testing
         #expect(r.allSatisfy { $0.value(forHTTPHeaderField: "Authorization")?.hasPrefix("SAPISIDHASH ") == true })
     }
 
+    @Test func aCopyOfASongThePlaylistHoldsGoesBackAsADuplicate() async throws {
+        let t = FakeTransport()
+        let client = await makeClient(t)
+        t.enqueue("browse/edit_playlist", json: Self.ok)
+        try await client.addToPlaylist("VLPLowned", videoIds: ["vidOwned001"], allowingDuplicates: true)
+        let copy = t.recorded[0].jsonBody["actions"][0]
+        #expect(copy["action"].string == "ACTION_ADD_VIDEO")
+        #expect(copy["addedVideoId"].string == "vidOwned001")
+        #expect(copy["dedupeOption"].string == "DEDUPE_OPTION_SKIP", "ytmusicapi's duplicates=True")
+    }
+
     @Test func playlistEditsAndTheirResults() async throws {
         let t = FakeTransport()
         let client = await makeClient(t)
