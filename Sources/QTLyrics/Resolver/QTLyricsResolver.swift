@@ -19,9 +19,13 @@ public struct QTResolvedLyricsVersion: Sendable, Hashable, Codable, Identifiable
     /// The user reported it ("Report Wrong Lyrics"): never chosen automatically, listed last so the report can be
     /// taken back by picking it (nil = not reported).
     public var isReported: Bool?
+    /// `QTLyricsSanity.fingerprint` of the fetched words (nil when unfetched or too short): the menu shows one row for
+    /// versions of one source with the same words.
+    public var textFingerprint: String?
 
     public init(candidate: QTLyricsCandidate, score: Double, syncKind: QTLyricsSyncKind?, hasTranslation: Bool,
-                translationLanguage: String? = nil, flags: [QTLyricsMatchFlag]? = nil, isReported: Bool? = nil) {
+                translationLanguage: String? = nil, flags: [QTLyricsMatchFlag]? = nil, isReported: Bool? = nil,
+                textFingerprint: String? = nil) {
         self.candidate = candidate
         self.score = score
         self.syncKind = syncKind
@@ -29,6 +33,7 @@ public struct QTResolvedLyricsVersion: Sendable, Hashable, Codable, Identifiable
         self.translationLanguage = translationLanguage
         self.flags = flags
         self.isReported = isReported
+        self.textFingerprint = textFingerprint
     }
     public var id: String { candidate.id }
     public var source: QTLyricsSource { candidate.source }
@@ -421,7 +426,8 @@ public actor QTLyricsResolver: QTLyricsProviding {
             return QTResolvedLyricsVersion(candidate: candidate, score: e.score.total, syncKind: e.parsed.syncKind,
                                            hasTranslation: e.parsed.lanes.contains { $0.kind == .translation },
                                            translationLanguage: e.parsed.lanes.first { $0.kind == .translation }?.language,
-                                           flags: QTLyricsMatchFlag.allCases.filter(e.score.flags.contains))
+                                           flags: QTLyricsMatchFlag.allCases.filter(e.score.flags.contains),
+                                           textFingerprint: QTLyricsSanity.fingerprint(e.parsed))
         }
         // Candidates that were fetched but failed (empty, overrun, re-scored below threshold) are not offered.
         let fetchedIDs = Set(toFetch.map(\.0.id))

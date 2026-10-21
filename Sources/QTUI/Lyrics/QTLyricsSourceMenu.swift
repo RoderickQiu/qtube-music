@@ -6,7 +6,8 @@ import SwiftUI
 
 /// Automatic (checked unless the user chose otherwise; the default goes first, as in any Mac picker), the versions
 /// found for this song best first — "LRCLIB · Line timing" over a plain-words subtitle ("Best match", "Possible
-/// mismatch · 12 s longer") — then "No Lyrics for This Song", and optionally "Report Wrong Lyrics".
+/// mismatch · 12 s longer"; rows that share a title also say what sets them apart, `QTLyricsVersion.menuRows`) —
+/// then "No Lyrics for This Song", and optionally "Report Wrong Lyrics".
 struct QTLyricsSourceMenu: View {
     let model: QTAppModel
     /// The popover has its own one-click Report button beside the menu.
@@ -24,11 +25,11 @@ struct QTLyricsSourceMenu: View {
         .accessibilityIdentifier("qt.lyrics.sourceAutomatic")
         if !versions.isEmpty {
             Divider()
-            ForEach(Array(versions.enumerated()), id: \.element.id) { index, v in
-                Toggle(isOn: Binding(get: { choice == .version(v.id) }, set: { _ in store.pin(v, for: id) })) {
+            ForEach(QTLyricsVersion.menuRows(versions, keeping: Self.shownOrPinned(id, choice: choice))) { row in
+                Toggle(isOn: Binding(get: { choice == .version(row.id) }, set: { _ in store.pin(row.version, for: id) })) {
                     // Two texts: the menu item's title and its subtitle (macOS 14+ menus).
-                    Text(verbatim: v.menuTitle)
-                    if let detail = v.menuDetail(isBest: index == 0) { Text(verbatim: detail) }
+                    Text(verbatim: row.title)
+                    if let detail = row.detail { Text(verbatim: detail) }
                 }
             }
         }
@@ -57,6 +58,13 @@ struct QTLyricsSourceMenu: View {
             let sourceID = id.split(separator: ":", maxSplits: 1).first.map(String.init)
             return knownSources.first { $0.id == sourceID }.map { QTLoc.tr($0.name) } ?? QTLoc.tr("Automatic", table: .lyrics)
         }
+    }
+
+    /// The versions showing or pinned: a duplicate among them stands for its group, so the check mark stays visible.
+    private static func shownOrPinned(_ videoId: String, choice: QTLyricsSourceChoice) -> Set<String> {
+        var ids = Set([QTLyricsVersionStore.shared.selected[videoId]].compactMap { $0 })
+        if case .version(let pinned) = choice { ids.insert(pinned) }
+        return ids
     }
 
     private static let knownSources: [QTLyricsSource] = [.youtubeMusic, .amll, .lrclib, .netease, .kugou, .qq]

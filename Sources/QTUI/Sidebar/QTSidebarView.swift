@@ -128,27 +128,30 @@ struct QTSidebarRow: View {
     @State private var isTargeted = false
     @State private var draftName = ""
     @FocusState private var isEditingName: Bool
-    /// Esc: the rename ends without keeping the name.
-    @State private var renameCancelled = false
+    @State private var rename = QTInPlaceRename()
 
     private var isRenaming: Bool { playlist != nil && renaming == playlist?.id }
 
     var body: some View {
         let label = Label {
             if isRenaming {
-                // In place, like Finder and Music: ↩ or clicking away keeps the name, Esc leaves it as it was.
+                // In place, like Finder and Music: ↩, a click anywhere else (content, another row, the toolbar, another
+                // window) or the window losing key keeps the name; Esc leaves it as it was.
                 TextField(QTLoc.tr("Name", table: .main), text: $draftName)
                     .textFieldStyle(.plain)
                     .focused($isEditingName)
                     .onSubmit(commitRename)
                     .onExitCommand {
-                        renameCancelled = true
+                        _ = rename.end(cancelled: true, draft: draftName, original: title)
                         renaming = nil
                     }
                     .onChange(of: isEditingName) { _, focused in if !focused { commitRename() } }
+                    // Shared/QTClickOutsideMonitor.swift: AppKit leaves the field editing after a click on a view
+                    // that won't take focus (an empty part of a page).
+                    .qtOnClickOutside(isActive: isRenaming) { commitRename() }
                     .onAppear {
                         draftName = title
-                        renameCancelled = false
+                        rename.begin()
                         isEditingName = true
                     }
                     .accessibilityIdentifier("qt.sidebar.rename")
@@ -182,13 +185,13 @@ struct QTSidebarRow: View {
         }
     }
 
-    /// Keeps the typed name (once: ↩, focus moving away and another rename can each end the same edit).
+    /// Keeps the typed name (once: ↩, a click elsewhere, focus moving away and another rename can each end the same
+    /// edit).
     private func commitRename() {
-        guard !renameCancelled else { return }
-        renameCancelled = true
+        guard !rename.isEnded else { return }
+        let name = rename.end(draft: draftName, original: title)
         if renaming == playlist?.id { renaming = nil }
-        let name = draftName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let playlist, !name.isEmpty, name != title else { return }
+        guard let playlist, let name else { return }
         // Only the name: description and privacy stay as they are (they may not be known here).
         QTAccountWriter.shared.editDetails(playlist, title: name)
     }
@@ -213,5 +216,23 @@ struct QTSidebarRow: View {
             }
         }
         return true
+    }
+}
+
+/// One in-place rename (sidebar playlists, like Finder and Music). However it ends — ↩, a click anywhere else, the
+/// window losing key, focus moving away, another rename starting, or Esc — it ends once, and only Esc drops the
+/// typed name.
+struct QTInPlaceRename: Equatable {
+    private(set) var isEnded = true
+
+    mutating func begin() { isEnded = false }
+
+    /// Ends the rename. Returns the name to save: nil when it was cancelled, already ended, left blank or unchanged.
+    mutating func end(cancelled: Bool = false, draft: String, original: String) -> String? {
+        guard !isEnded else { return nil }
+        isEnded = true
+        let name = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cancelled, !name.isEmpty, name != original else { return nil }
+        return name
     }
 }

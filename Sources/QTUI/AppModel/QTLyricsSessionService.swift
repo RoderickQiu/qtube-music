@@ -648,7 +648,10 @@ public final class QTLyricsSession {
             QTLyricsVersion(id: v.id, source: v.source, syncKind: v.syncKind ?? .line,
                             translationLanguage: v.translationLanguage, confidence: v.score,
                             durationDelta: length > 0 ? v.duration.map { $0 - length } : nil,
-                            isPossibleMismatch: v.isPossibleMismatch, isReported: v.isReported == true)
+                            isPossibleMismatch: v.isPossibleMismatch, isReported: v.isReported == true,
+                            matchedName: v.candidate.nameDiffering(fromTitle: track.title, artists: track.artists.map(\.name)),
+                            length: v.duration, album: v.candidate.album.flatMap { $0.isEmpty ? nil : $0 },
+                            textFingerprint: v.textFingerprint)
         }
         versionStore.publish(rows, for: track.videoId, selected: chosen)
         let choice: QTLyricsSourceChoice = switch pin {
@@ -767,5 +770,29 @@ struct QTOfflineLyricsHTTPClient: QTLyricsHTTPClient {
 struct QTOfflineInnerTubeTransport: QTHTTPTransport {
     func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         throw URLError(.notConnectedToInternet)
+    }
+}
+
+extension QTLyricsCandidate {
+    /// The parts of the song the source filed this under that differ from the playing song, for the "Lyrics Source"
+    /// menu: "“Title (Remix)”", "Other Artist", or both; nil when it names the same song. Titles compare without
+    /// noise ("Official Video") but with version markers (Live, Remix…); the provider's other titles and artist names
+    /// count as the same ("出牌" for "Hạ Phỏm"). Unknown artists never show.
+    func nameDiffering(fromTitle title: String, artists playingNames: [String]) -> String? {
+        let key = QTLyricsTextFolding.comparisonKey
+        let playing = QTTitleCleaner.clean(title), mine = QTTitleCleaner.clean(self.title)
+        let playingTitles = Set(([playing.core] + playing.alternates).map(key))
+        let myTitles = Set(([mine.core] + mine.alternates + titleAliases.map { QTTitleCleaner.clean($0).core }).map(key))
+        let sameTitle = mine.tags == playing.tags && !playingTitles.isDisjoint(with: myTitles)
+        let playingArtists = Set(playingNames.flatMap(QTTitleCleaner.splitArtists).map(key))
+        let myArtists = Set((artists + artistAliases).flatMap(QTTitleCleaner.splitArtists).map(key))
+        let sameArtist = artists.isEmpty || playingNames.isEmpty || !playingArtists.isDisjoint(with: myArtists)
+        var parts: [String] = []
+        if !sameTitle, !self.title.isEmpty {
+            let shown = self.title.count > 60 ? self.title.prefix(59) + "…" : Substring(self.title)
+            parts.append(QTLoc.tr("“%@”", table: .lyrics, String(shown)))
+        }
+        if !sameArtist { parts.append(artists.joined(separator: ", ")) }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }

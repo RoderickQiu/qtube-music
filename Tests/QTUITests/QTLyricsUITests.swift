@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import QTCore
+import QTLyrics
 import QTPlayback
 import Testing
 @testable import QTUI
@@ -342,5 +343,73 @@ import Testing
         #expect(en.format("%lld s longer", table: .lyrics, arguments: [3]) == "3 s longer")
         #expect(zh.format("%lld s longer", table: .lyrics, arguments: [3]) == "长 3 秒")
         #expect(zh.string("No Lyrics for This Song", table: .lyrics) == "此歌曲不显示歌词")
+    }
+    /// The pre-launch check's menu: three "Kugou · Word timing" rows and two "NetEase · Line timing" rows read the
+    /// same. Same words from one source are one row; the rest say what sets them apart.
+    @Test func menuRowsTellAlikeVersionsApart() {
+        let sep = " · "
+        let best = QTLoc.tr("Best match", table: .lyrics), same = QTLoc.tr("Same length", table: .lyrics)
+        let versions = [
+            QTLyricsVersion(id: "netease:1", source: .netease, syncKind: .word, translationLanguage: "zh-Hans",
+                            durationDelta: 0.4, length: 257, textFingerprint: "a"),
+            QTLyricsVersion(id: "kugou:1", source: .kugou, syncKind: .word, durationDelta: 0.2, length: 257, textFingerprint: "a"),
+            QTLyricsVersion(id: "kugou:2", source: .kugou, syncKind: .word, durationDelta: 1, length: 258, textFingerprint: "a"),
+            QTLyricsVersion(id: "kugou:3", source: .kugou, syncKind: .word, durationDelta: 12, matchedName: "“Remix”",
+                            length: 269, textFingerprint: "b"),
+            QTLyricsVersion(id: "netease:2", source: .netease, syncKind: .line, durationDelta: -0.6, length: 256),
+            QTLyricsVersion(id: "netease:3", source: .netease, syncKind: .line, durationDelta: 12, length: 269),
+        ]
+        let rows = QTLyricsVersion.menuRows(versions)
+        // kugou:2 has kugou:1's words: one row.
+        #expect(rows.map(\.id) == ["netease:1", "kugou:1", "kugou:3", "netease:2", "netease:3"])
+        // A title of its own keeps the plain subtitle.
+        #expect(rows[0].detail == best)
+        #expect(rows[1].detail == same)
+        #expect(rows[2].detail == "“Remix”" + sep + QTLoc.tr("%lld s longer", table: .lyrics, 12))
+        #expect(rows[3].detail == same)
+        #expect(rows[4].detail == QTLoc.tr("%lld s longer", table: .lyrics, 12))
+        // No two rows read the same, title and subtitle together.
+        #expect(Set(rows.map { "\($0.title)|\($0.detail ?? "")" }).count == rows.count)
+        // The duplicate that shows (or is pinned) stands for its group, so its check mark stays visible.
+        #expect(QTLyricsVersion.menuRows(versions, keeping: ["kugou:2"]).map(\.id)
+                == ["netease:1", "kugou:2", "kugou:3", "netease:2", "netease:3"])
+        // A reported copy stays its own row ("Reported").
+        var reported = versions[2]
+        reported.isReported = true
+        #expect(QTLyricsVersion.menuRows([versions[1], reported]).count == 2)
+    }
+
+    /// Alike in everything shown: the album where they differ, then a number — never two identical rows.
+    @Test func menuRowsFallBackToAlbumThenNumber() {
+        let a = QTLyricsVersion(id: "kugou:1", source: .kugou, syncKind: .word, length: 257, album: "One")
+        let b = QTLyricsVersion(id: "kugou:2", source: .kugou, syncKind: .word, length: 257, album: "Two")
+        let c = QTLyricsVersion(id: "kugou:3", source: .kugou, syncKind: .word, length: 257, album: "Two")
+        let d = QTLyricsVersion(id: "kugou:4", source: .kugou, syncKind: .word, length: 257, album: "One")
+        let rows = QTLyricsVersion.menuRows([a, b, c, d])
+        let clock = QTFormat.duration(257), sep = " · "
+        let one = QTLoc.tr("From “%@”", table: .lyrics, "One"), two = QTLoc.tr("From “%@”", table: .lyrics, "Two")
+        #expect(rows[0].detail == QTLoc.tr("Best match", table: .lyrics) + sep + clock)
+        #expect(rows[1].detail == clock + sep + two + sep + QTLoc.tr("Version %lld", table: .lyrics, 1))
+        #expect(rows[2].detail == clock + sep + two + sep + QTLoc.tr("Version %lld", table: .lyrics, 2))
+        #expect(rows[3].detail == clock + sep + one)
+        let zh = QTLocalizer(preference: .zhCN)
+        #expect(zh.format("Version %lld", table: .lyrics, arguments: [2]) == "版本 2")
+        #expect(zh.format("“%@”", table: .lyrics, arguments: ["出牌"]) == "《出牌》")
+    }
+
+    /// The song a source filed a version under shows only where it differs from the playing one.
+    @Test func matchedNameShowsOnlyWhatDiffers() {
+        func candidate(_ title: String, _ artists: [String], aliases: [String] = []) -> QTLyricsCandidate {
+            QTLyricsCandidate(source: .kugou, remoteID: "1", title: title, titleAliases: aliases, artists: artists)
+        }
+        let title = "Đối Với Anh Em Không Còn Cảm Giác", artists = ["Kim Ny Ngọc"]
+        #expect(candidate("Doi Voi Anh Em Khong Con Cam Giac", ["Kim Ny Ngoc"]).nameDiffering(fromTitle: title, artists: artists) == nil)
+        #expect(candidate(title + " (Official Audio)", artists).nameDiffering(fromTitle: title, artists: artists) == nil)
+        #expect(candidate(title + " (Remix)", artists).nameDiffering(fromTitle: title, artists: artists)
+                == QTLoc.tr("“%@”", table: .lyrics, title + " (Remix)"))
+        #expect(candidate(title, ["Someone Else"]).nameDiffering(fromTitle: title, artists: artists) == "Someone Else")
+        #expect(candidate(title, []).nameDiffering(fromTitle: title, artists: artists) == nil)
+        // The provider's other title for it counts as the same.
+        #expect(candidate("出牌", artists, aliases: ["Hạ Phỏm"]).nameDiffering(fromTitle: "Hạ Phỏm", artists: artists) == nil)
     }
 }

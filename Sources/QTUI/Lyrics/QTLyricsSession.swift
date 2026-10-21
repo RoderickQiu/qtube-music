@@ -25,10 +25,20 @@ public struct QTLyricsVersion: Identifiable, Hashable, Sendable {
     public var isPossibleMismatch: Bool
     /// The user reported it: listed last, "Reported"; picking it takes the report back.
     public var isReported: Bool
+    /// The song the source filed it under, only the parts that differ from the playing song ("“Title (Remix)”",
+    /// "Other Artist"); nil when it names the same song.
+    public var matchedName: String?
+    /// Seconds the version is timed for, when the source says.
+    public var length: TimeInterval?
+    /// The album the source filed it under, if any.
+    public var album: String?
+    /// Fingerprint of the fetched words (nil when unfetched): versions of one source with the same words are one row.
+    public var textFingerprint: String?
 
     public init(id: String, source: QTLyricsSource, syncKind: QTLyricsSyncKind, translationLanguage: String? = nil,
                 confidence: Double = 1, durationDelta: TimeInterval? = nil, isPossibleMismatch: Bool? = nil,
-                isReported: Bool = false) {
+                isReported: Bool = false, matchedName: String? = nil, length: TimeInterval? = nil, album: String? = nil,
+                textFingerprint: String? = nil) {
         self.id = id
         self.source = source
         self.syncKind = syncKind
@@ -37,6 +47,10 @@ public struct QTLyricsVersion: Identifiable, Hashable, Sendable {
         self.durationDelta = durationDelta
         self.isPossibleMismatch = isPossibleMismatch ?? (confidence < 0.8)
         self.isReported = isReported
+        self.matchedName = matchedName
+        self.length = length
+        self.album = album
+        self.textFingerprint = textFingerprint
     }
 
     /// Menu row title: "LRCLIB · Line timing", plus the version's own translation language when it has one.
@@ -50,6 +64,13 @@ public struct QTLyricsVersion: Identifiable, Hashable, Sendable {
     /// longer or shorter the version is timed when that is noticeable ("Possible mismatch · 12 s longer"). nil =
     /// nothing to say.
     public func menuDetail(isBest: Bool) -> String? {
+        let parts = detailParts(isBest: isBest, distinguishing: false)
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// The subtitle's parts. `distinguishing`: the row shares its title with others, so it also says which song the
+    /// source filed it under (when that isn't the playing one) and always says something about its length.
+    func detailParts(isBest: Bool, distinguishing: Bool) -> [String] {
         var parts: [String] = []
         if isReported {
             parts.append(QTLoc.tr("Reported"))
@@ -58,14 +79,77 @@ public struct QTLyricsVersion: Identifiable, Hashable, Sendable {
         } else if isBest {
             parts.append(QTLoc.tr("Best match", table: .lyrics))
         }
+        if distinguishing, let matchedName { parts.append(matchedName) }
         if let delta = durationDelta {
             // Within ±2 s the timing still lines up (the matcher scores it as the same length).
             let seconds = Int(delta.rounded())
             if seconds >= 2 { parts.append(QTLoc.tr("%lld s longer", table: .lyrics, seconds)) }
-            if seconds <= -2 { parts.append(QTLoc.tr("%lld s shorter", table: .lyrics, -seconds)) }
+            else if seconds <= -2 { parts.append(QTLoc.tr("%lld s shorter", table: .lyrics, -seconds)) }
+            else if distinguishing { parts.append(QTLoc.tr("Same length", table: .lyrics)) }
+        } else if distinguishing, let length, length > 0 {
+            parts.append(QTFormat.duration(length))
         }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+        return parts
     }
+
+    /// Two versions of one source with the same words, timing kind and translation: one row is enough.
+    func isSameText(as other: QTLyricsVersion) -> Bool {
+        guard let textFingerprint else { return false }
+        return textFingerprint == other.textFingerprint && source == other.source && syncKind == other.syncKind
+            && translationLanguage == other.translationLanguage && isReported == other.isReported
+    }
+
+    /// The "Lyrics Source" menu's rows for `versions` (best first). Versions of one source with the same words are
+    /// one row — the one in `keeping` (showing or pinned) if any, else the best — so a source that files a song
+    /// several times doesn't list it several times. A row whose title others share says what sets it apart: the
+    /// song it was filed under when that isn't the playing one, its length, then its album; rows still alike are
+    /// numbered ("Version 2") rather than left identical. Never a raw score.
+    public static func menuRows(_ versions: [QTLyricsVersion], keeping keep: Set<String> = []) -> [QTLyricsSourceMenuRow] {
+        var kept: [QTLyricsVersion] = []
+        for v in versions {
+            if let i = kept.firstIndex(where: { $0.isSameText(as: v) }) {
+                if keep.contains(v.id) && !keep.contains(kept[i].id) { kept[i] = v }
+            } else {
+                kept.append(v)
+            }
+        }
+        var rows = kept.enumerated().map { index, v in
+            QTLyricsSourceMenuRow(version: v, title: v.menuTitle, detail: v.menuDetail(isBest: index == 0))
+        }
+        let titleCounts = Dictionary(rows.map { ($0.title, 1) }, uniquingKeysWith: +)
+        for title in titleCounts.keys where titleCounts[title, default: 0] > 1 {
+            let group = rows.indices.filter { rows[$0].title == title }
+            var parts = Dictionary(uniqueKeysWithValues: group.map {
+                ($0, rows[$0].version.detailParts(isBest: $0 == 0, distinguishing: true))
+            })
+            // Still alike: the album, where the alike rows' albums differ…
+            for clash in clashes(in: group, parts) {
+                guard Set(clash.map { rows[$0].version.album }).count > 1 else { continue }
+                for i in clash { if let album = rows[i].version.album { parts[i, default: []].append(QTLoc.tr("From “%@”", table: .lyrics, album)) } }
+            }
+            // …then a number, so no two rows ever read the same.
+            for clash in clashes(in: group, parts) {
+                for (n, i) in clash.enumerated() { parts[i, default: []].append(QTLoc.tr("Version %lld", table: .lyrics, n + 1)) }
+            }
+            for i in group { rows[i].detail = parts[i].flatMap { $0.isEmpty ? nil : $0.joined(separator: " · ") } }
+        }
+        return rows
+    }
+
+    /// Clusters (of two or more, in menu order) of rows whose subtitles read the same.
+    private static func clashes(in group: [Int], _ parts: [Int: [String]]) -> [[Int]] {
+        var clusters: [[String]: [Int]] = [:]
+        for i in group { clusters[parts[i] ?? [], default: []].append(i) }
+        return clusters.values.filter { $0.count > 1 }.sorted { $0[0] < $1[0] }
+    }
+}
+
+/// A row of the "Lyrics Source" menu: the version, its title and its subtitle (`QTLyricsVersion.menuRows`).
+public struct QTLyricsSourceMenuRow: Identifiable, Hashable, Sendable {
+    public var version: QTLyricsVersion
+    public var title: String
+    public var detail: String?
+    public var id: String { version.id }
 }
 
 /// What the "Lyrics Source" menu has checked for a track.
