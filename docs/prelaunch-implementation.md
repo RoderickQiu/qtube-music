@@ -310,6 +310,18 @@ the gaps, most likely first:
 - sign out: the session is gone from "Your devices"
 - nothing written under `~/Library/WebKit` for the bundle id
 
+**Built (2026-10-20, plan items 1–2), still to check live in that test:**
+- the address strip shows the lock and `accounts.google.com`; clicking it opens the certificate sheet; a work
+  account's SSO page shows the "not a Google page" warning
+- Google's "Learn more" / Help links open in the default browser
+- `typeof PublicKeyCredential` is `undefined` on the sign-in page and Google never offers a passkey prompt
+- no "This browser or app may not be secure" with the installed-Safari user agent (macOS 15 and 26)
+- sign out: the session is gone from myaccount.google.com/device-activity (Settings › Account › Your Devices…)
+- Import Session from Firefox (Firefox running and quit; and when macOS blocks the profiles folder, the open panel
+  route); from a cookies.txt exported from a private window; the Trash prompt afterwards; an old, signed-out
+  cookies.txt is refused ("this session has ended") and nothing is kept
+- a passkey-only account gets in through Import Session
+
 ## 5. Uploads library
 
 **Today.** `MUSIC_VIDEO_TYPE_PRIVATELY_OWNED_TRACK` is already parsed (`QTParseSupport.swift:223`). Nothing else

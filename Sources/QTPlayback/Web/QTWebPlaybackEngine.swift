@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import Network
 import QTCore
+import QTInnerTube
 import WebKit
 
 /// Free-account engine: YouTube Music's own web player, ads included, in a headless `WKWebView`.
@@ -58,7 +59,7 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         public var seamlessModeSwitch = true
 
         public init(origin: URL = URL(string: "https://music.youtube.com")!,
-                    userAgent: String = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
+                    userAgent: String = QTInnerTubeConfiguration.defaultUserAgent,
                     isSilent: Bool = false, loadTimeout: Duration = .seconds(25), stallTimeout: Duration = .seconds(20),
                     prefersLowVideoQuality: Bool = true, freezeAfterPause: Duration? = .seconds(6),
                     videoIDResolver: (@Sendable (QTPlaybackItem) -> String)? = nil) {

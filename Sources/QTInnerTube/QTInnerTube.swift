@@ -25,8 +25,9 @@ public struct QTInnerTubeConfiguration: Sendable, Hashable {
     public static let origin = "https://music.youtube.com"
     /// `X-YouTube-Client-Name` for WEB_REMIX.
     public static let clientNameID = "67"
-    public static let defaultUserAgent =
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
+    /// Safari's user agent with the installed Safari's version (`QTSafariUserAgent`), the same one the sign-in window
+    /// presents, so the session is used by the browser that signed in.
+    public static let defaultUserAgent = QTSafariUserAgent.userAgent(version: QTSafariUserAgent.current)
 
     public init(baseURL: URL = URL(string: "https://music.youtube.com/youtubei/v1/")!,
                 clientName: String = "WEB_REMIX", clientVersion: String = "1.20251001.01.00",

@@ -194,6 +194,9 @@ public final class QTLiveCatalogStore {
         // The demo library is gone (guest mode replaced it); forget an old choice.
         defaults.removeObject(forKey: Self.legacyDemoDefaultsKey)
         model.liveCatalog = self
+        #if DEBUG
+        if let preview = model.launch.string("qt.auth.signInPreview") { openSignInPreviewAfterLaunch(preview) }
+        #endif
         guard Self.wantsLive(model.launch) else {
             mode = .mock
             return
@@ -373,6 +376,39 @@ public final class QTLiveCatalogStore {
             QTReadiness.shared.release(hold)
         }
     }
+
+    #if DEBUG
+    /// DEBUG `-qt.auth.signInPreview google|other|insecure[,help]`: the sign-in window's chrome (address strip, the
+    /// "what we keep" line, optionally the ? popover) around a local placeholder page. Never Google, no network.
+    private func openSignInPreviewAfterLaunch(_ argument: String) {
+        let parts = Set(argument.split(separator: ",").map(String.init))
+        let address: QTSignInAddress = if parts.contains("other") {
+            .otherSite(host: "sso.example.com")
+        } else if parts.contains("insecure") {
+            .notSecure(host: "accounts.example.com")
+        } else {
+            .secure(host: "accounts.google.com")
+        }
+        let hold = QTReadiness.shared.hold("auth.signInPreview")
+        Task { @MainActor in
+            for _ in 0..<50 where !NSApp.windows.contains(where: { $0.identifier == QTWindowID.main.identifier && $0.isVisible }) {
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            let shown = Task { @MainActor in
+                for await _ in NotificationCenter.default.notifications(named: QTAuthController.ephemeralSignInDidShow) {
+                    break
+                }
+            }
+            let parent = NSApp.windows.first { $0.identifier == QTWindowID.main.identifier }
+            auth.showSignInPreview(address: address, showsHelp: parts.contains("help"), over: parent)
+            let timeout = Task { @MainActor in try? await Task.sleep(for: .seconds(10)); shown.cancel() }
+            await shown.value
+            timeout.cancel()
+            try? await Task.sleep(for: .milliseconds(parts.contains("help") ? 600 : 100))
+            QTReadiness.shared.release(hold)
+        }
+    }
+    #endif
 
     private func applyAccount() {
         guard let model, model.launch.account == nil, case .signedIn(_, let premium) = auth.state,

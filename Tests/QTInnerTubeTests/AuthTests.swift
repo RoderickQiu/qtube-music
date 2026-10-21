@@ -130,7 +130,6 @@ import Testing
         await controller.restore()
         #expect(controller.state == .signedOut)
 
-        #if DEBUG
         try await controller.importSession(cookies: Self.fakeLogin(), authUser: 0)
         #expect(controller.isSignedIn)
         // Written to both the Keychain item and WebKit's jar — only the auth cookies.
@@ -140,7 +139,6 @@ import Testing
         await #expect(throws: QTAuthError.incompleteSession) {
             try await controller.importSession(cookies: [QTCookie(name: "PREF", value: "x", domain: ".youtube.com")])
         }
-        #endif
 
         // Launch path: a new controller restores from the Keychain and re-seeds an empty WebKit jar.
         let emptyWeb = QTMemoryWebCookieStore()

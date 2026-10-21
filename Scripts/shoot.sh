@@ -1,7 +1,7 @@
 #!/bin/bash
 # Launch the built app in the background on the test display, wait until it's ready, capture windows, quit, restore focus.
 #
-#   Scripts/shoot.sh <outname> [--window main|mini|desktopLyrics|menuBarPopover|settings]… [launch args…]
+#   Scripts/shoot.sh <outname> [--window main|mini|desktopLyrics|menuBarPopover|settings|signIn|signInHelp]… [launch args…]
 #
 #   Scripts/shoot.sh window-home-en -qt.lang en-US
 #   Scripts/shoot.sh stage-vinyl -qt.surface stage -qt.stageBackground vinyl -qt.paused YES
@@ -24,7 +24,7 @@ KINDS=()
 ARGS=()
 while [[ $# -gt 0 ]]; do
   if [[ "$1" == "--window" ]]; then
-    [[ $# -ge 2 ]] || { echo "error: --window needs a name (main, mini, desktopLyrics, menuBarPopover, settings)" >&2; exit 2; }
+    [[ $# -ge 2 ]] || { echo "error: --window needs a name (main, mini, desktopLyrics, menuBarPopover, settings, signIn, signInHelp)" >&2; exit 2; }
     KINDS+=("$2"); shift 2
   else ARGS+=("$1"); shift; fi
 done
@@ -36,7 +36,7 @@ ARGS=(${QT_ARGS[@]+"${QT_ARGS[@]}"})
 SHOW=()
 for k in "${KINDS[@]}"; do
   case "$k" in
-    main) ;;
+    main|signIn|signInHelp) ;;  # signIn*: the sign-in window / its ? popover (with -qt.auth.signInPreview)
     mini|desktopLyrics|menuBarPopover|settings) SHOW+=("$k") ;;
     *) echo "error: unknown window '$k'" >&2; exit 2 ;;
   esac
@@ -81,10 +81,17 @@ title_for() {
     settings) echo "" ;;
   esac
 }
+window_identifier() {  # the NSWindow identifier of a --window kind
+  case "$1" in
+    signIn) echo "qt.auth.signIn.window" ;;
+    signInHelp) echo "qt.auth.signIn.helpPopover" ;;
+    *) echo "qt.window.$1" ;;
+  esac
+}
 ready_window() {  # window number from the ready file by NSWindow identifier
   python3 -c 'import json,sys
 for w in json.load(open(sys.argv[1]))["windows"]:
-    if w["identifier"] == sys.argv[2]: print(w["number"]); break' "$READY" "qt.window.$1"
+    if w["identifier"] == sys.argv[2]: print(w["number"]); break' "$READY" "$(window_identifier "$1")"
 }
 
 # Stage Manager animates a newly shown window (skewed, scaled) for a moment; let it settle before capturing.
@@ -113,7 +120,7 @@ for k in "${KINDS[@]}"; do
 for w in json.load(open(sys.argv[1]))["windows"]:
     if w["identifier"] == sys.argv[2]:
         f = [float(v) for v in re.findall(r"-?[0-9.]+", w["frame"])]
-        print(int(f[2] * 0.9), "%.4f" % (f[2] / f[3])); break' "$READY" "qt.window.$k" 2>/dev/null || true)"
+        print(int(f[2] * 0.9), "%.4f" % (f[2] / f[3])); break' "$READY" "$(window_identifier "$k")" 2>/dev/null || true)"
   ASPECT="${ASPECT:-0}"
   [[ -n "$MINW" && "$MINW" -ge 300 ]] || MINW=300
   # A window mid-way through a Stage Manager animation is drawn smaller and in perspective, so also wait for two

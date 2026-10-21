@@ -143,4 +143,6 @@ public enum QTAuthError: Error, Sendable, Equatable {
     case encoding
     /// The sign-in window was closed before finishing.
     case cancelled
+    /// An imported session was complete, but YouTube answered it signed out (the login behind it has ended).
+    case sessionRejected
 }

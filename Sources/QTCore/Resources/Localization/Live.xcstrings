@@ -1,6 +1,26 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "%@ — not a Google page" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ — 不是 Google 页面"
+          }
+        }
+      }
+    },
+    "Account with Advanced Protection, or passkeys only? Use Import Session in Settings › Account." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "账户启用了高级保护，或只有通行密钥？请使用“设置 › 账户”中的“导入会话”。"
+          }
+        }
+      }
+    },
     "Cancel" : {
       "localizations" : {
         "zh-Hans" : {
@@ -61,12 +81,102 @@
         }
       }
     },
+    "Not Secure — %@" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "不安全 — %@"
+          }
+        }
+      }
+    },
+    "Only sign in here if you expected this page, such as your work’s sign-in." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "只有在你预期会看到此页面时（例如公司的登录页面）才在此登录。"
+          }
+        }
+      }
+    },
+    "Passkeys and security keys only work in apps Apple approves as web browsers. Use your password with a phone prompt or code, or choose “Try another way”." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "通行密钥和安全密钥只能在 Apple 认可的网页浏览器中使用。请使用密码加手机提示或验证码，或选择“尝试其他方式”。"
+          }
+        }
+      }
+    },
+    "QTube Music keeps only Google’s sign-in cookies, in your Keychain. Never your password." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "QTube Music 只在你的钥匙串中保存 Google 的登录 Cookie，绝不保存你的密码。"
+          }
+        }
+      }
+    },
+    "Show Certificate" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示证书"
+          }
+        }
+      }
+    },
     "Sign In" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "登录"
+          }
+        }
+      }
+    },
+    "Sign in to add songs to playlists" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "登录后才能将歌曲添加到播放列表"
+          }
+        }
+      }
+    },
+    "Sign in to like songs" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "登录后才能喜欢歌曲"
+          }
+        }
+      }
+    },
+    "Sign in to see your library" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "登录以查看你的资料库"
+          }
+        }
+      }
+    },
+    "Sign in to see your liked songs" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "登录以查看你喜欢的歌曲"
           }
         }
       }
@@ -91,12 +201,42 @@
         }
       }
     },
+    "This page isn’t private. Don’t sign in here." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此页面的连接不安全，请勿在此登录。"
+          }
+        }
+      }
+    },
     "Try Again" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "重试"
+          }
+        }
+      }
+    },
+    "Why not my browser?" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "为什么不用我的浏览器？"
+          }
+        }
+      }
+    },
+    "YouTube wants to check this connection" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "YouTube 需要验证此网络连接"
           }
         }
       }
@@ -111,52 +251,12 @@
         }
       }
     },
-    "Sign in to see your liked songs" : {
+    "macOS doesn’t let apps use what you signed in to in your browser, so you sign in to Google here, in a private page that’s deleted afterwards." : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "登录以查看你喜欢的歌曲"
-          }
-        }
-      }
-    },
-    "Sign in to see your library" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "登录以查看你的资料库"
-          }
-        }
-      }
-    },
-    "Sign in to like songs" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "登录后才能喜欢歌曲"
-          }
-        }
-      }
-    },
-    "Sign in to add songs to playlists" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "登录后才能将歌曲添加到播放列表"
-          }
-        }
-      }
-    },
-    "YouTube wants to check this connection" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "YouTube 需要验证此网络连接"
+            "value" : "macOS 不允许 App 使用你在浏览器中的登录，所以请在这里登录 Google。这是一个私密页面，用完即删除。"
           }
         }
       }
