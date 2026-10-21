@@ -128,7 +128,11 @@ Everything is wired (integration of M1 polish + M2–M4):
   hasn't started since it loaded and sits paused (YouTube's page sometimes brings a new track up paused at 0 and
   ignores a Play) is starting, not interrupted — Play again after 1.5 s, then the same item on a fresh page at its
   position (`startNextLoadAfresh`; the watch page's own autoplay) after 6 s more, Play once more there, and only then
-  *Playback was interrupted* (`coaxStart`; it never uses up the one silent resume); the engine on
+  *Playback was interrupted* (`coaxStart`; it never uses up the one silent resume). A paused **ad** goes the same
+  way — ads are played on (the bridge's `play` resumes the ad's own media when YouTube ignores `playVideo`), never
+  skipped, never taken for "Still listening?" — and while a track is starting only a PiP pause the bridge actually
+  reported is the listener's (`isListenerPauseReported`), not any pause while the PiP window is open; the native
+  engine forwards `startNextLoadAfresh` only while the web engine plays the item. The engine on
   another item than the queue's (or none) for 2 s reloads the queue's track at its position (or moves on when that
   had ended); an end/failure that went unheard is acted on after 3 s; network errors (`QTPlaybackError.isNetwork`)
   retry the same track — when the network is back, or after 3 s / 10 s online — and never count towards the skip
@@ -609,7 +613,9 @@ Coordinators (one per process, `@MainActor`):
   engine's page (`QTWebVideoOutput.engineDidSwapPage`) and closes the old one — no gap, measured drift ≤ 0.07 s,
   handover 1.3–1.9 s after the click (R5: lab anonymous; 2.4 s signed in, was 2.3–4.6 s; the Song | Video switch and the slots' placeholder change at once; the
   old rendition keeps playing until then). Paused, an ad on the standby, errors, a 12 s timeout, less than
-  timeout + 10 s left in the track, offline, pause/seek mid-switch → the old in-page reload (short gap). Never for a
+  timeout + 10 s left in the track, offline, pause/seek mid-switch → the old in-page reload (short gap), playing or
+  held as the app intends (`intendsPlayback`), never as the old page happens to be at that moment (WebKit pauses it
+  when a video slot takes it; a cued reload would hold its pre-roll paused). Never for a
   **signed-in free account** (`pageAccount`, from the page's own `ytcfg`): a standby watch page can roll a pre-roll,
   which would be an ad served muted in a hidden page and, after a fallback, a second play report. The track **ending
   or the page failing mid-switch** drops the standby and restores the old item; `QTQueueController.loadCurrent`

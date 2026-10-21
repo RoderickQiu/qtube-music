@@ -81,7 +81,7 @@ public final class QTNativePlaybackEngine: QTPlaybackEngine {
     /// Why the native path is off for the rest of the session (nil = working).
     public private(set) var fallbackReason: String?
     /// The current item plays natively.
-    public private(set) var isNativeActive = false
+    public internal(set) var isNativeActive = false
     @ObservationIgnored public private(set) var stats = QTNativeStats()
     public var effects = QTNativeEffects() {
         didSet { if effects != oldValue { applyEffects(oldValue) } }
@@ -273,6 +273,8 @@ public final class QTNativePlaybackEngine: QTPlaybackEngine {
 
     public var isPausedByListener: Bool { !isNativeActive && web.isPausedByListener }
 
+    public var isListenerPauseReported: Bool { !isNativeActive && web.isListenerPauseReported }
+
     public var isResumedByListener: Bool { !isNativeActive && web.isResumedByListener }
 
     /// The web engine drops a stale page; a native track checks its graph (the output may have changed while asleep),
@@ -288,8 +290,11 @@ public final class QTNativePlaybackEngine: QTPlaybackEngine {
         }
     }
 
-    /// A page that won't start the item: the web engine's next load gets a fresh one (native loads start afresh anyway).
+    /// A page that won't start the item: the web engine's next load gets a fresh one — only while the web engine plays
+    /// it. A native item reloads natively anyway; a stale flag would cost the next web play a fresh page and the next
+    /// Song⇄Video switch its seamlessness.
     public func startNextLoadAfresh() {
+        guard !isNativeActive else { return }
         web.startNextLoadAfresh()
     }
 

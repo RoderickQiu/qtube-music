@@ -16,14 +16,16 @@ import Testing
     function getComputedStyle() { return { visibility: 'visible' }; }
     function MutationObserver() { this.observe = function () {}; }
     var location = { pathname: '/watch' };
-    var __video = { currentTime: 0, duration: 0, paused: false, readyState: 4, videoWidth: 0, videoHeight: 0 };
+    var __video = { currentTime: 0, duration: 0, paused: false, readyState: 4, videoWidth: 0, videoHeight: 0, plays: 0,
+      pause() { this.paused = true; }, play() { this.paused = false; this.plays++; } };
     var __p = { vid: 'OLD', ad: false, t: 0, d: 200, ps: 1,
       getPlayerState() { return this.ps; }, getCurrentTime() { return this.t; }, getDuration() { return this.d; },
       getVideoData() { return { video_id: this.vid }; }, getPresentingPlayerType() { return this.ad ? 2 : 1; },
       classList: { contains(c) { return __p.ad && c === 'ad-showing'; } },
       addEventListener() {}, querySelector() { return __video; },
       loadVideoById(a) { __loads.push(a.videoId); }, cueVideoById(a) { __loads.push(a.videoId); },
-      setVolume() {}, mute() {}, unMute() {}, pauseVideo() {}, playVideo() {} };
+      setVolume() {}, mute() {}, unMute() {}, pauseVideo() { __video.paused = true; },
+      playVideo() { if (!(this.ad && this.adIgnoresPlay)) __video.paused = false; } };
     var document = { getElementById(id) { return id === 'movie_player' ? __p : null; },
       querySelector() { return null; }, addEventListener() {},
       documentElement: { classList: { toggle() {} } } };
@@ -59,6 +61,45 @@ import Testing
         let content = sample(ctx)
         #expect(!content.ad && content.match)
         #expect(ctx.evaluateScript("__loads.length").toInt32() == 1, "no second load of the item")
+    }
+
+    // MARK: Pre-rolls and the hold (live soak 2026-10-21: Song⇄Video's fallback reload was cued, so its pre-roll sat
+    // paused and the queue called it an interruption)
+
+    private func runTimers(_ ctx: JSContext) {
+        ctx.evaluateScript("__timers.splice(0).forEach(f => f());")
+    }
+
+    private func isPaused(_ ctx: JSContext) -> Bool { ctx.evaluateScript("__video.paused").toBool() }
+
+    /// The pre-roll starts on the page (YouTube rolls it even for a cued item).
+    private func rollPreRoll(_ ctx: JSContext) {
+        ctx.evaluateScript("__p.vid = 'AD1'; __p.ad = true; __video.duration = 15; __video.currentTime = 0; __video.paused = false;")
+    }
+
+    @Test func aCuedLoadHoldsItsPreRollAndPlayPlaysTheAdOn() {
+        let ctx = makePage()
+        ctx.evaluateScript("__qtBridge.load('VIDEO', 179, false, 2)")
+        rollPreRoll(ctx)
+        runTimers(ctx)
+        #expect(isPaused(ctx), "a cued load is held: its pre-roll too")
+        // Play drops the hold. YouTube's player may ignore playVideo for a paused ad: its media element plays it on.
+        ctx.evaluateScript("__p.adIgnoresPlay = true; __qtBridge.play()")
+        runTimers(ctx)
+        #expect(!isPaused(ctx) && ctx.evaluateScript("__video.plays").toInt32() == 1)
+        #expect(!ctx.evaluateScript("__qtBridge.sample().paused").toBool())
+    }
+
+    @Test func anAutoplayingLoadLetsItsPreRollPlay() {
+        let ctx = makePage()
+        ctx.evaluateScript("__qtBridge.load('VIDEO', 179, true, 2)")
+        rollPreRoll(ctx)
+        runTimers(ctx)
+        #expect(!isPaused(ctx))
+        // Content after it: nothing replays the media by itself.
+        ctx.evaluateScript("__p.vid = 'VIDEO'; __p.ad = false; __p.t = 179; __video.duration = 220;")
+        runTimers(ctx)
+        #expect(!isPaused(ctx) && ctx.evaluateScript("__video.plays").toInt32() == 0)
     }
 
     @Test func swappedRenditionStillResolvesAndPostRollFromPreviousItemIsIgnored() {
