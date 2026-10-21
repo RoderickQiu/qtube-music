@@ -41,7 +41,7 @@ private struct QTSidebarContextMenuModifier: ViewModifier {
                     } else if playlist.isEditable == false, playlist.kind == .user {
                         Divider()
                         Button(QTLoc.tr("Remove from Library", table: .main)) {
-                            QTPlaylistActions.toggleSaved(id: playlist.id, title: playlist.title.resolved)
+                            QTPlaylistActions.setSaved(false, id: playlist.id, title: playlist.title.resolved)
                         }
                     }
                 }

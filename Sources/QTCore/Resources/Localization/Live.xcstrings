@@ -576,6 +576,16 @@
           }
         }
       }
+    },
+    "Switching accounts. Try again in a moment." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在切换账户，请稍后再试。"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

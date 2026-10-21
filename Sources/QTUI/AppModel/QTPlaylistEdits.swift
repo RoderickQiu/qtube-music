@@ -5,7 +5,8 @@ import QTCore
 /// Library changes that aren't in the YouTube Music account — or aren't there *yet* — laid over what the account
 /// shows, so every list, heart and sidebar row reads one state:
 /// - **local**: kept on this Mac (Settings › Account › Sync off, or the demo library). Saved between launches per
-///   identity (`storageURL`, `profile`), never in scripted or demo runs.
+///   Google account and brand account (`storageURL`, `profile`), never in scripted or demo runs. Turning Sync on
+///   with local changes asks to upload or discard them (`QTAccountWriter.setSync`).
 /// - **pending**: on their way to the account (`QTAccountWriter`). Shown at once and dropped when the write lands
 ///   (the change is then in the catalog itself) or fails (which undoes it on screen).
 /// Pages that stream in (Liked Songs paging, a playlist's continuation pages) replace the catalog's lists; they never
@@ -19,9 +20,11 @@ public final class QTPlaylistEdits {
     public struct Changes: Codable, Sendable, Hashable {
         /// Songs added (video ids). Liked Songs shows them first, newest first; playlists at the end.
         public var added: [String] = []
-        /// Songs taken out (video ids).
+        /// Songs taken out (video ids): every row of the song.
         public var removed: Set<String> = []
-        /// A reorder: the list's whole video-id order.
+        /// Single rows taken out, by entry id (`setVideoId` → video id): one copy of a song the list holds twice.
+        public var removedEntries: [String: String] = [:]
+        /// A reorder: the list's whole order, by row (`rowKey`: the entry id, else the video id).
         public var order: [String]?
         public var title: String?
         public var description: String?
@@ -30,7 +33,57 @@ public final class QTPlaylistEdits {
 
         public init() {}
 
+        /// Every field optional on disk (files written before a field existed still load).
+        public init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            added = try c.decodeIfPresent([String].self, forKey: .added) ?? []
+            removed = try c.decodeIfPresent(Set<String>.self, forKey: .removed) ?? []
+            removedEntries = try c.decodeIfPresent([String: String].self, forKey: .removedEntries) ?? [:]
+            order = try c.decodeIfPresent([String].self, forKey: .order)
+            title = try c.decodeIfPresent(String.self, forKey: .title)
+            description = try c.decodeIfPresent(String.self, forKey: .description)
+            privacy = try c.decodeIfPresent(QTPlaylistPrivacy.self, forKey: .privacy)
+            isDeleted = try c.decodeIfPresent(Bool.self, forKey: .isDeleted) ?? false
+        }
+
         public var isEmpty: Bool { self == Changes() }
+
+        /// How many separate changes this is (the Sync alert counts them).
+        var count: Int {
+            added.count + removed.count + removedEntries.count + (order == nil ? 0 : 1) + (title == nil ? 0 : 1)
+                + (description == nil ? 0 : 1) + (privacy == nil ? 0 : 1) + (isDeleted ? 1 : 0)
+        }
+
+        /// Whether `track` (a row) is taken out.
+        func removes(_ track: QTTrack) -> Bool {
+            removed.contains(track.videoId) || track.setVideoId.map { removedEntries[$0] != nil } == true
+        }
+
+        /// These changes with `newer` on top (changes made before the account was known joining its profile).
+        func merged(with newer: Changes) -> Changes {
+            var c = self
+            c.added += newer.added.filter { !c.added.contains($0) }
+            c.removed.subtract(newer.added)
+            c.removed.formUnion(newer.removed)
+            c.added.removeAll { newer.removed.contains($0) }
+            c.removedEntries.merge(newer.removedEntries) { _, new in new }
+            c.order = newer.order ?? c.order
+            c.title = newer.title ?? c.title
+            c.description = newer.description ?? c.description
+            c.privacy = newer.privacy ?? c.privacy
+            c.isDeleted = c.isDeleted || newer.isDeleted
+            return c
+        }
+    }
+
+    /// A row's identity in a list: its entry id when it has one (two copies of a song differ), else the song.
+    public static func rowKey(_ track: QTTrack) -> String { track.setVideoId ?? track.videoId }
+
+    /// `tracks` in `order` (row keys; rows it doesn't name keep their place after the named ones).
+    static func sorted(_ tracks: [QTTrack], by order: [String]) -> [QTTrack] {
+        let rank = Dictionary(order.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
+        func r(_ t: QTTrack) -> Int { rank[rowKey(t)] ?? rank[t.videoId] ?? Int.max }
+        return tracks.enumerated().sorted { (r($0.element), $0.offset) < (r($1.element), $1.offset) }.map(\.element)
     }
 
     public enum Layer: Sendable { case local, pending }
@@ -49,8 +102,10 @@ public final class QTPlaylistEdits {
 
     /// Where local changes are saved (nil = memory only: tests, scripted runs, the demo library).
     @ObservationIgnored public var storageURL: URL?
-    /// The identity local changes belong to ("main", or a brand account id).
-    @ObservationIgnored public private(set) var profile = "main"
+    /// The identity local changes belong to: `QTLiveCatalogStore.localProfile` (a hashed Google-account key, plus
+    /// "/<brand id>" for a brand account). nil while the account isn't known yet: changes then stay in memory and
+    /// move to the account's profile once it is.
+    @ObservationIgnored public private(set) var profile: String? = "main"
 
     public init(storageURL: URL? = nil) {
         self.storageURL = storageURL
@@ -109,6 +164,14 @@ public final class QTPlaylistEdits {
 
     public func flag(_ key: String) -> Bool? { pendingFlags[key] ?? localFlags[key] }
 
+    /// Whether anything is kept on this Mac for the current identity (likes, playlist edits, playlists made here,
+    /// saved albums, subscriptions).
+    public var hasLocalChanges: Bool { localChangeCount > 0 }
+
+    public var localChangeCount: Int {
+        local.values.map(\.count).reduce(0, +) + localFlags.count + created.filter { $0.id.hasPrefix("local:") }.count
+    }
+
     public func track(_ id: String, catalog: QTMockCatalog) -> QTTrack? { knownTracks[id] ?? catalog.track(id: id) }
 
     // MARK: Changing
@@ -129,6 +192,13 @@ public final class QTPlaylistEdits {
             change(&c)
             pending[id] = c.isEmpty ? nil : c
         }
+    }
+
+    /// Changes a list's local entry only when it has one (a write that supersedes part of it), so the file isn't
+    /// rewritten for nothing.
+    public func clearLocal(_ id: String, _ change: (inout Changes) -> Void) {
+        guard local[id] != nil else { return }
+        edit(.local, id, change)
     }
 
     public func setLike(_ layer: Layer, _ videoID: String, _ liked: Bool) {
@@ -198,8 +268,14 @@ public final class QTPlaylistEdits {
 
     /// Replaces a local playlist's own rows (a reorder or removal of a playlist made on this Mac).
     public func setCreatedTracks(_ id: String, _ tracks: [QTTrack]) {
+        updateCreated(id) { $0.tracks = tracks }
+    }
+
+    /// Changes a playlist made here, or a placeholder still being created (its edits go to the account once YouTube
+    /// has made it).
+    public func updateCreated(_ id: String, _ change: (inout QTPlaylist) -> Void) {
         guard let i = created.firstIndex(where: { $0.id == id }) else { return }
-        created[i].tracks = tracks
+        change(&created[i])
         if id.hasPrefix("local:") { save() }
     }
 
@@ -210,22 +286,65 @@ public final class QTPlaylistEdits {
         created.removeAll { $0.id.hasPrefix("pending:") }
     }
 
+    /// What this Mac keeps for the current identity, handed over for upload (Sync turned on), and gone from here.
+    func takeLocal() -> (changes: [String: Changes], flags: [String: Bool], created: [QTPlaylist]) {
+        let taken = (local, localFlags, created.filter { $0.id.hasPrefix("local:") })
+        discardLocal()
+        return taken
+    }
+
+    /// Forgets this Mac's changes for the current identity (Sync turned on, Discard Changes).
+    public func discardLocal() {
+        local = [:]
+        localFlags = [:]
+        created.removeAll { $0.id.hasPrefix("local:") }
+        save()
+    }
+
     // MARK: Profiles and storage
 
-    /// Switches to another identity's local changes ("main" or a brand account id); `reload` reads the file again
-    /// (storage was just attached).
-    public func use(profile: String, reload: Bool = false) {
+    /// Switches to another identity's local changes; `reload` reads the file again (storage was just attached).
+    /// Changes made while the account wasn't known yet (`profile` nil) move into the profile it turns out to be.
+    public func use(profile: String?, reload: Bool = false) {
         guard profile != self.profile || reload else { return }
+        let carried = self.profile == nil && profile != nil && !reload
+            ? (local, localFlags, created.filter { $0.id.hasPrefix("local:") }) : nil
         if !reload { save() }
         self.profile = profile
         load()
+        if let (changes, flags, made) = carried, !changes.isEmpty || !flags.isEmpty || !made.isEmpty {
+            local.merge(changes) { saved, early in saved.merged(with: early) }
+            localFlags.merge(flags) { _, new in new }
+            created += made.filter { m in !created.contains { $0.id == m.id } }
+            save()
+        }
     }
+
+    /// Files written before profiles were keyed by Google account ("main", "<brand id>") become the profiles of
+    /// `account` (the first account signed in after the update), unless it already has its own.
+    public func migrateLegacyProfiles(to account: String) {
+        guard let storageURL, let data = try? Data(contentsOf: storageURL),
+              var all = try? JSONDecoder().decode([String: Snapshot].self, from: data) else { return }
+        let legacy = all.keys.filter { !$0.hasPrefix(Self.accountPrefix) }
+        guard !legacy.isEmpty else { return }
+        for key in legacy {
+            let target = key == "main" ? account : "\(account)/\(key)"
+            if all[target] == nil { all[target] = all[key] }
+            all[key] = nil
+        }
+        write(all)
+    }
+
+    /// Prefix of account-keyed profiles (`QTAccountContext.accountKey`).
+    static let accountPrefix = "acct-"
 
     private struct Snapshot: Codable {
         var local: [String: Changes] = [:]
         var created: [QTPlaylist] = []
         var flags: [String: Bool] = [:]
         var tracks: [String: QTTrack] = [:]
+
+        var isEmpty: Bool { local.isEmpty && created.isEmpty && flags.isEmpty }
     }
 
     private func load() {
@@ -234,22 +353,29 @@ public final class QTPlaylistEdits {
         localFlags = [:]
         guard let storageURL, let data = try? Data(contentsOf: storageURL),
               let all = try? JSONDecoder().decode([String: Snapshot].self, from: data),
-              let mine = all[profile] else { return }
-        local = mine.local
+              let profile, let mine = all[profile] else { return }
+        // Edits an earlier build filed under a playlist still being created ("pending:…") never reach the account.
+        local = mine.local.filter { !$0.key.hasPrefix("pending:") }
         created += mine.created
         localFlags = mine.flags
         knownTracks.merge(mine.tracks) { a, _ in a }
     }
 
     private func save() {
-        guard let storageURL else { return }
+        guard let storageURL, let profile else { return }
         var all = (try? Data(contentsOf: storageURL)).flatMap { try? JSONDecoder().decode([String: Snapshot].self, from: $0) }
             ?? [:]
         let mine = created.filter { $0.id.hasPrefix("local:") }
         var named = Set(local.values.flatMap(\.added))
         named.formUnion(mine.flatMap { $0.tracks ?? [] }.map(\.videoId))
         let tracks = knownTracks.filter { named.contains($0.key) }
-        all[profile] = Snapshot(local: local, created: mine, flags: localFlags, tracks: tracks)
+        let snapshot = Snapshot(local: local, created: mine, flags: localFlags, tracks: tracks)
+        all[profile] = snapshot.isEmpty ? nil : snapshot
+        write(all)
+    }
+
+    private func write(_ all: [String: Snapshot]) {
+        guard let storageURL else { return }
         try? FileManager.default.createDirectory(at: storageURL.deletingLastPathComponent(),
                                                  withIntermediateDirectories: true)
         if let data = try? JSONEncoder().encode(all) { try? data.write(to: storageURL, options: .atomic) }
@@ -265,16 +391,11 @@ public final class QTPlaylistEdits {
 
     private func apply(_ c: Changes?, to tracks: [QTTrack], prepend: Bool, catalog: QTMockCatalog) -> [QTTrack] {
         guard let c, !c.isEmpty else { return tracks }
-        var out = tracks.filter { !c.removed.contains($0.videoId) }
+        var out = tracks.filter { !c.removes($0) }
         var present = Set(out.map(\.videoId))
         let extra = c.added.filter { present.insert($0).inserted }.compactMap { track($0, catalog: catalog) }
         out = prepend ? extra + out : out + extra
-        if let order = c.order {
-            let rank = Dictionary(order.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
-            out = out.enumerated().sorted {
-                (rank[$0.element.videoId] ?? Int.max, $0.offset) < (rank[$1.element.videoId] ?? Int.max, $1.offset)
-            }.map(\.element)
-        }
+        if let order = c.order { out = Self.sorted(out, by: order) }
         return out
     }
 }

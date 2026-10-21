@@ -354,8 +354,8 @@ struct QTHomeCard: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
-        .contextMenu { QTTrackContextMenu(track: t) }
-        .draggable(QTTrackActions.link(for: t))
+        .qtTrackContextMenu(t) // Library/QTTrackCardMenu.swift
+        .draggable(QTTrackActions.dragString(for: t))
         .help(t.title)
         .accessibilityLabel(QTLoc.tr("Play %@", t.title))
         .accessibilityIdentifier("qt.home.card.\(video ? "video" : "track").\(t.videoId)")
@@ -633,8 +633,8 @@ struct QTQuickPickRow: View {
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
         .onTapGesture(count: 2, perform: play)
-        .contextMenu { QTTrackContextMenu(track: track) }
-        .draggable(QTTrackActions.link(for: track))
+        .qtTrackContextMenu(track) // Library/QTTrackCardMenu.swift
+        .draggable(QTTrackActions.dragString(for: track))
         .accessibilityElement(children: .combine)
         .accessibilityAction { play() }
         .accessibilityIdentifier("qt.home.pick.\(track.videoId)")
@@ -644,53 +644,5 @@ struct QTQuickPickRow: View {
         if player.nowPlaying?.videoId == track.videoId { player.togglePlayPause(); return }
         QTTrackActions.play(tracks, at: tracks.firstIndex(of: track) ?? 0,
                             source: source ?? QTQueueSource(kind: .home, title: .localized("Quick picks")))
-    }
-}
-
-// MARK: - Context menu (SwiftUI cards; same items as the table's NSMenu)
-
-struct QTTrackContextMenu: View {
-    let track: QTTrack
-    @Environment(QTAppModel.self) private var model
-    @Environment(QTPlayerModel.self) private var player
-
-    var body: some View {
-        let playable = track.availability.isPlayable
-        Button(QTLoc.tr("Play")) { QTTrackActions.play([track], at: 0, source: nil) }.disabled(!playable)
-        Button(QTLoc.tr("Play Next")) { QTTrackActions.playNext([track]) }.disabled(!playable)
-        Button(QTLoc.tr("Add to Queue")) { QTTrackActions.addToQueue([track]) }.disabled(!playable)
-        Divider()
-        if track.hasVideo {
-            Button(QTLoc.tr("Play Music Video")) { QTTrackActions.play([track], at: 0, source: nil, video: true) }.disabled(!playable)
-        } else {
-            Button(QTLoc.tr("No Music Video")) {}.disabled(true)
-        }
-        if let album = track.album {
-            Button(QTLoc.tr("Go to Album · %@", album.title)) { QTNavigator.shared.go(.album(album)) }
-        }
-        if let artist = track.artists.first {
-            Button(QTLoc.tr("Go to Artist · %@", artist.name)) { QTNavigator.shared.go(.artist(artist)) }
-        }
-        Divider()
-        if QTLiveCatalogStore.shared.isGuest {
-            // Guest mode: no playlists of one's own; the item offers to sign in.
-            Button(QTLoc.tr("Add to Playlist")) { _ = QTAccountGate.allows(.addToPlaylist) }
-                .disabled(!playable)
-        } else {
-            // Same choices as the track tables' submenu (QTAddToPlaylistMenu): New Playlist…, then the playlists the
-            // song can go into, checked when it's already there.
-            Menu(QTLoc.tr("Add to Playlist")) {
-                Button(QTLoc.tr("New Playlist…", table: .main)) { QTPlaylistActions.newPlaylist(with: [track]) }
-                let targets = QTAddToPlaylistMenu.targets(options: nil, excluding: nil, tracks: [track])
-                if !targets.isEmpty { Divider() }
-                ForEach(targets, id: \.0.id) { p, holds in
-                    Toggle(p.title.resolved, isOn: Binding(get: { holds }, set: { _ in QTTrackActions.add([track], to: p) }))
-                }
-            }
-            .disabled(!playable)
-        }
-        Button(QTLoc.tr(player.isLiked(track) ? "Remove from Liked Songs" : "Like")) { QTTrackActions.toggleLike([track]) }
-        Divider()
-        Button(QTLoc.tr("Copy Link")) { QTTrackActions.copyLinks([track]) }
     }
 }

@@ -39,8 +39,14 @@ enum QTPlaylistActions {
 
     /// Add to Library / Remove from Library for an album (its `OLAK…` id) or someone else's playlist.
     static func toggleSaved(id: String, title: String, model: QTAppModel = .shared, writer: QTAccountWriter = .shared) {
-        guard QTAccountGate.allows(.addToPlaylist, model: model) else { return }
-        let save = writer.isSaved(id) != true
+        setSaved(writer.isSaved(id) != true, id: id, title: title, model: model, writer: writer)
+    }
+
+    /// Add to Library (`save`) or Remove from Library, whatever the app last knew of it (the sidebar's Remove from
+    /// Library always removes).
+    static func setSaved(_ save: Bool, id: String, title: String, model: QTAppModel = .shared,
+                         writer: QTAccountWriter = .shared) {
+        guard QTAccountGate.allows(.addToPlaylist, model: model), writer.acceptsChanges() else { return }
         writer.setSaved(save, playlistID: id, title: title)
         if !writer.savesToAccount {
             model.showToast(QTLoc.tr(save ? "Added to your library on this Mac" : "Removed from your library on this Mac",
@@ -114,7 +120,10 @@ struct QTPlaylistDetailsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var title = ""
     @State private var description = ""
-    @State private var privacy: QTPlaylistPrivacy = .private
+    /// nil until known: a playlist whose page hasn't been read doesn't say (it loads first; unknown is never sent).
+    @State private var privacy: QTPlaylistPrivacy?
+    @State private var isLoadingDetails = false
+    @State private var editedDescription = false
     @FocusState private var isNameFocused: Bool
 
     private var writer: QTAccountWriter { .shared }
@@ -149,16 +158,26 @@ struct QTPlaylistDetailsSheet: View {
                 TextField(QTLoc.tr("Name", table: .main), text: $title)
                     .focused($isNameFocused)
                     .accessibilityIdentifier("qt.playlist.sheet.name")
-                TextField(QTLoc.tr("Description", table: .main), text: $description, axis: .vertical)
+                TextField(QTLoc.tr("Description", table: .main), text: Binding(
+                    get: { description },
+                    set: { description = $0; editedDescription = true }), axis: .vertical)
                     .lineLimit(2...5)
                     .accessibilityIdentifier("qt.playlist.sheet.description")
                 if goesToAccount {
-                    Picker(QTLoc.tr("Privacy", table: .main), selection: $privacy) {
-                        ForEach(QTPlaylistPrivacy.allCases, id: \.self) { p in
-                            Text(Self.label(p)).tag(p)
+                    if let current = privacy {
+                        Picker(QTLoc.tr("Privacy", table: .main), selection: Binding(get: { current },
+                                                                                      set: { privacy = $0 })) {
+                            ForEach(QTPlaylistPrivacy.allCases, id: \.self) { p in
+                                Text(Self.label(p)).tag(p)
+                            }
+                        }
+                        .accessibilityIdentifier("qt.playlist.sheet.privacy")
+                    } else if isLoadingDetails {
+                        // Read from the playlist's page before it can be shown (or changed).
+                        LabeledContent(QTLoc.tr("Privacy", table: .main)) {
+                            ProgressView().controlSize(.small)
                         }
                     }
-                    .accessibilityIdentifier("qt.playlist.sheet.privacy")
                 }
             }
             .formStyle(.grouped)
@@ -206,12 +225,29 @@ struct QTPlaylistDetailsSheet: View {
         case .new(_, let suggested):
             // Like Music: a name to type over (selected), never an empty, invisible field.
             title = suggested.isEmpty ? QTLoc.tr("Untitled Playlist", table: .main) : suggested
+            privacy = .private
         case .edit(let p):
+            let p = QTLiveCatalogStore.shared.playlist(p.id) ?? p
             title = p.title.resolved
             description = p.description ?? ""
-            privacy = p.privacy ?? .private
+            privacy = p.privacy
+            if p.privacy == nil, goesToAccount { loadDetails(p.id) }
         }
         isNameFocused = true
+    }
+
+    /// The playlist's own page says who can see it (and its description); the sidebar's list doesn't.
+    private func loadDetails(_ id: String) {
+        isLoadingDetails = true
+        Task { @MainActor in
+            let store = QTLiveCatalogStore.shared
+            await store.loadPlaylist(id)
+            if let p = store.playlist(id) {
+                if privacy == nil { privacy = p.privacy }
+                if !editedDescription, let d = p.description { description = d }
+            }
+            isLoadingDetails = false
+        }
     }
 
     private func commit() {
@@ -219,9 +255,11 @@ struct QTPlaylistDetailsSheet: View {
         let text = description.trimmingCharacters(in: .whitespacesAndNewlines)
         switch request.mode {
         case .new(let tracks, _):
-            writer.create(title: trimmedTitle, description: text, privacy: privacy, tracks: tracks)
+            writer.create(title: trimmedTitle, description: text, privacy: privacy ?? .private, tracks: tracks)
         case .edit(let p):
-            writer.editDetails(p, title: trimmedTitle, description: text, privacy: privacy)
+            // Against the latest copy (its page may have loaded meanwhile): only what the user changed is sent.
+            writer.editDetails(writer.latest(p), title: trimmedTitle, description: text,
+                               privacy: goesToAccount ? privacy : nil)
         }
         dismiss()
     }

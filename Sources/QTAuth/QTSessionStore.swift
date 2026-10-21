@@ -18,6 +18,9 @@ public actor QTSessionStore: QTInnerTubeCredentialsProvider {
     private let store: any QTSecureStore
     private let now: @Sendable () -> Date
     private var session: QTAuthSession?
+    /// The identity this session acts as when it isn't the saved one: a launch that couldn't confirm the saved brand
+    /// account uses the Google account itself (`.some(nil)`) until it can, while the Keychain keeps the brand account.
+    private var sessionBrand: String??
     private var isExpired = false
     private var lastPersist = Date.distantPast
     private var continuations: [UUID: AsyncStream<QTSessionEvent>.Continuation] = [:]
@@ -61,6 +64,7 @@ public actor QTSessionStore: QTInnerTubeCredentialsProvider {
         s.savedAt = now()
         try persist(s)
         session = s
+        sessionBrand = nil
         isExpired = false
         emit(.signedIn)
     }
@@ -68,6 +72,7 @@ public actor QTSessionStore: QTInnerTubeCredentialsProvider {
     /// Forgets the session (Keychain item removed). Web cookies are cleared by `QTAuthController`.
     public func clear() throws {
         session = nil
+        sessionBrand = nil
         isExpired = false
         try store.delete()
         emit(.signedOut)
@@ -87,6 +92,27 @@ public actor QTSessionStore: QTInnerTubeCredentialsProvider {
     public func setBrandAccount(_ id: String?) throws {
         guard var s = session else { return }
         s.brandAccountId = id
+        try persist(s)
+        session = s
+        sessionBrand = nil
+    }
+
+    /// Acts as `id` (nil = the Google account itself) for this session only; the saved choice stays in the Keychain
+    /// and `resumeSavedBrandAccount()` goes back to it.
+    public func useBrandAccountForThisSession(_ id: String?) {
+        sessionBrand = .some(id)
+    }
+
+    public func resumeSavedBrandAccount() {
+        sessionBrand = nil
+    }
+
+    /// The brand account saved in the Keychain (it may differ from the one in use this session).
+    public var savedBrandAccountId: String? { session?.brandAccountId }
+
+    public func setAccountKey(_ key: String?) throws {
+        guard var s = session, s.accountKey != key else { return }
+        s.accountKey = key
         try persist(s)
         session = s
     }
@@ -138,8 +164,9 @@ public actor QTSessionStore: QTInnerTubeCredentialsProvider {
     // MARK: QTInnerTubeCredentialsProvider
 
     public func credentials() async -> QTInnerTubeCredentials? {
-        guard !isExpired else { return nil }
-        return session?.credentials(now: now())
+        guard !isExpired, var s = session else { return nil }
+        if let sessionBrand { s.brandAccountId = sessionBrand }
+        return s.credentials(now: now())
     }
 
     public func sessionDidExpire() async {

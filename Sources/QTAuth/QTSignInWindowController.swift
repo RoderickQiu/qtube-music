@@ -262,7 +262,9 @@ final class QTSignInWindowController: NSWindowController, NSWindowDelegate, WKNa
         popover.behavior = .transient
         popover.contentViewController = QTSignInHelpController()
         helpPopover = popover
-        popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .maxY)
+        // Upward, into the window above the bar: `.maxY` is the bottom in the button's flipped coordinates, which
+        // hung the popover off the window's lower edge.
+        popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: sender.isFlipped ? .minY : .maxY)
     }
 
     #if DEBUG

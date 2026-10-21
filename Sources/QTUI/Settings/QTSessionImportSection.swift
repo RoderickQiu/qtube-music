@@ -49,7 +49,8 @@ struct QTSessionImportSection: View {
                             .accessibilityIdentifier("qt.settings.account.importFile")
                         if isImporting { ProgressView().controlSize(.small) }
                     }
-                    .disabled(isImporting || auth == nil)
+                    // Not while the sign-in window is open (or another import is being checked).
+                    .disabled(isImporting || auth == nil || auth?.state == .signingIn)
                     .padding(.top, 2)
                     if let failure {
                         Label(failure, systemImage: "exclamationmark.triangle.fill")
@@ -111,6 +112,8 @@ struct QTSessionImportSection: View {
                 let cookies = try await Task.detached(priority: .userInitiated) { try Self.read(source) }.value
                 try await auth.importSession(cookies: cookies)
                 if case .file(let url) = source { importedFile = url }
+            } catch is CancellationError {
+                // Cancel (Settings › Account): nothing kept, nothing to report.
             } catch {
                 failure = Self.message(for: error, source: source)
             }

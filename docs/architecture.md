@@ -194,15 +194,42 @@ action). Album, artist and playlist cards prefetch their page on hover. `hl` fol
 given. Library changes go through `QTAccountWriter` (below).
 
 **Account writes (approved by the owner 2026-10-20).** Signed in with Settings › Account › "Sync likes and
-playlists to YouTube Music" on (`QTSettings.syncsToYouTubeMusic`, default on; session override `-qt.account.sync`),
-likes, playlist adds / removals / reorders, new / renamed / deleted playlists, Save Queue as Playlist, subscriptions
-and Add to Library change the account; with Sync off (and in the demo library) they stay on this Mac. No first-use
-alert. One coordinator, `QTAccountWriter` (AppModel/, `QTLiveCatalogStore.writer`, `QTAccountWriter.shared`):
-- **One overlay** (`QTPlaylistEdits`, AppModel/): `local` (Sync off / demo; saved per identity in
+playlists to YouTube Music" on (`QTSettings.syncsToYouTubeMusic`), likes, playlist adds / removals / reorders, new /
+renamed / deleted playlists, Save Queue as Playlist, subscriptions and Add to Library change the account; with Sync
+off (and in the demo library) they stay on this Mac. No first-use alert. **Sync defaults** (`QTAccountWriter.
+launchSyncOverride`, applied session-only at bootstrap): release builds launched normally keep the user's setting (on
+by default); DEBUG builds and every run with a `-qt.*` argument (scripts, UI tests, `-qt.readyFile`, `-qt.catalog
+mock`) start with Sync **off** unless `-qt.account.sync YES` — agents and tests never write to the owner's account.
+One coordinator, `QTAccountWriter` (AppModel/, `QTLiveCatalogStore.writer`, `QTAccountWriter.shared`):
+- **One overlay** (`QTPlaylistEdits`, AppModel/): `local` (Sync off / demo; saved in
   `Application Support/<bundle id>/LocalLibrary.json`, never in scripted runs) and `pending` (writes on their way).
   Every list, heart and sidebar row reads catalog + local + pending, so a change shows at once and pages that stream
   in (Liked Songs paging via `setLiked`, playlist continuations) never clobber it. Playlists made here have `local:`
   ids, ones still being created `pending:` ids (`QTNavigator.replacePlaylist` follows the real id).
+- **Local profiles** are per Google account and brand account: `QTLiveCatalogStore.localProfile` = `acct-<hash>`
+  (`QTAccountContext.accountKey`: SHA-256 of `ytcfg.DATASYNC_ID`'s user part, saved in the Keychain session as
+  `accountKey`; never the id itself) plus `/<brand id>`. Until the account is known (a new sign-in before its first
+  read) changes stay in memory and join its profile once it is. Files from before (`main`, `<brand id>`) move to the
+  first account signed in afterwards (`migrateLegacyProfiles`); `pending:` entries an earlier build filed are dropped.
+- **Sync turning on** (Settings toggle and Account menu, both `QTAccountWriter.setSync`) while this identity has local
+  changes asks first (`QTLocalChangesAlert`, a sheet: Upload Changes / Discard Changes / Cancel). Upload replays them
+  as the writes they would have been (likes, adds, removals by entry, reorders, details, deletes, playlists made here
+  → created, saved / subscribed flags). Signed in with Sync already on and local changes present (another identity's,
+  a launch override) the same question comes after the library loads, with Turn Off Sync instead of Cancel. A write
+  for a song or playlist also clears this Mac's change for it, so a local change never overrides the account.
+- **Rows** are named by entry id (`setVideoId`; `QTPlaylistEdits.rowKey`): selection, ⌫ / Remove from Playlist,
+  reorders and `Changes.removedEntries` act on one copy of a song a playlist holds twice. Ids the rows don't carry come
+  from YouTube's answer to this app's add (kept per playlist, so Undo of Add to Playlist works on a playlist whose
+  page isn't loaded), else the playlist is read again once; a row still without one fails the write (a reorder never
+  falls back to "move to the end"). Undo of a removal re-adds unavailable rows too (`add(…, restoring: true)`).
+- **Placeholders** (`pending:`): songs, order, name and Delete made before YouTube answers are kept on the
+  placeholder and sent as edits of the real playlist once it exists (`madePlaylist`); a placeholder deleted meanwhile
+  deletes the playlist YouTube made.
+- **One session**: `reset()` (sign-out, identity switch) bumps a generation; queued writes of an older one never go
+  out, and an answer that arrives after it never lands (`QTWriteJob` task-local). While an identity switch is under
+  way no change starts (a toast says to try again).
+- **Paging**: each later page of a playlist merges into its current copy (`mergePage`): renames, removals and rows
+  added while the pages load stay.
 - **Writes** run one at a time on a serial chain, are never retried (`QTInnerTubeClient.perform` uses
   `QTRetryPolicy.none` for `writeEndpoints`) and count only with `STATUS_SUCCEEDED` where YouTube states a status
   (`QTInnerTubeError.writeRejected`; `edit_playlist` must state one). Success lands in the catalog
@@ -217,20 +244,32 @@ alert. One coordinator, `QTAccountWriter` (AppModel/, `QTLiveCatalogStore.writer
   (`QTAddToPlaylistMenu`: New Playlist…, then the account's playlists, checked when they already hold the songs)
   opens with what the app knows and refines itself from `playlist/get_add_to_playlist` while open.
 - **UI**: track tables (⌫ / Edit › Delete removes from an owned playlist or Liked Songs with Undo, drag to reorder in
-  playlist order, Remove from Playlist), sidebar (Rename in place, Edit Playlist…, Delete Playlist…, Remove from
-  Library), File › New Playlist… ⌘N, header More menu and "+" Add to Library, artist Subscribe, Save Queue as
-  Playlist → `QTPlaylistSheets.swift` (New / Edit sheet, Delete alert that says what deleting does). Toasts say
-  "… on this Mac" when not syncing.
+  playlist order, Remove from Playlist), sidebar (Rename in place — ↩ or clicking away keeps the name, Esc doesn't;
+  Edit Playlist…, Delete Playlist…, Remove from Library, which always removes), the Playlists section (signed in or
+  demo, also with no playlists: then a New Playlist… row; header menu New Playlist…), File › New Playlist… ⌘N, header
+  More menu and "+" Add to Library, artist Subscribe, Save Queue as Playlist → `QTPlaylistSheets.swift` (New / Edit
+  sheet — Edit loads the playlist's page first when its privacy isn't known, and sends only what changed; Delete
+  alert that says what deleting does). Song cards (Home, search's top result) use the tables' NSMenu
+  (`QTTrackCardMenu`, so Add to Playlist is the same `QTAddToPlaylistMenu`). Toasts say "… on this Mac" when not
+  syncing. Settings opens at a tab through one path, `QTSettingsNavigation.open(_:with:)`.
 - **Brand accounts** (`account/accounts_list` → `QTAccountIdentity`, picker in Settings › Account and the Account
   menu): `QTAuthController.switchIdentity(to:)` first loads YouTube's own switch link (only
   `https://www.youtube.com/signin`) in a hidden page in the session jar (`QTWebIdentitySwitcher`, QTAuth) and only
   continues once its `ytcfg.DATASYNC_ID` names the new identity (Kaset ADR-0023: plays follow the page, not
   `onBehalfOfUser`); then `onBehalfOfUser`, cache cleared, library reloaded, player page reloaded. Queued writes
-  finish first. A saved brand account is re-confirmed at launch; if that fails the app falls back to the Google
-  account itself. The native engine still sends only `X-Goog-AuthUser` (its plays don't reach history anyway).
+  finish first. A saved brand account is re-confirmed at launch (`confirmSavedIdentity`): refused (gone from the
+  account list, the page names another identity) → back to the Google account itself, saved; not reachable (the
+  list or the page didn't load, `QTIdentitySwitchError.isTransient`) → the Google account for this session only
+  (`QTSessionStore.useBrandAccountForThisSession`; the Keychain keeps the brand) and a few background retries
+  (`identityRetryDelays`) that move back once the page confirms. A new sign-in or import starts without a brand
+  account; sign-out forgets the confirmed one. `QTWebIdentitySwitcher` gives each switch its own page and load state
+  and runs them one at a time. The native engine still sends only `X-Goog-AuthUser` (its plays don't reach history
+  anyway).
 - Tests: `Tests/QTInnerTubeTests/WritesTests.swift` (shapes, no retry, status, cache, parsers) and
   `Tests/QTUITests/QTAccountWriterTests.swift` (optimistic UI, collapse, rollback, overlay vs paging, bot check,
-  Sync off + relaunch, owned playlist add/remove/move, create/rename/delete, identity switch) — hand-built fixtures
+  Sync off + relaunch, owned playlist add/remove/move, create/rename/delete, identity switch) and
+  `QTAccountWriterFixesTests` (the review's regressions: brand fallback and retry, Undo of an add, Sync-on question,
+  placeholders, paging, per-account profiles, reset, duplicates, Sync defaults, unlikes, upload links) — hand-built fixtures
   (`Fixtures/handbuilt-*.json`), a fake transport and a fake identity switcher; never a live write.
 
 **Uploads (pre-launch §5; read-only).** Library › Uploads is the user's own uploaded music. Uploading and deleting
@@ -251,7 +290,9 @@ are writes to the account's upload storage and stay on music.youtube.com.
   `MUSIC_VIDEO_TYPE_PRIVATELY_OWNED_TRACK` anywhere (lists, cards, queue rows) and rows whose menu can delete an upload.
   An upload has `hasVideo == false` (Song⇄Video, Play Music Video and PiP are off), no counterpart lookup (no `next`,
   no search: `counterpart(for:)` returns nil at once), no autoplay radio (the queue ends with it; the app has no other
-  Start Radio), and ListenBrainz gets no `origin_url` (`QTIntegrationsCoordinator.isPrivatelyOwned`). The web engine
+  Start Radio), ListenBrainz gets no `origin_url` (`QTIntegrationsCoordinator.isPrivatelyOwned`), and the app never
+  hands its link out: Copy Link leaves uploads out (disabled when only uploads are chosen) and a dragged upload
+  carries `qtube-track:<id>` (`QTTrackActions.dragString`), which only the app's own playlists read. The web engine
   plays it through the normal watch page; the native engine falls back per item.
 - **UI** (`Library/QTUploadsPage.swift`, window): the sidebar's last Library row (⌘8, `-qt.section uploads`), always
   listed — a fixed ⌘-number, no extra request at launch just to decide whether to show a row, and an account without
@@ -346,7 +387,9 @@ the `ytcfg` scrape on and across a session change).
   and deletes the copy before returning; no profile found or EPERM (macOS app-data protection) → the open panel at the
   profiles folder. `QTCookieImport.parseNetscape` reads cookies.txt (`#HttpOnly_`, session cookies, ≤ 20 MB). Both
   return only allow-listed Google/YouTube auth cookies. `importSession` needs a complete login, saves it, reads the
-  account while `.signingIn`; YouTube answering signed out → nothing kept, `.sessionRejected`. After a cookies.txt
+  account while `.signingIn`; YouTube answering signed out → nothing kept, `.sessionRejected`; Cancel
+  (`cancelSignIn`) stops the check → nothing kept, `CancellationError` (no error shown). The import buttons are off
+  while the sign-in window is open. After a cookies.txt
   import the pane offers to move the file to the Trash. Storage is unchanged (one Keychain item, allowlist).
 - `QTDevSession` (DEBUG executable) imports CDP cookie JSON from stdin (`import`) and has read-only
   `status` / `summary` / `probe` / `ytcfg` commands for exploring signed-in responses — never prints cookie values.
@@ -828,6 +871,7 @@ Booleans: `YES/NO`, `true/false`, `1/0` (empty = true).
 | `qt.surface` | `window` · `stage` · `mini` (`desktop` alias) | `surface` |
 | `qt.section` | `home` `explore` `songs` `albums` `artists` `liked` `history` `uploads` `playlist:<id>` (`pl-1`…`pl-7`) | `section` |
 | `qt.uploads.section` · `qt.uploads.empty` | `songs` · `albums` · `artists` (the Uploads segment, once per launch) · bool (DEBUG demo: no uploads, the empty state) | |
+| `qt.playlists.empty` | bool (DEBUG demo: no playlists — the sidebar's Playlists section with only New Playlist…) | |
 | `qt.stageLayout` | `standard` · `lyrics-only` · `art-only` | `stageLayout` |
 | `qt.stageBackground` | `blur` · `cover` · `vinyl` · `video` · `visual` | `stageBackground` |
 | `qt.theme` | `auto` · `light` · `dark` | `theme` |
@@ -858,7 +902,7 @@ Builders add their own as `qt.<area>.<name>` (e.g. `qt.stage.chrome hidden`, `qt
 | glass | DEBUG `qt.reduceTransparency YES` (every glass primitive draws its Reduce Transparency solid) |
 | desktop | `qt.desktop.miniMode compact\|art` · `qt.desktop.miniLyric` · `qt.desktop.miniHover` · `qt.desktop.lyricsUnlocked` · `qt.desktop.menuBarScroll` · `qt.desktop.lyricsSize <pt>` · `qt.settingsTab general\|playback\|lyrics\|account\|integrations\|shortcuts\|advanced`; DEBUG: `qt.desktop.hotKeys suggested\|conflicts` (session-only suggested set; `conflicts` adds a menu clash and a ⌘-only binding), `qt.desktop.hotKeyTaken like,playPause` (those show "Used by another app"), `qt.desktop.registerHotKeys YES` (launches with `-qt.*` arguments never register global shortcuts otherwise), `qt.desktop.switchLanguage`, `qt.desktop.popUpMenu <index>` (1 = File, 3 = View, 4 = Controls), `qt.desktop.showShortcuts`, `qt.desktop.accountPreview signedIn\|premium\|signingIn\|expired\|signedOut` (Settings › Account without Keychain access), `qt.desktop.staleMenus YES` (General shows Relaunch), `qt.desktop.integrationsExpanded YES` (Integrations opens every "Use your own …" / custom-server disclosure), `qt.desktop.listenBrainzPreview connected\|failed` (ListenBrainz connected with a sample account and custom server, or a failed Connect; no Keychain, no network), `qt.desktop.importExpanded YES` (Account opens Import Session), `qt.desktop.importError incomplete\|rejected\|unreadable\|notPermitted` (pins an import error), `qt.desktop.scriptProbe <path>` (runs AppleScript against the app from inside it — no Automation prompt — and writes the results as JSON) |
 | lyrics-live | `qt.lyrics.unofficial all\|none\|netease,kugou,qq` (session-only Settings override) · `qt.lyrics.engine live\|mock` (default live) · `qt.lyrics.cache memory\|<path>` (fresh lookup; default Application Support/<bundle id>/Lyrics.sqlite) · `qt.lyrics.offline YES` (every source unreachable → fallback path) |
-| data-live | `qt.account.sync YES\|NO` (session-only Settings › Account › Sync override) · `qt.live.open album:<id\|title>` · `artist:<id\|name>` · `playlist:<id>` (once the library has loaded) · `qt.live.state skeleton\|offline\|unavailable\|expired\|botCheck` (pins every live page's state) · `qt.live.loadDelay <s>` (DEBUG: Home and mood feeds arrive that much later — loading and transition shots) · `qt.live.signedOut YES` (guest mode, no Keychain read) · DEBUG `qt.auth.store memory` (the session lives in memory: a guest run never reads, and a sign-out never clears, the shared dev session) · DEBUG `qt.live.fixtures YES` (YouTube Music answered offline from `Tests/QTInnerTubeTests/Fixtures`, artwork offline — guest screenshots with no network) · with `qt.live.signedOut`, `qt.live.signIn YES` (Google sign-in window in a throwaway WebKit store; a login there is never kept) · DEBUG `qt.auth.signInPreview google|other|insecure[,help]` (the sign-in window's chrome around a local placeholder page — never Google, no network; `,help` opens the ? popover; capture with `shoot.sh --window signIn --window signInHelp`) · DEBUG `qt.auth.revoke YES` (sign-out also ends the session at Google, as release builds do) |
+| data-live | `qt.account.sync YES\|NO` (session-only Settings › Account › Sync override; without it DEBUG builds and any `-qt.*` launch run with Sync off) · DEBUG `qt.account.localChangesAlert YES` (the Sync-on question over Settings › Account, nothing changes; capture with `shoot-region.sh … "Account" -qt.show settings -qt.settingsTab account`) · `qt.live.open album:<id\|title>` · `artist:<id\|name>` · `playlist:<id>` (once the library has loaded) · `qt.live.state skeleton\|offline\|unavailable\|expired\|botCheck` (pins every live page's state) · `qt.live.loadDelay <s>` (DEBUG: Home and mood feeds arrive that much later — loading and transition shots) · `qt.live.signedOut YES` (guest mode, no Keychain read) · DEBUG `qt.auth.store memory` (the session lives in memory: a guest run never reads, and a sign-out never clears, the shared dev session) · DEBUG `qt.live.fixtures YES` (YouTube Music answered offline from `Tests/QTInnerTubeTests/Fixtures`, artwork offline — guest screenshots with no network) · with `qt.live.signedOut`, `qt.live.signIn YES` (Google sign-in window in a throwaway WebKit store; a login there is never kept) · DEBUG `qt.auth.signInPreview google|other|insecure[,help]` (the sign-in window's chrome around a local placeholder page — never Google, no network; `,help` opens the ? popover; capture with `shoot.sh --window signIn --window signInHelp`) · DEBUG `qt.auth.revoke YES` (sign-out also ends the session at Google, as release builds do) |
 | stage-video | DEBUG `qt.video.debugVisibleHost YES` (orders the web engine's host window onto U270CA, alpha 1 — page diagnostics only) |
 | playback | `qt.engine auto\|simulated\|web` · `qt.webaudio.tap NO` (web engine without the spectrum tap: A/B CPU) · `qt.playback.silent` · `qt.playback.persist` · `qt.playback.nowPlaying` · `qt.playback.anonymous` · `qt.playback.readyWhen playing\|ad\|buffering\|failed\|toast` (+ `qt.playback.readyTimeout <s>`, default 120) · `qt.playback.loadDelay <s>` (slow-network look) · `qt.playback.rate 0.5…2` (session speed; the player bar's "1.5×" button for screenshots) · DEBUG: `qt.playback.statusFile <path>` (JSON status twice a second: engine, queue, Now Playing, the player page's `LOGGED_IN`/`IS_SUBSCRIBER`, main window, catalog mode) and distributed-notification commands (`QTPlaybackDebugHooks`, incl. `window:close` / `window:reopen` without activation, `albumEnd:<browse id>`) · DEBUG: `qt.playback.notice interrupted\|autoplay\|network` (that notice's toast, for screenshots) |
 

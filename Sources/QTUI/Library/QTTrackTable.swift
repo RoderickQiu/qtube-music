@@ -92,6 +92,7 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
         t.onSpace = { [weak self] in self?.model.player.togglePlayPause() }
         t.onCopy = { [weak self] in
             guard let self else { return }
+            // Uploads have no link to share; copyLinks leaves them out.
             QTTrackActions.copyLinks(self.tracks(at: self.page?.tableView.selectedRowIndexes ?? []))
         }
         t.onScrollRowToVisible = { [weak page] row in page?.scrollRowIntoView(row) }
@@ -145,8 +146,8 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
         updateHeaderTitles()
 
         let t = page.tableView
-        let newIDs = new.rows.map(\.videoId)
-        let rowsChanged = newIDs != rows.map(\.videoId)
+        let newIDs = new.rows.map(QTAccountWriter.rowKey)
+        let rowsChanged = newIDs != rows.map(QTAccountWriter.rowKey)
         let languageChanged = old.map { $0.language != new.language } ?? false
         if languageChanged { page.tableView.tableColumn(withIdentifier: Column.heart.id)?.headerToolTip = QTLoc.tr("Liked Songs") }
         if rowsChanged || first || languageChanged {
@@ -254,10 +255,13 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
         t.reloadData(forRowIndexes: indexes, columnIndexes: IndexSet(integersIn: 0..<t.numberOfColumns))
     }
 
+    /// Selection is kept by row (entry id when the row has one, so one copy of a duplicated song stays selected alone).
     private func restoreSelection(_ ids: [String]) {
         guard let t = page?.tableView else { return }
         let set = Set(ids)
-        let idx = IndexSet(rows.enumerated().filter { set.contains($0.element.videoId) }.map(\.offset))
+        let idx = IndexSet(rows.enumerated().filter {
+            set.contains(QTAccountWriter.rowKey($0.element)) || set.contains($0.element.videoId)
+        }.map(\.offset))
         isRestoringSelection = true
         t.selectRowIndexes(idx, byExtendingSelection: false)
         isRestoringSelection = false
@@ -277,7 +281,8 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
         guard rows.indices.contains(row), rows[row].availability.isPlayable else { return nil }
         let item = NSPasteboardItem()
-        item.setString(QTTrackActions.link(for: rows[row]), forType: .string)
+        // Uploads carry no link out of the app (only this app's playlists can read what they carry).
+        item.setString(QTTrackActions.dragString(for: rows[row]), forType: .string)
         return item
     }
 
@@ -336,9 +341,9 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
 
     func tableViewSelectionDidChange(_ notification: Notification) {
         guard !isRestoringSelection, let t = page?.tableView, let state = config?.state else { return }
-        let ids = t.selectedRowIndexes.compactMap { rows.indices.contains($0) ? rows[$0].videoId : nil }
-        state.selection = ids
-        model.selectedTrackIDs = Set(ids)
+        let selected = t.selectedRowIndexes.compactMap { rows.indices.contains($0) ? rows[$0] : nil }
+        state.selection = selected.map(QTAccountWriter.rowKey)
+        model.selectedTrackIDs = Set(selected.map(\.videoId))
     }
 
     func tableView(_ tableView: NSTableView, typeSelectStringFor tableColumn: NSTableColumn?, row: Int) -> String? {
@@ -481,7 +486,8 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
         let allLiked = menuTargets.allSatisfy { model.player.isLiked($0) }
         menu.addItem(item(QTLoc.tr(allLiked ? "Remove from Liked Songs" : "Like"), #selector(menuToggleLike), key: "l", mods: .command))
         menu.addItem(.separator())
-        menu.addItem(item(QTLoc.tr("Copy Link"), #selector(menuCopyLink), key: "c", mods: .command))
+        menu.addItem(item(QTLoc.tr("Copy Link"), #selector(menuCopyLink), key: "c", mods: .command,
+                          enabled: QTTrackActions.canCopyLinks(menuTargets)))
     }
 
     @objc private func menuNoop() {}

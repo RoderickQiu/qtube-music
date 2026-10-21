@@ -9,12 +9,18 @@ public enum QTSettingsTab: String, CaseIterable, Hashable, Sendable {
     case general, playback, lyrics, account, integrations, shortcuts, advanced
 }
 
-/// Asks an open (or opening) Settings window to show a tab, e.g. Help › Keyboard Shortcuts › Set Up….
+/// The one way to open Settings at a tab (Account › Account Settings…, Help › Keyboard Shortcuts › Set Up…): an open
+/// Settings window switches to it, an opening one starts there.
 @MainActor
 @Observable
 public final class QTSettingsNavigation {
     public static let shared = QTSettingsNavigation()
     public var requestedTab: QTSettingsTab?
+
+    public func open(_ tab: QTSettingsTab, with openSettings: OpenSettingsAction) {
+        requestedTab = tab
+        openSettings()
+    }
 }
 
 public struct QTSettingsView: View {
@@ -43,11 +49,6 @@ public struct QTSettingsView: View {
             showRequestedTab()
         }
         .onChange(of: QTSettingsNavigation.shared.requestedTab) { showRequestedTab() }
-        .onChange(of: model.settingsTabRequest, initial: true) { _, request in
-            guard let request else { return }
-            tab = request
-            model.settingsTabRequest = nil
-        }
         .background(QTWindowAccessor { [model] window in
             window.identifier = QTWindowID.settings.identifier
             if model.launch.screen != nil {

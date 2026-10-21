@@ -172,7 +172,7 @@ struct QTSearchTopResult: View {
             if hovering { QTLiveCatalogStore.shared.prefetch(item) }
         }
         .onTapGesture(count: 2) { open() }
-        .contextMenu { if case .track(let t) = item { QTTrackContextMenu(track: t) } }
+        .qtTrackContextMenu(item.track) // Library/QTTrackCardMenu.swift
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("qt.search.top")
     }

@@ -72,6 +72,8 @@ final class QTClosureMenuItem: NSMenuItem {
         super.init(title: title, action: #selector(fire), keyEquivalent: "")
         target = self
         isEnabled = enabled
+        // Menus that validate their items (the default) enable any item with an action: a disabled one has none.
+        if !enabled { action = nil }
         if let state { self.state = state ? .on : .off }
     }
 

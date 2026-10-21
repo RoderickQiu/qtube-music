@@ -72,14 +72,18 @@ public struct QTAuthSession: Codable, Sendable, Hashable {
     /// Brand account / channel to act as (`onBehalfOfUser`), nil = the Google account itself.
     public var brandAccountId: String?
     public var account: QTAccountInfo?
+    /// A stable, hashed key for the Google account behind the session (`QTAccountContext.accountKey`), once read:
+    /// what this Mac's own library changes are filed under. Never the account id itself.
+    public var accountKey: String?
     public var savedAt: Date
 
     public init(cookies: [QTCookie], authUser: Int = 0, brandAccountId: String? = nil, account: QTAccountInfo? = nil,
-                savedAt: Date = Date()) {
+                accountKey: String? = nil, savedAt: Date = Date()) {
         self.cookies = cookies
         self.authUser = authUser
         self.brandAccountId = brandAccountId
         self.account = account
+        self.accountKey = accountKey
         self.savedAt = savedAt
     }
 

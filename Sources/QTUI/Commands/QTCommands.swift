@@ -237,15 +237,14 @@ struct QTAccountMenuContent: View {
             Divider()
             Toggle(QTLoc.tr("Sync Likes and Playlists", table: .desktop), isOn: Binding(
                 get: { model.settings.settings.syncsToYouTubeMusic },
-                set: { on in model.settings.update { $0.syncsToYouTubeMusic = on } }))
+                set: { on in QTAccountWriter.shared.setSync(on) }))
         } else {
             Button(QTLoc.tr("Sign In…", table: .desktop)) { store.signIn() }
                 .disabled(auth.state == .signingIn || store.mode == .mock)
         }
         Divider()
         Button(QTLoc.tr("Account Settings…", table: .desktop)) {
-            model.settingsTabRequest = .account
-            openSettings()
+            QTSettingsNavigation.shared.open(.account, with: openSettings)
         }
     }
 }
@@ -334,8 +333,7 @@ public struct QTKeyboardShortcutsView: View {
                 }
                 LabeledContent(globalRows.isEmpty ? QTLoc.tr("None", table: .desktop) : "") {
                     Button(QTLoc.tr(globalRows.isEmpty ? "Set Up…" : "Edit…", table: .desktop)) {
-                        QTSettingsNavigation.shared.requestedTab = .shortcuts
-                        openSettings()
+                        QTSettingsNavigation.shared.open(.shortcuts, with: openSettings)
                     }
                     .accessibilityIdentifier("qt.keyboardShortcuts.global")
                 }
