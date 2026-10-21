@@ -26,9 +26,9 @@ struct QTMiniTransportControls: View {
             }
             .disabled(ad != nil)
 
-            button(QTLoc.tr(player.isPlaying ? "Pause" : "Play"),
-                   symbol: player.isPlaying ? QTIcon.pause.systemName : QTIcon.play.systemName,
-                   glyph: playGlyph, id: "playPause", help: "\(QTLoc.tr(player.isPlaying ? "Pause" : "Play"))  Space") {
+            button(QTLoc.tr(player.isPlaybackRequested ? "Pause" : "Play"),
+                   symbol: player.isPlaybackRequested ? QTIcon.pause.systemName : QTIcon.play.systemName,
+                   glyph: playGlyph, id: "playPause", help: "\(QTLoc.tr(player.isPlaybackRequested ? "Pause" : "Play"))  Space") {
                 player.togglePlayPause()
             }
 

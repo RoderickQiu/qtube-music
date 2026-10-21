@@ -411,7 +411,7 @@ struct QTMiniPlayerMenu: View {
 
     var body: some View {
         let prefs = model.settings.settings.miniPlayer
-        Button(QTLoc.tr(player.isPlaying ? "Pause" : "Play")) { player.togglePlayPause() }
+        Button(QTLoc.tr(player.isPlaybackRequested ? "Pause" : "Play")) { player.togglePlayPause() }
         if let track = player.nowPlaying {
             Button(QTLoc.tr(player.isLiked(track) ? "Remove from Liked Songs" : "Like")) { player.toggleLike(track) }
         }

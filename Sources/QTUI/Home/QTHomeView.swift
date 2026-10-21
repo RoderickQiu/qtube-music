@@ -337,7 +337,7 @@ struct QTHomeCard: View {
         } label: {
             VStack(alignment: .leading, spacing: 4) {
                 artwork(QTArtworkView(track: t, video: video), width: w, height: h,
-                        playIcon: isCurrent && player.isPlaying ? .pause : .play, showsPlay: isHovered || isCurrent,
+                        playIcon: isCurrent && player.isPlaybackRequested ? .pause : .play, showsPlay: isHovered || isCurrent,
                         nowPlaying: isCurrent && !isHovered ? player.isPlaying : nil)
                     .padding(.bottom, 6)
                 Text(verbatim: t.title)
@@ -593,7 +593,7 @@ struct QTQuickPickRow: View {
                             .fill(.black.opacity(0.4))
                             .overlay {
                                 if isHovered {
-                                    (isCurrent && player.isPlaying ? QTIcon.pause : QTIcon.play).image.foregroundStyle(.white)
+                                    (isCurrent && player.isPlaybackRequested ? QTIcon.pause : QTIcon.play).image.foregroundStyle(.white)
                                 } else if isCurrent {
                                     QTNowPlayingGlyph(isPlaying: player.isPlaying, pointSize: 13, weight: .semibold, tint: .white)
                                 }

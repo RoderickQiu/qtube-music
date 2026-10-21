@@ -10,10 +10,14 @@ import Testing
 /// 1. Listening, something to play and online: the engine is playing or loading within 60 s, or the listener was told.
 /// 2. No load in flight: the queue's current item is the engine's (within a few seconds of grace).
 /// 3. No queue id appears twice (Now Playing, Up Next, Autoplay).
-/// 4. Now Playing shows the queue's current track, playing exactly when the engine plays.
+/// 4. Now Playing shows the queue's current track, playing exactly when the engine plays (or loads for a listener who
+///    wants it).
 /// 5. The sleep assertion is held exactly while something plays.
 /// 6. No load stays in flight (or the engine loading) for more than 2 min online.
 /// 7. The engine plays at the listener's speed, its clock moves at it while playing, and Now Playing says so.
+/// 8. Once the listener or the app paused (a pause, a remote or Picture in Picture pause, sleep, the queue giving up or
+///    reaching its end), nothing plays until the listener asks for music again (Play, Next, a track, PiP's Play).
+/// 9. App Nap is held off (busy) only while the listener wants music.
 /// Deterministic: the seed picks every step; nothing sleeps in real time.
 @MainActor
 @Suite struct PlaybackSoakTests {
@@ -45,6 +49,9 @@ private final class Soak {
     private var loadWatch: (token: Int, online: TimeInterval)?
     private var engineLoadingOnline: TimeInterval = 0
     private var engineLoadingToken = 0
+    /// Invariant 8: the listener or the app paused, and nobody has asked for music since.
+    private var held = false
+    private var lastWants = false
 
     init(seed: UInt64) {
         rig = ChaosRig(seed: seed)
@@ -72,7 +79,7 @@ private final class Soak {
         // Time
         case wait, longWait
         // Faults
-        case pageCausesPause, pictureInPicturePause, stall, crash, missEnd, staleItem, gaplessJoin, offline, online,
+        case pageCausesPause, pictureInPicturePause, pictureInPicturePlay, stall, crash, missEnd, staleItem, gaplessJoin, offline, online,
              loadFault, radioMode, sleepWake
 
         var weight: Int {
@@ -95,7 +102,7 @@ private final class Soak {
             case .wait: 22
             case .longWait: 4
             case .pageCausesPause: 4
-            case .pictureInPicturePause: 1
+            case .pictureInPicturePause, .pictureInPicturePlay: 1
             case .stall, .crash, .missEnd, .staleItem, .gaplessJoin: 2
             case .offline: 2
             case .online: 3
@@ -107,7 +114,7 @@ private final class Soak {
 
         var isFault: Bool {
             switch self {
-            case .pageCausesPause, .pictureInPicturePause, .stall, .crash, .missEnd, .staleItem, .gaplessJoin, .offline,
+            case .pageCausesPause, .pictureInPicturePause, .pictureInPicturePlay, .stall, .crash, .missEnd, .staleItem, .gaplessJoin, .offline,
                  .loadFault, .radioMode, .sleepWake: true
             default: false
             }
@@ -144,6 +151,14 @@ private final class Soak {
 
     private func perform(_ step: Step) async {
         let c = rig.controller, e = rig.engine
+        switch step {
+        case .playList, .next, .previous, .play, .remotePlay, .jump, .clearAll:
+            held = false   // the listener asks for music (invariant 8)
+        case .pause, .remotePause, .sleepWake:
+            held = true
+        default:
+            break
+        }
         switch step {
         case .playList:
             let tracks = newTracks(2 + roll(8))
@@ -184,11 +199,20 @@ private final class Soak {
             e.pauseByItself()
             await advance(3)
             e.isPausedByListener = false
+        case .pictureInPicturePlay:
+            // Play in the PiP window after a pause there (or in the app): the listener's own.
+            guard e.state.status == .paused, !c.wantsPlayback, let current = c.queue.nowPlaying,
+                  c.agrees(e.state.item, with: current) else { break }
+            held = false
+            e.isResumedByListener = true
+            e.resumeByItself()
+            await rig.settle()
+            e.isResumedByListener = false
         case .stall: e.stall()
         case .crash: e.crash()
         case .missEnd: e.missesNextEnd = true
         case .staleItem: e.reportStaleItem()
-        case .gaplessJoin: e.joinPrepared()
+        case .gaplessJoin: e.joinPrepared(evenIfPaused: chance(30))
         case .offline: e.isNetworkAvailable = false
         case .online: e.isNetworkAvailable = true
         case .loadFault:
@@ -257,9 +281,24 @@ private final class Soak {
             mismatchSince = nil
         }
 
-        // 4. Now Playing shows the queue's track, playing exactly when the engine plays.
+        // 8. Paused by the listener or the app: nothing plays until they ask for music again.
+        // (Held from the moment the intent drops — not merely while it is false: Next may still be waiting for radio.)
+        if lastWants, !c.wantsPlayback { held = true }
+        lastWants = c.wantsPlayback
+        if held, s.status == .playing {
+            fail("the engine plays \(describe(s)) though the listener or the app paused and nobody asked for music since")
+        }
+
+        // 9. App Nap is held off only for a listener waiting for music.
+        if c.activityLevel == .busy, !c.wantsPlayback {
+            fail("busy (App Nap held off) while nobody wants music; engine \(describe(s))")
+        }
+
+        // 4. Now Playing shows the queue's track, playing exactly when the engine plays (or loads for a listener who
+        // wants it: Pause in Control Center, like the app's own controls).
         let snapshot = rig.nowPlaying.snapshot
-        let npAgrees = snapshot.map { $0.videoID == current?.track.videoId && ($0.playbackState == .playing) == (s.status == .playing) } ?? true
+        let npPlaying = s.status == .playing || (s.status == .loading && c.wantsPlayback)
+        let npAgrees = snapshot.map { $0.videoID == current?.track.videoId && ($0.playbackState == .playing) == npPlaying } ?? true
         if npAgrees {
             nowPlayingMismatchSince = nil
         } else {

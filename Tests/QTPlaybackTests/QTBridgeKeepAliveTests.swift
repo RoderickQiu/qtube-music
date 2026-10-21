@@ -9,7 +9,7 @@ import Testing
 @Suite struct QTBridgeKeepAliveTests {
     /// `#movie_player`, one `<video>`, the prompt (when `__prompt` is set), and timers on a clock that `__advance(ms)`
     /// moves (`Date.now` included).
-    private static let fakePage = """
+    static let fakePage = """
     var window = this; var __posts = []; var __clicks = 0; var __prompt = false; var __listeners = {};
     var __now = 1000000; Date.now = function () { return __now; };
     var __timers = new Map(); var __nextTimer = 1;

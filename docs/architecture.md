@@ -121,7 +121,7 @@ Everything is wired (integration of M1 polish + M2–M4):
   never touches playback. Without `-qt.time` the track is cued at 0; scripted runs (`-qt.readyFile`) default to 31.5 s.
 - **Failures:** `QTQueueController.onFailure` → toast (`Playback` table): age-restricted / not available in your
   region / not available / didn't load / couldn't play — skipped; "Playback stopped" after 3 in a row. Offline →
-  one toast; the engine resumes the item when the network returns.
+  one toast; the engine resumes the item when the network returns (only while it is still wanted).
 - **Reliability (pre-launch §3, `QTQueueController+Reliability`):** the queue reconciles the listener's intent
   (`wantsPlayback`) with the engine once a second while it matters (`superviseTick`; no timer while idle). Silent
   where it can be: a pause nobody asked for ("Still listening?", WebKit) is undone once after 1.5 s; the engine on
@@ -132,9 +132,20 @@ Everything is wired (integration of M1 polish + M2–M4):
   engine that lost the item reloads it. `onNotice` (`QTPlaybackNotice`) speaks only when the listener must know or
   act, one toast each: *Playback was interrupted* (a second unrequested pause within a minute; Resume) · *Couldn’t
   load more songs* (radio failed at the end of the queue; Try Again → `retryAutoplay()`) · *Playback paused — no
-  connection* (10 min without music because of the network). Remote commands (AirPods, Control Center) and the PiP
-  window's pause (`isPausedByListener`) are the listener's own and never fought. Only `.playing` holds the
-  idle-sleep assertion; loading and retries keep App Nap away only. Sleep (`QTPlaybackServices`, NSWorkspace) pauses
+  connection* (10 min without music because of the network). Remote commands (AirPods, Control Center) are the
+  listener's own and never fought, and so are the PiP window's Play / Pause and closing it (WebKit pauses then):
+  `QTWebPlaybackBridgeScript.pictureInPicture` drops the bridge's hold on their Play (not at an item's end) and holds
+  on their pause, posting `pip` first; the engine takes it as its intent (`isPausedByListener` /
+  `isResumedByListener`) and the queue adopts it without commanding the media. **Intent rules:** Play/Pause everywhere
+  (player bar, Stage, mini player, menu bar, Dock, Controls menu, Home cards) shows and toggles
+  `isPlaybackRequested` (`wantsPlayback`, or the engine playing), so Pause pauses a track that is loading, retrying
+  or recovering; Now Playing reads playing (rate 0) while a track loads for a listener who wants it. Nothing starts by
+  itself after the listener or the app paused: the queue giving up (failure, 10 min offline) also pauses the engine,
+  and the web engine reloads a network failure on reconnect only while it intends playback; a pause during a
+  gapless/crossfade join or while Autoplay's radio answers holds; an engine swap or Song⇄Video keeps the intent, not
+  the engine's moment. Play on an ended track is a new listen (`playSerial`). Only `.playing` holds the idle-sleep
+  assertion; loading the listener waits for and retries keep App Nap away only — a cued load (a restored queue) holds
+  nothing and is watched only while online. Sleep (`QTPlaybackServices`, NSWorkspace) pauses
   and saves the queue; on wake engines check themselves (`systemDidWake(after:)`: a fresh player page after 30+ min,
   the native graph restarted or fallen back). Web engine: a dead WebContent process
   (`QTWebPlaybackNavigationWatcher`) or a page that won't take Play reloads at the position (3 crashes in 2 min fail
@@ -143,12 +154,15 @@ Everything is wired (integration of M1 polish + M2–M4):
   progress watchdog (6 s) restarts the graph once, then falls back; a failed graph restart falls back; only refusals
   (403/410/401, solver, bot check, SABR) switch native off for the session — 5xx/429 send just that item to the web
   engine. Tests: `PlaybackReliabilityTests`, `PlaybackSoakTests` (seeded 1,000-step chaos soak on `ChaosEngine`),
-  `WebRecoveryTests`, `QTBridgeKeepAliveTests`; live: `Scripts/playback-soak.py`.
+  `WebRecoveryTests`, `QTBridgeKeepAliveTests`, `ListenerIntentTests`, `QTBridgePictureInPictureTests`; the soak also
+  checks that nothing plays after a pause until the listener asks; live: `Scripts/playback-soak.py`.
 - **Playback speed (pre-launch §9):** one setting for everything that plays (`QTPlaybackEffectsPrefs.playbackRate`,
   `QTPlaybackSpeed`: 0.5–2× in quarter steps, the rates YouTube's player offers). `QTQueueController.rate` /
   `setRate` (`onRateChange` → `QTPlaybackServices` saves it) sets `QTPlaybackEngine.setRate` before every load and on
   an engine swap, so Song⇄Video, uploads, videos, reloads and fallbacks keep it. Every engine's `timeline.rate` is the
-  speed while content plays (0 otherwise), so lyrics, scrubbers and listens (media time) follow. Web engine:
+  speed while content plays (0 otherwise), so lyrics, scrubbers and listens (media time) follow. The scrubber's
+  remaining time is time left to listen at the speed (`QTPlaybackSpeed.listeningTime`, like Podcasts); elapsed, the
+  bar, VoiceOver's value, lyrics and listens stay in track time. Web engine:
   `QTWebPlaybackBridgeScript.rate` (own script; YouTube's `setPlaybackRate` + `video.playbackRate`, `preservesPitch`)
   re-asserts it on `ratechange` / `loadedmetadata` (capped per second), holds **ads at 1×**, and samples report the
   media's rate; the bridge's end window widens with the speed; seamless Song⇄Video line-up converts media ↔ wall time

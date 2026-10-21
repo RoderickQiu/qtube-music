@@ -26,8 +26,11 @@ public struct QTNowPlayingSnapshot: Equatable, Sendable {
     /// - Parameters:
     ///   - adLabel: localized "Advertisement", shown in place of the artist while an ad plays.
     ///   - uptime: the instant to sample the timeline at (tests pass a fixed value).
+    ///   - wantsPlayback: the listener's intent (`QTQueueController.wantsPlayback`). A track loading for a listener who
+    ///     wants it reads as playing (rate 0), like Music while it buffers, so Control Center and the Touch Bar show
+    ///     Pause — the same as the app's own controls.
     public init(track: QTTrack, state: QTPlaybackState, isLiked: Bool, adLabel: String,
-                uptime: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+                uptime: TimeInterval = ProcessInfo.processInfo.systemUptime, wantsPlayback: Bool = false) {
         videoID = track.videoId
         title = track.title
         album = track.album?.title
@@ -52,7 +55,8 @@ public struct QTNowPlayingSnapshot: Equatable, Sendable {
         }
         switch state.status {
         case .playing: playbackState = .playing
-        case .paused, .loading: playbackState = .paused
+        case .loading: playbackState = wantsPlayback ? .playing : .paused
+        case .paused: playbackState = .paused
         case .ended, .idle, .failed: playbackState = .stopped
         }
     }
@@ -158,8 +162,8 @@ public final class QTNowPlayingController {
     // MARK: Publishing
 
     /// Publishes the current item. Call on every engine state / like change; cheap when nothing changed.
-    /// Becomes active the first time `state` is playing.
-    public func update(track: QTTrack?, state: QTPlaybackState, isLiked: Bool) {
+    /// Becomes active the first time `state` is playing. `wantsPlayback`: the listener's intent (see the snapshot).
+    public func update(track: QTTrack?, state: QTPlaybackState, isLiked: Bool, wantsPlayback: Bool = false) {
         guard let track, state.item != nil else {
             if isActive { clear() }
             return
@@ -169,7 +173,8 @@ public final class QTNowPlayingController {
             activate()
         }
         let now = uptime()
-        let next = QTNowPlayingSnapshot(track: track, state: state, isLiked: isLiked, adLabel: QTLoc.tr("Advertisement"), uptime: now)
+        let next = QTNowPlayingSnapshot(track: track, state: state, isLiked: isLiked, adLabel: QTLoc.tr("Advertisement"), uptime: now,
+                                        wantsPlayback: wantsPlayback)
         if let previous = snapshot, previous.differsOnlyInTiming(from: next) {
             // The system interpolates elapsed time from the rate; only re-publish when it would drift.
             let predicted = previous.elapsed + previous.rate * (now - publishedAt)

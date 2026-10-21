@@ -12,7 +12,10 @@ import Foundation
 ///   left/top/right/bottom fractions of the slot);
 /// - `{type:"ended", gen, vid}` exactly once per load generation when content (not an ad) finishes;
 /// - `{type:"error", gen, vid, code, status, reason}` when the player reports an error or the item's
-///   playability status isn't OK (age-restricted, region-locked, removed…).
+///   playability status isn't OK (age-restricted, region-locked, removed…);
+/// - `{type:"pip", gen, playing}` (before the state it changes) when the listener plays or pauses from the Picture in
+///   Picture window, or closes it (WebKit pauses then; `pictureInPicture`): its Play drops the bridge's hold — except at the item's end,
+///   where YouTube's own autoplay stays held — and its pause becomes one, so neither side fights the other.
 ///
 /// Power: while the app shows no video the bridge asks for the lowest video quality, so the hidden view decodes
 /// 144p at most; and while paused the engine *freezes* the page's timers (`freeze()`), so YouTube Music's
@@ -242,6 +245,31 @@ enum QTWebPlaybackBridgeScript {
     })();
     """
 
+    /// The Picture in Picture window's own Play / Pause are the listener's (page world, document start, before the
+    /// bridge). WebKit plays and pauses the media itself from that window, so the bridge only sees media events; on
+    /// each report it asks `__qtPip.tick(sample, hold, eligible)` — eligible: content of this load that has played
+    /// and hasn't ended. 'play': the media plays in PiP while the bridge holds it (the app had paused) → the bridge
+    /// drops the hold and thaws the page instead of re-pausing it. 'pause': the player paused (state 2) in PiP, or
+    /// within 3 s of the listener closing the window (WebKit pauses then) → the bridge holds, so nothing resumes it.
+    /// The app's own `pip(false)` (`byApp`) is no listener closing it. Pinned by `QTBridgePictureInPictureTests`.
+    static let pictureInPicture = """
+    (() => {
+      const P = { inPip: false, left: 0, byApp: 0 };
+      window.__qtPip = {
+        byApp() { P.byApp = Date.now(); },
+        tick(s, hold, eligible) {
+          const now = Date.now();
+          if (P.inPip && !s.pip && now - P.byApp > 1500) P.left = now;
+          P.inPip = s.pip;
+          if (!eligible) return null;
+          if (hold && !s.paused && s.pip) return 'play';
+          if (!hold && s.paused && s.ps === 2 && (s.pip || now - P.left < 3000)) { P.left = 0; return 'pause'; }
+          return null;
+        },
+      };
+    })();
+    """
+
     /// Keeps a listening page from pausing itself (page world, document start, before the bridge so its timers are the
     /// raw ones — they run while the page's own are frozen). YouTube Music pauses after a while without input and asks
     /// "Still listening?" (`ytmusic-you-there-renderer`); the check compares its activity stamp `window._lact` with
@@ -457,6 +485,9 @@ enum QTWebPlaybackBridgeScript {
         if (!player()) return;
         const s = sample();
         const now = Date.now();
+        // The listener's Play / Pause in the Picture in Picture window (`pictureInPicture`): drops or sets the hold.
+        const pip = window.__qtPip ? window.__qtPip.tick(s, S.hold, s.match && !s.ad && S.armed && S.endedGen !== S.gen) : null;
+        if (pip) { S.hold = pip === 'pause'; if (!S.hold) thaw(); post({ type: 'pip', gen: S.gen, playing: !S.hold }); }
         if (S.hold && !s.paused) { pauseNow(); s.paused = true; }
         // Paused by the page while the app wants music ("Still listening?"): `keepAlive` answers it.
         if (window.__qtKeepAlive) window.__qtKeepAlive.tick(!S.hold, s.paused && s.match);
@@ -591,6 +622,7 @@ enum QTWebPlaybackBridgeScript {
         // WebKit's native Picture in Picture for the page's video.
         pip(on) {
           const v = video(); if (!v || typeof v.webkitSetPresentationMode !== 'function') return false;
+          if (window.__qtPip) window.__qtPip.byApp();
           if (on) {
             v.disablePictureInPicture = false;
             if (v.webkitSupportsPresentationMode && !v.webkitSupportsPresentationMode('picture-in-picture')) return false;
