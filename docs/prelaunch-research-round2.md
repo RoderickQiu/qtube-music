@@ -76,3 +76,71 @@ Ranked by how often and how strongly it comes up. Size: S = a day or less with a
 - **Orchard** (Electron) has added smart crossfade, lossless "integration", an immersive player and a mobile app. Its users ask for offline caching, a sleep timer and Start Mix.
 - **New Windows clients keep appearing** ("Because the other 44 posted in the past 2 months were not enough?"). On Mac it's still Kaset, Pear, and now Limusic.
 - **Browser extensions** (Companion, YouTempo, Better Lyrics) fill the same gaps from inside the browser: mini player, sleep timer, EQ, crossfade, lyrics. That shows which features people go looking for.
+
+## Limusic in depth
+
+*Read 2026-10-21 from its repo (shallow clone at the v1.3.0 era, `main` @ 2026-10-19), release data and issues.*
+
+### The project
+
+- **Licence and age:** GPL-3.0, started 2026-07-03.
+- **Popularity:** 1,213 ★, 86 forks, 72 open issues.
+- **Pace:** 100+ commits in the last week, nearly all by one maintainer (995 of his commits overall; the next contributor has 37). Several release candidates a week; v1.3.0 shipped 2026-10-19. Its source comments refer to numbered plans ("Plan 046"), which suggests it's built largely with AI agents.
+- **Reach:** v1.3.0 got 4,973 Windows installs, 2,111 Linux and **195 Mac DMGs** (plus 256 self-updates) in two days. The updater file was fetched 23,570 times in the same two days, so its daily users number in the thousands.
+  - Mac is 3–7% of downloads in every release. The Mac build has only existed since v0.7.0 (Sept 7).
+  - It's Apple Silicon only, unsigned, and needs the same `xattr` workaround as QTube.
+
+### How it works
+
+- **No web player.** It's Tauri 2 (a system WebView for a Svelte UI) plus Rust.
+  - It calls YouTube's API directly, through its own InnerTube crate with a RustyPipe fallback.
+  - It solves the stream cipher and mints PoTokens by running YouTube's BotGuard in an embedded V8 (`rustypipe-botguard`).
+  - It plays audio through **libmpv**.
+  - So it's **ad-free for everyone, free accounts included**, with gapless playback and loudness normalisation everywhere. That's its headline ("ad-free, no Electron").
+  - The cost: it breaks YouTube's Terms of Service, and it breaks whenever YouTube changes BotGuard. This is the route QTube chose not to take for free accounts (see `native-engine-spike.md`).
+- **Sign-in:** an in-app Google login or a pasted cookie, with several Google accounts saved side by side. **The full session cookie is stored in plain SQLite** (`limusic.sqlite`, column `session_cookie`); QTube keeps its session in the Keychain.
+- **Lyrics:** seven providers in an order the user can change:
+  - the Better Lyrics API (Apple TTML, word-timed)
+  - LyricsPlus (Apple Music lyrics, word-timed, with Apple's romanisation)
+  - LRCLIB, YouTube Music
+  - SimpMusic (timed to the exact upload)
+  - NetEase / QQ / Kugou
+
+  Translations come only from NetEase. QTube translates on the Mac (the Translation framework or Apple Intelligence), so it covers far more songs.
+- **The Mac is a port, not a Mac app.** The UI is a web UI with a custom title bar (#189 "Title Bar centering on macOS"). Now Playing goes through `souvlaki`. Beyond notifications there is almost no Mac-specific code: no AirPlay picker, no menu bar player, no Shortcuts or AppleScript, no Liquid Glass, no Intel build.
+
+### What it has that QTube doesn't
+
+| Feature | Notes |
+|---|---|
+| Ad-free playback on free accounts, gapless + normalisation for all | Through its own stream extraction; QTube won't copy this for free accounts (ToS) |
+| **Blocked artists** ("for the AI-slop channels") | Matches channel id *and* lower-cased name, deliberately no fuzzy matching. #506 asks for strict filters on blocked artists and disliked tracks. Confirms the design in item 1 above. It doesn't use YouTube's AI label |
+| **Listening stats page** | Top songs, artists and albums and time listened, from local history (`stats.rs`) |
+| **Local music files** | With tags, mixed into the library |
+| **Listen Together** | Synced rooms over a small self-hosted relay (`sync-server` crate) |
+| **Spotify import** (#375) | From a Spotify data export |
+| **Several Google accounts saved**, switched from a menu | QTube has brand accounts under one Google account |
+| **18 UI languages** through Weblate | QTube has English and Simplified Chinese |
+| Self-updating builds | QTube's Sparkle is wired but dormant (installing is out of scope for now) |
+| Themes | Accent palettes, custom fonts, corner radius, custom app icon, Matugen colours |
+| More lyrics sources | Better Lyrics API and LyricsPlus give word timing for many more songs |
+| Comments, chapters (#512), podcasts | Partly |
+
+### What QTube has that it doesn't
+
+- **A real Mac app:** SwiftUI and AppKit, Liquid Glass, the menu bar player, desktop lyrics, the Stage (five backgrounds), AirPlay, Shortcuts and AppleScript, Siri, Mac shortcuts and menus, Intel and Apple Silicon.
+- **On-device translation of any song's lyrics**, and lyrics that sit in the window rather than a side panel.
+- **Song⇄Video at the same timestamp, without a gap.** Limusic has a switch, but #520 reports it misbehaving.
+- **The session in the Keychain**, and a sign-in window with an address bar, plus Google-side sign-out.
+- **No terms-of-service risk for free accounts:** QTube plays through YouTube's own player, so ads and plays count as YouTube expects.
+- **Low power:** idles under 1% CPU (`docs/perf.md`). Limusic's WebView uses 220–400 MB (Reddit).
+
+### What to take from it
+
+1. **Blocked artists**, already item 1 above. Match on channel id and exact name, never fuzzy, and add a "strict" mode that also keeps them out of search.
+2. **Better Lyrics API + LyricsPlus** as lyrics sources (word timing for many more songs). The Better Lyrics maintainer offered help in round 1 (Kaset, Kodama threads). Size S–M.
+3. **Listening stats page**, from QTube's own history plus the scrobble log. Size M.
+4. **More UI languages** via a translation platform. The strings already go through `QTLoc` and `.xcstrings`, so it's mostly process. Size M.
+5. **Several Google accounts saved.** Size M; needs the sign-in test first.
+
+Not worth copying: stream extraction for free accounts (ToS, upkeep); Listen Together (needs a server); themes beyond song colours (against the native look).
