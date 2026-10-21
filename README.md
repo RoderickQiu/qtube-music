@@ -43,7 +43,8 @@ mini player. It's built in SwiftUI and AppKit, idles under 1% CPU and uses about
   vinyl, the music video, and an audio-reactive visualizer.
 - **Lyrics that keep up.** Word-by-word karaoke where the source has it. You can scroll back and jump to the
   current line, and set the timing offset. Sources are YouTube Music, LRCLIB and the AMLL TTML DB; NetEase, Kugou
-  and QQ Music are opt-in.
+  and QQ Music are opt-in. Wrong lyrics? Pick another version in Lyrics Source, report it, or turn lyrics off for
+  that song; the app remembers.
 - **Translation on your Mac.** The Translation framework, or Apple Intelligence on macOS 26. Chinese lyrics show in
   Simplified or Traditional characters, whichever you pick.
 - **Song ⇄ Video.** Switch between the song and its music video without losing your place. Picture in Picture
@@ -51,8 +52,9 @@ mini player. It's built in SwiftUI and AppKit, idles under 1% CPU and uses about
 - **Playback speed.** 0.5× to 2× with the pitch kept (Controls › Playback Speed, ⌥⌘. and ⌥⌘,). Lyrics, Now
   Playing and scrobbles follow the speed; ads still play at 1×.
 - **Your library.** Home, Explore, Liked songs, playlists and history, in sortable, filterable tables, plus a
-  docked Now Playing and Queue panel. Music you uploaded to YouTube Music has its own Uploads page (songs, albums,
-  artists).
+  docked Now Playing and Queue panel. Likes, playlists (new, renamed, reordered, songs added or removed),
+  subscriptions and saved albums sync with your YouTube Music account, brand accounts included. Music you uploaded
+  to YouTube Music has its own Uploads page (songs, albums, artists).
 - **The rest of the Mac.** Media keys, Control Center, AirPlay, a mini player, a menu bar player, desktop lyrics,
   Shortcuts and AppleScript. Optional global shortcuts (Settings › Shortcuts) play, skip, like and show the players
   from any app, with no Accessibility permission.

@@ -10,8 +10,13 @@ public sources. No requests went to YouTube or Google. Line numbers are as of co
 > **Status (2026-10-21): all of §1–§9 is built and merged on `main`.** The owner approved account writes (sync on by
 > default when signed in; off in DEBUG and scripted runs) and said to treat this report as guidance, so the builds
 > deviate where that gave a better experience. Each feature's commit says how, and `docs/architecture.md` describes
-> the result. Two code reviews of the merged work found 46 defects; all were fixed. A hands-on check of the menus,
-> sheets and shortcut recorder found 4 more (fixed). 810 offline tests pass. Live soak: SOAKRESULT
+> the result. Three code reviews of the merged work found 56 defects; all were fixed. A hands-on check of the menus,
+> sheets and shortcut recorder found 4 more (fixed). 843 offline tests pass.
+> **Live soaks** (`Scripts/playback-soak.py --hours 1.5 --anonymous`, one at a time, no bot check in any run): run 1
+> found a track that never started → "Playback was interrupted" (fixed: a not-yet-started track is played again,
+> then reloaded on a fresh page); run 2 found a pre-roll ad on Song⇄Video held paused (fixed); run 3 passed 12/13 —
+> the one miss was 46 s of silence at a track change, which the logs show was a Wi‑Fi outage the system still
+> reported as online (now shown as loading, never "interrupted", and playing ~1 s after the network returns).
 > Still open: the owner's one-time real sign-in test (§4 checklist), a signed-in fixture capture to confirm the
 > hand-built response shapes (§1, §2, §5), and installing.
 
