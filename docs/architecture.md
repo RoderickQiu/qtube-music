@@ -951,7 +951,7 @@ Booleans: `YES/NO`, `true/false`, `1/0` (empty = true).
 | `qt.ad` | bool — force the ad state (simulated engine) | `playAd` |
 | `qt.screen` | display-name substring (`U270CA`, `Built-in`), or `main` / `any` / `none`. DEBUG only: defaults to `U270CA` when any `-qt.*` argument is given, and a launch whose display isn't connected refuses to start (`QTScreenGuard`). Release builds ignore it | |
 | `qt.window` | `1440x900` (default) | |
-| `qt.show` | comma list: `mini`, `desktopLyrics`, `menuBarPopover`, `settings`; DEBUG `newPlaylist` (New Playlist sheet with the launch queue), `editPlaylist` / `deletePlaylist` (with `-qt.section playlist:<id>`) | |
+| `qt.show` | comma list: `mini`, `desktopLyrics`, `menuBarPopover`, `settings`; DEBUG `reportProblem` (Help › Report a Problem…; `Scripts/shoot.sh --window reportProblem`), `newPlaylist` (New Playlist sheet with the launch queue), `editPlaylist` / `deletePlaylist` (with `-qt.section playlist:<id>`) | |
 | `qt.readyFile` | path; JSON `{pid, bundleID, windows:[{identifier, number, title, frame}]}` when settled | |
 | `qt.catalog` | `live` (default: the saved session, else guest mode) · `mock` (DEBUG builds only — release builds ignore it — demo catalog; never reads the Keychain; `Scripts/shoot.sh` passes it unless you give `-qt.catalog`) · a mock catalog folder path (also `$QT_MOCK_CATALOG`) | |
 
@@ -965,7 +965,7 @@ Builders add their own as `qt.<area>.<name>` (e.g. `qt.stage.chrome hidden`, `qt
 | lyrics-ui | `qt.lyrics.scrolled` · `qt.lyrics.options` · `qt.lyrics.demoVersions` · `qt.lyrics.translationState same\|translating\|download\|unavailable\|onDevice\|appleIntelligence` · `qt.lyrics.lab` · `qt.lyrics.debug` |
 | stage | `qt.stage.chrome hidden` · `qt.stage.queue YES` · `qt.stage.popover appearance` · `qt.stage.window YES` (detached window) · `qt.stage.reduceMotion YES` · `qt.stage.visualizerOnBattery YES` · `qt.stage.closeAfter <s>` · `qt.stage.noAd YES` (free account without the simulated pre-roll, e.g. the visualizer fallback) |
 | glass | DEBUG `qt.reduceTransparency YES` (every glass primitive draws its Reduce Transparency solid) |
-| desktop | `qt.desktop.miniMode compact\|art` · `qt.desktop.miniLyric` · `qt.desktop.miniHover` · `qt.desktop.lyricsUnlocked` · `qt.desktop.menuBarScroll` · `qt.desktop.lyricsSize <pt>` · `qt.settingsTab general\|playback\|lyrics\|account\|integrations\|shortcuts\|advanced`; DEBUG: `qt.desktop.hotKeys suggested\|conflicts` (session-only suggested set; `conflicts` adds a menu clash and a ⌘-only binding), `qt.desktop.hotKeyTaken like,playPause` (those show "Used by another app"), `qt.desktop.registerHotKeys YES` (launches with `-qt.*` arguments never register global shortcuts otherwise), `qt.desktop.switchLanguage`, `qt.desktop.popUpMenu <index>` (1 = File, 3 = View, 4 = Controls), `qt.desktop.showShortcuts`, `qt.desktop.accountPreview signedIn\|premium\|signingIn\|expired\|signedOut` (Settings › Account without Keychain access), `qt.desktop.staleMenus YES` (General shows Relaunch), `qt.desktop.integrationsExpanded YES` (Integrations opens every "Use your own …" / custom-server disclosure), `qt.desktop.listenBrainzPreview connected\|failed` (ListenBrainz connected with a sample account and custom server, or a failed Connect; no Keychain, no network), `qt.desktop.importExpanded YES` (Account opens Import Session), `qt.desktop.importError incomplete\|rejected\|unreadable\|notPermitted` (pins an import error), `qt.desktop.scriptProbe <path>` (runs AppleScript against the app from inside it — no Automation prompt — and writes the results as JSON) |
+| desktop | `qt.desktop.miniMode compact\|art` · `qt.desktop.miniLyric` · `qt.desktop.miniHover` · `qt.desktop.lyricsUnlocked` · `qt.desktop.menuBarScroll` · `qt.desktop.lyricsSize <pt>` · `qt.settingsTab general\|playback\|lyrics\|account\|integrations\|shortcuts\|advanced`; DEBUG: `qt.desktop.hotKeys suggested\|conflicts` (session-only suggested set; `conflicts` adds a menu clash and a ⌘-only binding), `qt.desktop.hotKeyTaken like,playPause` (those show "Used by another app"), `qt.desktop.registerHotKeys YES` (launches with `-qt.*` arguments never register global shortcuts otherwise), `qt.desktop.switchLanguage`, `qt.desktop.popUpMenu <index>` (1 = File, 3 = View, 4 = Controls), `qt.desktop.showShortcuts`, `qt.desktop.accountPreview signedIn\|premium\|signingIn\|expired\|signedOut` (Settings › Account without Keychain access), `qt.desktop.staleMenus YES` (General shows Relaunch), `qt.desktop.integrationsExpanded YES` (Integrations opens every "Use your own …" / custom-server disclosure), `qt.desktop.listenBrainzPreview connected\|failed` (ListenBrainz connected with a sample account and custom server, or a failed Connect; no Keychain, no network), `qt.desktop.importExpanded YES` (Account opens Import Session), `qt.desktop.importError incomplete\|rejected\|unreadable\|notPermitted` (pins an import error), `qt.desktop.scriptProbe <path>` (runs AppleScript against the app from inside it — no Automation prompt — and writes the results as JSON); with `-qt.show reportProblem`, DEBUG `qt.report.text <text>` (the description), `qt.report.expanded YES` (Show Diagnostics open), `qt.report.sampleLog YES` (sample log lines with a path, a key and a URL query, to show the redaction) |
 | lyrics-live | `qt.lyrics.unofficial all\|none\|netease,kugou,qq` (session-only Settings override) · `qt.lyrics.engine live\|mock` (default live) · `qt.lyrics.cache memory\|<path>` (fresh lookup; default Application Support/<bundle id>/Lyrics.sqlite) · `qt.lyrics.offline YES` (every source unreachable → fallback path) |
 | data-live | `qt.account.sync YES\|NO` (session-only Settings › Account › Sync override; without it DEBUG builds and any `-qt.*` launch run with Sync off) · DEBUG `qt.account.localChangesAlert YES\|launch` (the Sync-on question over Settings › Account — `launch`: the one asked at launch with Sync already on —, nothing changes; capture with `shoot-region.sh … "Account" -qt.show settings -qt.settingsTab account`) · `qt.live.open album:<id\|title>` · `artist:<id\|name>` · `playlist:<id>` (once the library has loaded) · `qt.live.state skeleton\|offline\|unavailable\|expired\|botCheck` (pins every live page's state) · `qt.live.loadDelay <s>` (DEBUG: Home and mood feeds arrive that much later — loading and transition shots) · `qt.live.signedOut YES` (guest mode, no Keychain read) · DEBUG `qt.auth.store memory` (the session lives in memory: a guest run never reads, and a sign-out never clears, the shared dev session) · DEBUG `qt.live.fixtures YES` (YouTube Music answered offline from `Tests/QTInnerTubeTests/Fixtures`, artwork offline — guest screenshots with no network) · with `qt.live.signedOut`, `qt.live.signIn YES` (Google sign-in window in a throwaway WebKit store; a login there is never kept) · DEBUG `qt.auth.signInPreview google|other|insecure[,help]` (the sign-in window's chrome around a local placeholder page — never Google, no network; `,help` opens the ? popover; capture with `shoot.sh --window signIn --window signInHelp`) · DEBUG `qt.auth.revoke YES` (sign-out also ends the session at Google, as release builds do) |
 | stage-video | DEBUG `qt.video.debugVisibleHost YES` (orders the web engine's host window onto U270CA, alpha 1 — page diagnostics only) |
@@ -996,7 +996,7 @@ InnerTube fixtures), `QT_DUMP=1` (print parser output), `QT_KEYCHAIN_TEST=1` (Ke
   like Xcode does (`swiftc -typecheck -emit-const-values-path` for the app module, then `appintentsmetadataprocessor`
   → `Contents/Resources/Metadata.appintents`; a warning, not a failure, if it can't); signs ad hoc inside out
   (Sparkle's XPC services, Autoupdate, Updater.app, the framework, then the app).
-- `Scripts/shoot.sh <outname> [--window main|mini|desktopLyrics|menuBarPopover|settings]… [launch args]` —
+- `Scripts/shoot.sh <outname> [--window main|mini|desktopLyrics|menuBarPopover|settings|reportProblem]… [launch args]` —
   quits that variant, `open -g -n` with `-qt.screen <display> -qt.readyFile …` (display: `$QT_SCREEN` — it must be
   connected, else the run stops —, otherwise U270CA when connected, else the built-in display: `qt_screen` in
   `Scripts/lib.sh`, `qt-window-id --default-screen`), stops at once if the app refused the launch (`qt_ready_error`),
@@ -1176,6 +1176,40 @@ InnerTube fixtures), `QT_DUMP=1` (print parser output), `QT_KEYCHAIN_TEST=1` (Ke
   (`Tests/QTUITests/QTIntegrationsCoordinatorTests.swift`: demo, Repeat One, launch track, ads, switching on mid-song,
   `switchSource`, the serial queue, Last.fm + ListenBrainz, media time; `QTIntegrationsTests`: pause vs drop;
   `QTListenBrainzTests`).
+
+## Report a Problem (Help menu)
+
+Help › **Report a Problem…** (also the action on the "Playback stopped — the next songs couldn't play" toast) opens
+the `qt.window.reportProblem` window (`Commands/QTReportProblem.swift`): What happened? (a text view), Include
+diagnostics (on), **Show Diagnostics** (the exact shared text, monospaced and selectable), Cancel (Esc), Copy Report,
+and **Open GitHub Issue…** (⌘↩). The app never sends anything: the browser opens
+`github.com/RoderickQiu/qtube-music/issues/new?title=…&labels=bug&body=…` for the user to review and submit.
+
+- **Diagnostics** (`QTProblemDiagnosticsCollector`, built offline, written in English for the maintainer): App
+  (version, build, git commit from Info.plist `QTGitCommit` — `build-app.sh` writes it, `+` = uncommitted changes —
+  debug/release, bundle id); Mac (macOS version and build, model identifier, CPU architecture, interface language with
+  its setting and the system's, region, appearance with its setting and Reduce Transparency / Increase Contrast /
+  Reduce Motion); Account (kind only: demo, guest, signing in, signed in free / Premium, session expired; brand account
+  yes/no); Playback (engine web/native/simulated and why, status, wantsPlayback, Song/Video, network, now playing title
+  + video id, last notice, last toast); Settings (Sync, unofficial lyric sources, translation target, native-engine
+  opt-in, number of global shortcuts, Last.fm / ListenBrainz connected, Discord on); Log (`OSLogStore`,
+  `.currentProcessIdentifier`, subsystems `com.roderickqiu.qtube` and the bundle id, last 30 min, notice / error /
+  fault, at most 300 lines, `HH:mm:ss.SSS [category] message`). `QTPlaybackServices` logs failures, notices and
+  network changes at notice level or above so they reach this log.
+- **Redaction** (`QTDiagnosticsRedactor`, over the whole diagnostics block; the user's own description is passed
+  through as typed): URL queries except `v=` / `list=` and fragments; `/Users/<name>` → `~`; `Authorization` /
+  `Cookie` / `Set-Cookie` header lines; Google cookies by name (`SAPISID`, `__Secure-*`, `SID`, `LOGIN_INFO`…);
+  `SAPISIDHASH` values; `key=`, `token=`, `sig=`, `password=`, `access_token`… pairs; email addresses; the signed-in
+  account's and brand accounts' names and handles and the Mac user's names; channel ids (`UC…`); numbers of 16+
+  digits; opaque runs of 33+ base64/hex characters (playlist and album ids, words and word paths stay). Video ids and
+  titles stay.
+- **Link length**: a link stays under 7,500 characters (`QTIssueLink`). When the full report doesn't fit, the link
+  carries the description and a one-line summary, the full report goes to the clipboard and to
+  `~/Library/Caches/<bundle id>/Reports/QTube Music Report <date>.txt` (shown in Finder; reports older than a week are
+  removed), and the body says to paste it. The window says so before the click. Values are percent-encoded down to
+  RFC 3986's unreserved set.
+- Tests: `Tests/QTUITests/QTReportProblemTests.swift` (redaction, report order, link cap and encoding, fallback,
+  attachment naming, account wording, engine reasons, reading this process's log).
 
 ## Updates (Sparkle)
 

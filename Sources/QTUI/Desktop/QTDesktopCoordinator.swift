@@ -92,6 +92,8 @@ public final class QTDesktopCoordinator {
                 }
             }
         }
+        // `-qt.show reportProblem` (+ `-qt.report.*`): Help › Report a Problem… at launch (screenshots).
+        QTReportProblem.applyLaunch(model.launch)
         if let path = model.launch.string(QTDesktopLaunchKey.scriptProbe) {
             Task { @MainActor in
                 while !QTReadiness.shared.isReady { try? await Task.sleep(for: .milliseconds(100)) }
@@ -138,6 +140,15 @@ public final class QTDesktopCoordinator {
     /// Called from scenes (Commands, menu bar label) so AppKit code paths can reopen the main window.
     public func register(openWindow: OpenWindowAction) {
         openWindowAction = openWindow
+    }
+
+    /// Opens (or brings forward) one of the app's SwiftUI windows by scene id, for paths outside a scene (a toast's
+    /// action, launch arguments). False before any scene registered `openWindow`.
+    @discardableResult
+    func openWindow(id: String) -> Bool {
+        guard let openWindowAction else { return false }
+        openWindowAction(id: id)
+        return true
     }
 
     // MARK: Launch overrides

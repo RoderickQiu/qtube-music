@@ -126,6 +126,13 @@ Please read this first:
 - Plays through the native engine don't appear in your YouTube Music history.
 - Music videos always play through the web player.
 
+## Feedback
+
+Something wrong? **Help › Report a Problem…** opens a prefilled GitHub issue in your browser with what you write
+and, if you leave it on, the app's diagnostics: versions, playback state, settings and this session's log, with
+cookies, keys, email addresses, account names and your Mac's user name taken out. **Show Diagnostics** shows the
+exact text first, and nothing is sent until you submit the issue yourself.
+
 ## Build from source
 
 You need Xcode 27 (Swift 6.4). The app it builds runs on macOS 15 or later.

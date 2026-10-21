@@ -3,7 +3,7 @@ import QTCore
 import QTUI
 import SwiftUI
 
-// Owner: builder "desktop". Scenes: the main Window (⌘0), Settings, Keyboard Shortcuts, and the MenuBarExtra.
+// Owner: builder "desktop". Scenes: the main Window (⌘0), Settings, Keyboard Shortcuts, Report a Problem, and the MenuBarExtra.
 // The app delegate adds the Dock menu, reopen handling, the desktop surfaces and AppleScript's application
 // properties; the app menu gets Check for Updates… (Sparkle, QTUpdater.swift). Launch paths never activate the
 // app (no NSApp.activate) — see docs/architecture.md.
@@ -40,6 +40,15 @@ struct QTubeMusicApp: App {
         .windowResizability(.contentSize)
         .restorationBehavior(.disabled)
         .commandsRemoved() // opened from Help › Keyboard Shortcuts, not listed in the Window menu
+
+        Window(QTLoc.tr("Report a Problem", table: .desktop), id: QTReportProblemView.sceneID) {
+            QTReportProblemView()
+                .environment(model)
+        }
+        .windowResizability(.contentSize)
+        .restorationBehavior(.disabled)
+        .defaultPosition(.center)
+        .commandsRemoved() // opened from Help › Report a Problem… (or a failure toast)
 
         MenuBarExtra {
             QTMenuBarContent()

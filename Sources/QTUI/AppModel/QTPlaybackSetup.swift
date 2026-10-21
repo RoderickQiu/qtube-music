@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import os
 import QTCore
 import QTPlayback
 import WebKit
@@ -224,12 +225,19 @@ public final class QTPlaybackServices {
         }
     }
 
+    /// Failures, notices and network changes, for Help › Report a Problem… (its log reads notices and errors).
+    static let log = Logger(subsystem: "com.roderickqiu.qtube", category: "playback")
+
     private func report(_ event: QTPlaybackFailureEvent) {
         let message = Self.message(for: event)
         lastFailureMessage = message
+        Self.log.error("couldn't play \(event.track.videoId, privacy: .public): \(String(describing: event.error), privacy: .public)\(event.skipped ? ", skipped" : "", privacy: .public) (\(event.consecutive) in a row)")
         // A bot check: one calm toast with Sign In (signing in usually clears it); signed in already, just the line.
         if event.error == .botCheck, QTLiveCatalogStore.shared.auth.isSignedIn == false {
             model?.showToast(message, actionTitle: QTLoc.tr("Sign In", table: .live)) { QTLiveCatalogStore.shared.signIn() }
+        } else if !event.skipped, event.consecutive >= QTQueueController.maxConsecutiveFailures {
+            // Several songs in a row wouldn't play: something is wrong beyond one song, worth a report.
+            model?.showToast(message, actionTitle: QTLoc.tr("Report a Problem…", table: .desktop)) { QTReportProblem.open() }
         } else {
             model?.showToast(message)
         }
@@ -260,6 +268,7 @@ public final class QTPlaybackServices {
     private func report(_ notice: QTPlaybackNotice) {
         guard let model else { return }
         lastNotice = notice
+        Self.log.notice("notice: \(String(describing: notice), privacy: .public)")
         let playback = model.player.playback
         let (message, action) = Self.message(for: notice)
         switch notice {
@@ -302,6 +311,7 @@ public final class QTPlaybackServices {
 
     private func networkChanged(available: Bool) {
         guard let model else { return }
+        Self.log.notice("network \(available ? "available" : "unavailable", privacy: .public)")
         if !available, model.player.isPlaying || model.player.state.status == .loading, !wasOfflineNoticeShown {
             wasOfflineNoticeShown = true
             model.showToast(QTLoc.tr("You’re offline — playback continues when you reconnect", table: .playback))

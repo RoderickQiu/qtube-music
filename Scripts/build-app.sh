@@ -158,6 +158,9 @@ if [[ -d "$QT_REPO/Assets/AppIcon.icon" ]]; then
 fi
 
 BUILD_NUMBER="$(git -C "$QT_REPO" rev-list --count HEAD 2>/dev/null || echo 1)"
+# The commit, for Help › Report a Problem…'s diagnostics ("+": built with uncommitted changes).
+GIT_COMMIT="$(git -C "$QT_REPO" rev-parse --short=10 HEAD 2>/dev/null || echo unknown)"
+git -C "$QT_REPO" diff --quiet HEAD 2>/dev/null || GIT_COMMIT="$GIT_COMMIT+"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -170,6 +173,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>$BUILD_NUMBER</string>
+  <key>QTGitCommit</key><string>$GIT_COMMIT</string>
   <key>CFBundleDevelopmentRegion</key><string>en</string>
   <key>CFBundleLocalizations</key><array><string>en</string><string>zh-Hans</string></array>
   <key>LSMinimumSystemVersion</key><string>15.0</string>

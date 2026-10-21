@@ -1,7 +1,7 @@
 #!/bin/bash
 # Launch the built app in the background on the test display, wait until it's ready, capture windows, quit, restore focus.
 #
-#   Scripts/shoot.sh <outname> [--window main|mini|desktopLyrics|menuBarPopover|settings|signIn|signInHelp]… [launch args…]
+#   Scripts/shoot.sh <outname> [--window main|mini|desktopLyrics|menuBarPopover|settings|reportProblem|signIn|signInHelp]… [launch args…]
 #
 #   Scripts/shoot.sh window-home-en -qt.lang en-US
 #   Scripts/shoot.sh stage-vinyl -qt.surface stage -qt.stageBackground vinyl -qt.paused YES
@@ -24,7 +24,7 @@ KINDS=()
 ARGS=()
 while [[ $# -gt 0 ]]; do
   if [[ "$1" == "--window" ]]; then
-    [[ $# -ge 2 ]] || { echo "error: --window needs a name (main, mini, desktopLyrics, menuBarPopover, settings, signIn, signInHelp)" >&2; exit 2; }
+    [[ $# -ge 2 ]] || { echo "error: --window needs a name (main, mini, desktopLyrics, menuBarPopover, settings, reportProblem, signIn, signInHelp)" >&2; exit 2; }
     KINDS+=("$2"); shift 2
   else ARGS+=("$1"); shift; fi
 done
@@ -37,7 +37,7 @@ SHOW=()
 for k in "${KINDS[@]}"; do
   case "$k" in
     main|signIn|signInHelp) ;;  # signIn*: the sign-in window / its ? popover (with -qt.auth.signInPreview)
-    mini|desktopLyrics|menuBarPopover|settings) SHOW+=("$k") ;;
+    mini|desktopLyrics|menuBarPopover|settings|reportProblem) SHOW+=("$k") ;;
     *) echo "error: unknown window '$k'" >&2; exit 2 ;;
   esac
 done
@@ -78,7 +78,7 @@ title_for() {
     mini) echo "QTube Music Mini Player" ;;
     desktopLyrics) echo "QTube Music Desktop Lyrics" ;;
     menuBarPopover) echo "QTube Music Menu Bar" ;;
-    settings) echo "" ;;
+    settings|reportProblem) echo "" ;;  # reportProblem: SwiftUI names it qt.window.reportProblem-AppWindow-1
   esac
 }
 window_identifier() {  # the NSWindow identifier of a --window kind
@@ -91,7 +91,7 @@ window_identifier() {  # the NSWindow identifier of a --window kind
 ready_window() {  # window number from the ready file by NSWindow identifier
   python3 -c 'import json,sys
 for w in json.load(open(sys.argv[1]))["windows"]:
-    if w["identifier"] == sys.argv[2]: print(w["number"]); break' "$READY" "$(window_identifier "$1")"
+    if w["identifier"] == sys.argv[2] or w["identifier"].startswith(sys.argv[2] + "-"): print(w["number"]); break' "$READY" "$(window_identifier "$1")"
 }
 
 # Stage Manager animates a newly shown window (skewed, scaled) for a moment; let it settle before capturing.
@@ -118,7 +118,7 @@ for k in "${KINDS[@]}"; do
   # retry until the capture is at least 90 % of the window's width in points from the ready file.
   read -r MINW ASPECT <<<"$(python3 -c 'import json,re,sys
 for w in json.load(open(sys.argv[1]))["windows"]:
-    if w["identifier"] == sys.argv[2]:
+    if w["identifier"] == sys.argv[2] or w["identifier"].startswith(sys.argv[2] + "-"):
         f = [float(v) for v in re.findall(r"-?[0-9.]+", w["frame"])]
         print(int(f[2] * 0.9), "%.4f" % (f[2] / f[3])); break' "$READY" "$(window_identifier "$k")" 2>/dev/null || true)"
   ASPECT="${ASPECT:-0}"

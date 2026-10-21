@@ -73,6 +73,8 @@ public enum QTExtraWindow: String, Sendable, Hashable, CaseIterable {
     case desktopLyrics
     case menuBarPopover
     case settings
+    /// DEBUG: Help › Report a Problem… (`QTReportProblem`).
+    case reportProblem
 }
 
 /// Launch arguments, UserDefaults-style (`-qt.surface stage -qt.paused YES`), mirroring the prototype's URL params.

@@ -2016,6 +2016,146 @@
           }
         }
       }
+    },
+    "Report a Problem…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "报告问题…"
+          }
+        }
+      }
+    },
+    "Report a Problem" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "报告问题"
+          }
+        }
+      }
+    },
+    "What happened?" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "发生了什么？"
+          }
+        }
+      }
+    },
+    "What did you do, what did you expect, and what happened instead?" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你做了什么、预期会怎样、实际发生了什么？"
+          }
+        }
+      }
+    },
+    "Include diagnostics" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "附带诊断信息"
+          }
+        }
+      }
+    },
+    "Versions, playback state, settings and this session’s app log — never names, email addresses or sign-in data." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "版本、播放状态、设置和本次运行的应用日志——绝不包含姓名、电子邮件地址或登录数据。"
+          }
+        }
+      }
+    },
+    "Show Diagnostics" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示诊断信息"
+          }
+        }
+      }
+    },
+    "Gathering diagnostics…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在收集诊断信息…"
+          }
+        }
+      }
+    },
+    "The full report is too long for a link, so it will also be copied and saved as a file to attach." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "完整报告太长，无法放进链接，因此还会被拷贝并存储为文件，方便附加。"
+          }
+        }
+      }
+    },
+    "Nothing is sent until you submit it on GitHub." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在你于 GitHub 上提交之前，不会发送任何内容。"
+          }
+        }
+      }
+    },
+    "Copy Report" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拷贝报告"
+          }
+        }
+      }
+    },
+    "Open GitHub Issue…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开 GitHub 议题…"
+          }
+        }
+      }
+    },
+    "Report copied" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "报告已拷贝"
+          }
+        }
+      }
+    },
+    "Full report copied — paste it into the issue" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "完整报告已拷贝——请粘贴到议题中"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

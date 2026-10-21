@@ -50,6 +50,8 @@ public final class QTAppModel {
     public var playlistToDelete: QTPlaylist?
     public private(set) var toast: QTToast?
     @ObservationIgnored private var toastTask: Task<Void, Never>?
+    /// The most recent toast's message and when it showed (Help › Report a Problem… diagnostics).
+    @ObservationIgnored public private(set) var lastToast: (message: String, date: Date)?
     /// Launch playback ran (it runs once per process — reopening the main window must not touch playback).
     @ObservationIgnored public private(set) var didApplyLaunchPlayback = false
     @ObservationIgnored private var isApplyingLaunchPlayback = false
@@ -254,6 +256,7 @@ public final class QTAppModel {
     public func showToast(_ message: String, actionTitle: String? = nil, undo: (@MainActor () -> Void)? = nil) {
         toastTask?.cancel()
         toast = QTToast(message: message, actionTitle: actionTitle, undo: undo)
+        lastToast = (message, Date())
         let duration: Duration = undo == nil ? .milliseconds(2200) : .seconds(5)
         toastTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: duration)

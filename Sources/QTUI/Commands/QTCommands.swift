@@ -6,7 +6,7 @@ import SwiftUI
 //   QTube Music (system + Check for Updates… from the app target) · File (Close Window ⌘W) · Edit (+ Search Music ⌘K, Filter ⌘F) · View (panel ⌥⌘N,
 //   sections ⌘1–8 in sidebar order, Back ⌘[ / Forward ⌘] through QTNavigator, system sidebar / full screen) · Controls (Space, ⌘←/→, ⌘L, shuffle, repeat, ⌘↑/↓ volume,
 //   Playback Speed › ⌥⌘. / ⌥⌘, / ⌥⌘0, ⇧⌘V, ⇧⌘P, ⇧⌘F, ⇧⌘M, ⇧⌘L, ⌥↑/↓, Lyrics Source ›) · Window (system + "QTube Music" ⌘0) ·
-//   Help (Keyboard Shortcuts ⌘/).
+//   Help (Keyboard Shortcuts ⌘/, Report a Problem…).
 // Esc closes the Stage / its drawer inside the Stage view (`.cancelAction`), not as a menu item, so popovers and
 // sheets keep their own Esc. Text-editing collisions (Space, ⌘←…) are routed to the text field (QTKeyRouting).
 
@@ -162,6 +162,9 @@ public struct QTCommands: Commands {
         CommandGroup(replacing: .help) {
             Button(QTLoc.tr("Keyboard Shortcuts", table: .desktop)) { openWindow(id: QTKeyboardShortcutsView.sceneID) }
                 .keyboardShortcut("/", modifiers: .command)
+            Divider()
+            // A prefilled GitHub issue with redacted diagnostics, sent by the browser after review (QTReportProblem).
+            Button(QTLoc.tr("Report a Problem…", table: .desktop)) { openWindow(id: QTReportProblemView.sceneID) }
         }
     }
 

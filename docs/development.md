@@ -45,7 +45,7 @@ swift test  --scratch-path .build/<you> --disable-xctest
 - **Keep `--disable-xctest` for now.** Every suite uses Swift Testing, so the XCTest pass has nothing to run. A
   plain `swift test` still runs that pass first, and on this host (Xcode 27.1, macOS 27) the `QTUITests.xctest`
   runner hangs in it, blocked in a CFPreferences XPC call. Re-checked 2026-10-19.
-- **Current result:** 843 tests in 118 suites pass (after the pre-launch merges). They need no network and none of the git-ignored data.
+- **Current result:** 861 tests in 119 suites pass (after the pre-launch merges). They need no network and none of the git-ignored data.
 - **Opt-in suites** are gated by environment variables:
   - `QT_LIVE=1`: live, anonymous InnerTube, lyrics and playback.
   - `QT_RECORD=1`: re-record the InnerTube fixtures.
@@ -71,14 +71,14 @@ Launch arguments apply to one session only and are never saved. Pass them as
 | `qt.track` · `qt.time` · `qt.paused` | mock track id · seconds · bool (default `YES`, so a launch never starts playback) |
 | `qt.engine` | `auto` · `simulated` · `web` (the demo library through the real web engine, anonymous and silent) |
 | `qt.screen` | display-name substring, or `main` / `any` / `none`. **Debug builds only:** any `-qt.*` launch defaults to `U270CA` and refuses to start if that display is missing |
-| `qt.window` · `qt.show` · `qt.readyFile` | `1440x900` · `mini,desktopLyrics,menuBarPopover,settings` · path for a JSON file written once the window has settled |
+| `qt.window` · `qt.show` · `qt.readyFile` | `1440x900` · `mini,desktopLyrics,menuBarPopover,settings` (DEBUG also `reportProblem`) · path for a JSON file written once the window has settled |
 
 ## Scripts
 
 | Script | What it does |
 |---|---|
 | `Scripts/build-app.sh` | Builds, bundles and ad-hoc signs the app (`QT_VARIANT`, `QT_CONFIG`, `QT_SCRATCH`, `--print-path`). |
-| `Scripts/shoot.sh <name> [--window main\|mini\|desktopLyrics\|menuBarPopover\|settings\|signIn\|signInHelp]… [args]` | Launches in the background on the test display (`$QT_SCREEN`; otherwise U270CA if connected, else the built-in display). Waits until the app is ready, captures each window into the main checkout's `screenshots/` and quits. It retakes captures that are thumbnails or caught mid-animation, and gives focus back if the app took it. Uses `-qt.catalog mock` unless you pass `-qt.catalog`. Malformed launch arguments (a key without a value, a stray word) stop it at once; a one-string `"-qt.surface stage -qt.paused YES"` is split. |
+| `Scripts/shoot.sh <name> [--window main\|mini\|desktopLyrics\|menuBarPopover\|settings\|reportProblem\|signIn\|signInHelp]… [args]` | Launches in the background on the test display (`$QT_SCREEN`; otherwise U270CA if connected, else the built-in display). Waits until the app is ready, captures each window into the main checkout's `screenshots/` and quits. It retakes captures that are thumbnails or caught mid-animation, and gives focus back if the app took it. Uses `-qt.catalog mock` unless you pass `-qt.catalog`. Malformed launch arguments (a key without a value, a stray word) stop it at once; a one-string `"-qt.surface stage -qt.paused YES"` is split. |
 | `Scripts/shoot-region.sh` | Screen-region capture for windows that aren't plain rectangles (mini player, unlocked desktop lyrics), kept inside the test display. Same argument checks and demo-catalog default as `shoot.sh`. |
 | `Scripts/contact-sheet.sh <name> [--title T] [--columns N] <img> <caption>…` | Makes one captioned PNG in `screenshots/`. |
 | `Scripts/perf-cpu.py <label> [--seconds 30] [--trace …] [args]` | Measures app and WebContent CPU over a fixed window. Appends a line to `.build/perf-cpu.jsonl`; a run where the app wasn't playing or used another engine than asked is marked `"valid": false` and exits 1. Method and results are in [docs/perf.md](perf.md). |
