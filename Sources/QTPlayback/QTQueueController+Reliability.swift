@@ -17,6 +17,8 @@ import QTCore
 // - Autoplay's radio gets a timeout per attempt and two retries; only when the queue then runs out is the listener
 //   told (with Retry).
 // Recovery is silent; `onNotice` is reserved for what the listener has to know or act on — one toast per event.
+// Every grace and patience here is wall-clock time (the watch runs on uptime), so it holds at any playback speed;
+// the one media-time threshold (a stale next found in the current track's last seconds) is scaled by `rate`.
 
 /// Why playback stopped when no single track failed (`QTQueueController.onNotice`). The app shows one toast.
 public enum QTPlaybackNotice: Sendable, Hashable {
@@ -245,9 +247,10 @@ extension QTQueueController {
         let position = resumePosition(for: current)
         // The queue's track had already finished (the engine ran on into a stale next): move on to what's queued
         // instead of replaying its last seconds. (Nothing queued: it loads at its end and ends as usual, and the queue
-        // decides from there — a Repeat All wrap, Autoplay's radio, or the end.)
+        // decides from there — a Repeat All wrap, Autoplay's radio, or the end.) "Its last seconds" are seconds of
+        // listening: media time at the playback speed.
         if s.item != nil, wantsPlayback, advancesInFlight == 0, naturalNext() != nil, current.track.duration > 0,
-           position >= current.track.duration - Self.stuckGrace {
+           position >= current.track.duration - Self.stuckGrace * rate {
             Task { await self.advance(userInitiated: false) }
         } else {
             let autoplay = wantsPlayback

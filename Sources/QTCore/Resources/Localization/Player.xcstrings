@@ -55,6 +55,31 @@
       "localizations" : {
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "取消静音" } }
       }
+    },
+    "Playback Speed" : {
+      "localizations" : {
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "播放速度" } }
+      }
+    },
+    "Normal" : {
+      "localizations" : {
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "正常" } }
+      }
+    },
+    "Normal Speed" : {
+      "localizations" : {
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "正常速度" } }
+      }
+    },
+    "Speed Up" : {
+      "localizations" : {
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "加快速度" } }
+      }
+    },
+    "Slow Down" : {
+      "localizations" : {
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "减慢速度" } }
+      }
     }
   },
   "version" : "1.0"

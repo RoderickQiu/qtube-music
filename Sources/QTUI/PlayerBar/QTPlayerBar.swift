@@ -195,6 +195,11 @@ struct QTPlayerBarTools: View {
 
     var body: some View {
         HStack(spacing: 6) {
+            // Only while the speed isn't normal (Controls › Playback Speed sets it).
+            if !QTPlaybackSpeed.isNormal(player.rate) {
+                QTPlaybackSpeedButton()
+                    .padding(.trailing, 4)
+            }
             panelToggle(.nowPlaying, title: QTLoc.tr("Lyrics"), icon: .lyrics, id: "lyrics")
             panelToggle(.queue, title: QTLoc.tr("Queue"), icon: .list, id: "queue")
             QTAirPlayButton()

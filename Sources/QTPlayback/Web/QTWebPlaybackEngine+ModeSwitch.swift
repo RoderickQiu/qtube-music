@@ -98,8 +98,8 @@ extension QTWebPlaybackEngine {
         // Premium plays without ads; a signed-out page has no account to report to. Unknown → the in-page reload.
         guard let account = pageAccount, account != .free else { return false }
         // Near the end the next track is about to load anyway; a switch must have time to finish (or time out)
-        // well before the track does.
-        let remaining = state.duration > 0 ? state.duration - state.timeline.currentTime : .infinity
+        // well before the track does (wall-clock seconds: the media left, at the speed it plays).
+        let remaining = state.duration > 0 ? (state.duration - state.timeline.currentTime) / rate : .infinity
         return remaining > modeSwitchStandbyTimeout + Self.modeSwitchMaxLead + 2
     }
 
@@ -129,6 +129,19 @@ extension QTWebPlaybackEngine {
         abs(requested - clock) >= 0.75 ? requested - clock : 0
     }
 
+    /// Where the standby page starts: where the old page's clock (`rate` media seconds per second) will be once the
+    /// standby has loaded, a little early.
+    static func standbyStart(clock: TimeInterval, shift: TimeInterval, readyEstimate: TimeInterval, rate: Double) -> TimeInterval {
+        max(0, clock + shift) + max(0.5, readyEstimate - 0.3) * rate
+    }
+
+    /// Wall-clock seconds to hold the standby (paused at `standby`) before playing it, so that it lands on the old
+    /// page's clock once its resume latency has passed.
+    static func lineUpWait(standby: TimeInterval, clock: TimeInterval, shift: TimeInterval, playLatency: TimeInterval,
+                           rate: Double) -> TimeInterval {
+        (standby - (clock + shift)) / rate - playLatency
+    }
+
     /// - Parameter shift: the new rendition's position minus the old one's for the same moment of the song (0 for
     ///   the same cut).
     func seamlessModeSwitch(to item: QTPlaybackItem, videoID: String, from: QTPlaybackMode,
@@ -136,6 +149,8 @@ extension QTWebPlaybackEngine {
         guard let mainView = webView else { return .fallBack }
         let requestedAt = ProcessInfo.processInfo.systemUptime
         let startedAt = state.timeline.currentTime
+        // Waits and estimates are wall-clock seconds; the pages' clocks run `speed` media seconds per second.
+        let speed = rate
         let proxy = QTWebPlaybackMessageProxy(engine: self, role: .standby)
         let s = QTWebStandbySwitch(item: item, previousItem: state.item, videoID: videoID, generation: generation + 1,
                                    proxy: proxy, io: pageIO)
@@ -150,13 +165,13 @@ extension QTWebPlaybackEngine {
         // 2. The standby page, silent, from about where the old page will be when it has loaded (a whole second:
         // the watch URL's `t`; rounded down, so it usually lands a little behind and one short seek inside what it
         // has buffered lines it up — rounding up instead made the video wait up to a second longer).
-        let target = max(0, startedAt + shift) + max(0.5, modeSwitchReadyEstimate - 0.3)
+        let target = Self.standbyStart(clock: startedAt, shift: shift, readyEstimate: modeSwitchReadyEstimate, rate: speed)
         let presents = video.isPresenting && item.mode == .video
         let bootstrap = QTWebPlaybackBridgeScript.bootstrap(generation: s.generation, videoID: videoID, hold: false,
                                                             volume: 0, muted: true, silent: configuration.isSilent,
                                                             lowQuality: configuration.prefersLowVideoQuality,
                                                             present: presents, quality: presents ? video.quality : "tiny",
-                                                            standby: true)
+                                                            standby: true, rate: speed)
         let (view, window) = makePage(bootstrap: bootstrap, proxy: proxy)
         s.webView = view
         s.window = window
@@ -210,13 +225,13 @@ extension QTWebPlaybackEngine {
             else { return alive() ?? fallBack(s, "no clock") }
             if let end = alive() { return end }
             standbyTime = tb
-            let ahead = tb - (ta + shift) - modeSwitchPlayLatency
-            if ahead >= 0.03, ahead < Self.modeSwitchMaxLead { break }
+            let lead = Self.lineUpWait(standby: tb, clock: ta, shift: shift, playLatency: modeSwitchPlayLatency, rate: speed)
+            if lead >= 0.03, lead < Self.modeSwitchMaxLead { break }
             // Behind (the usual case, see step 2) or far ahead: seek the held standby a little ahead of the old page —
             // just past what a buffered seek takes first, further if that wasn't enough.
             attempts += 1
             if attempts > 2 { return fallBack(s, "could not line up") }
-            let to = max(0, ta + shift) + (attempts == 1 ? Self.modeSwitchSeekLead : 1.2)
+            let to = max(0, ta + shift) + (attempts == 1 ? Self.modeSwitchSeekLead : 1.2) * speed
             _ = await s.call("seek", to)
             let seekDeadline = ProcessInfo.processInfo.systemUptime + 4
             while true {
@@ -228,7 +243,8 @@ extension QTWebPlaybackEngine {
         }
         guard let a = await pageIO.call(mainView, "sample", []) as? [String: Any], let ta = a["t"] as? Double
         else { return alive() ?? fallBack(s, "no clock") }
-        if let end = await wait(standbyTime - (ta + shift) - modeSwitchPlayLatency) { return end }
+        if let end = await wait(Self.lineUpWait(standby: standbyTime, clock: ta, shift: shift,
+                                                playLatency: modeSwitchPlayLatency, rate: speed)) { return end }
         let playAsked = ProcessInfo.processInfo.systemUptime
         _ = await s.call("play")
         // Playing again (a buffered resume: tens of ms).
@@ -248,7 +264,7 @@ extension QTWebPlaybackEngine {
         let resumeLatency = ProcessInfo.processInfo.systemUptime - playAsked
         let drift = landed - (oldTime + shift)
         // Learn the resume latency: landing behind the old page means the standby must be started earlier.
-        modeSwitchPlayLatency = min(0.3, max(0, modeSwitchPlayLatency - drift * 0.5))
+        modeSwitchPlayLatency = min(0.3, max(0, modeSwitchPlayLatency - drift / speed * 0.5))
         let volume = state.volume
         _ = await s.call("fade", volume, Int(Self.modeSwitchCrossfade * 1000), "in", state.isMuted)
         _ = await pageIO.call(mainView, "fade", [volume, Int(Self.modeSwitchCrossfade * 1000), "out", state.isMuted])

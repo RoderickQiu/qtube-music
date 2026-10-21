@@ -88,6 +88,8 @@ public final class QTNativePlaybackEngine: QTPlaybackEngine {
     }
 
     @ObservationIgnored public private(set) var state = QTPlaybackState()
+    /// Playback speed: the graph's time pitch, and the wrapped web engine's (videos, fallbacks) — always the same.
+    @ObservationIgnored public private(set) var rate: Double = 1
 
     private let player = QTNativeAudioPlayer()
     private let resolver: QTNativeStreamResolver
@@ -212,8 +214,25 @@ public final class QTNativePlaybackEngine: QTPlaybackEngine {
         }
         // The appended next track was re-chained by the restart; nothing else to do.
         let status: QTPlaybackStatus = player.isPlaying ? .playing : .paused
-        state.timeline = QTPlaybackTimeline(time: t, rate: status == .playing ? 1 : 0, duration: cur.duration)
+        state.timeline = QTPlaybackTimeline(time: t, rate: status == .playing ? rate : 0, duration: cur.duration)
         publishNative(status: status, time: t)
+        scheduleTransition()
+    }
+
+    public func setRate(_ rate: Double) {
+        let r = QTPlaybackSpeed.normalized(rate)
+        guard r != self.rate else { return }
+        self.rate = r
+        web.setRate(r)
+        do {
+            try player.setRate(r)
+        } catch {
+            fallBackNow("speed: \(error)")
+            return
+        }
+        guard isNativeActive, current != nil, state.status == .playing else { return }
+        // The clock re-anchors where the graph is; the crossfade's start moves with the speed.
+        publishNative(status: .playing)
         scheduleTransition()
     }
 
@@ -427,7 +446,7 @@ public final class QTNativePlaybackEngine: QTPlaybackEngine {
         transitionTask?.cancel()
         web.setMuted(true)
         var target = item
-        target.startTime = max(0, clock + shift + webStartEstimate)
+        target.startTime = Self.handOverStart(clock: clock, shift: shift, startEstimate: webStartEstimate, rate: rate)
         do {
             try await web.load(target, autoplay: true)
         } catch {
@@ -454,24 +473,25 @@ public final class QTNativePlaybackEngine: QTPlaybackEngine {
         webStartEstimate = min(6, max(0.8, webStartEstimate * 0.5 + readyAfter * 0.5))
         // Line the page up with the song: hold it while the song catches up, or seek it ahead once.
         var attempt = 0
-        while attempt < 2, let native = player.position(of: cur.token) {
-            let ahead = web.state.timeline.currentTime - (native + shift)
-            if ahead > 0.06, ahead < 8 {
+        lineUp: while attempt < 2, let native = player.position(of: cur.token) {
+            switch Self.lineUp(page: web.state.timeline.currentTime, song: native, shift: shift, rate: rate,
+                               firstAttempt: attempt == 0) {
+            case .hold(let seconds):
                 web.pause()
-                try? await Task.sleep(for: .seconds(max(0, ahead - 0.04)))
+                try? await Task.sleep(for: .seconds(seconds))
                 guard gen == generation else { web.setMuted(state.isMuted); throw CancellationError() }
                 web.play()
-                break
-            } else if ahead <= -0.25, attempt == 0 {
-                web.seek(to: native + shift + 1.2)
+                break lineUp
+            case .seekAhead(let to):
+                web.seek(to: to)
                 let until = ProcessInfo.processInfo.systemUptime + 4
                 try? await Task.sleep(for: .milliseconds(150))
                 while web.state.isBuffering || web.state.status != .playing, ProcessInfo.processInfo.systemUptime < until {
                     try? await Task.sleep(for: .milliseconds(40))
                 }
                 guard gen == generation else { web.setMuted(state.isMuted); throw CancellationError() }
-            } else {
-                break
+            case .none:
+                break lineUp
             }
             attempt += 1
         }
@@ -482,6 +502,31 @@ public final class QTNativePlaybackEngine: QTPlaybackEngine {
         stats.handovers.append("song→video \(item.track.videoId) after \(String(format: "%.2f", ProcessInfo.processInfo.systemUptime - requested)) s, drift \(String(format: "%.2f", drift)) s")
         if stats.handovers.count > 20 { stats.handovers.removeFirst() }
         forward(web.state)
+    }
+
+    /// Where the video page starts in a Song→Video handover: where the song will be (it plays `rate` media seconds per
+    /// second) once the page plays, by the learnt wall-clock `startEstimate`.
+    nonisolated static func handOverStart(clock: TimeInterval, shift: TimeInterval, startEstimate: TimeInterval,
+                                          rate: Double) -> TimeInterval {
+        max(0, clock + shift + startEstimate * rate)
+    }
+
+    enum HandOverLineUp: Equatable {
+        /// Pause the page this many wall-clock seconds while the song catches up.
+        case hold(TimeInterval)
+        /// Seek the page to this position (it is behind).
+        case seekAhead(TimeInterval)
+        case none
+    }
+
+    /// Lines the playing video page up with the song: the gap between the two clocks is media time, waited out in
+    /// wall-clock time at the playback speed.
+    nonisolated static func lineUp(page: TimeInterval, song: TimeInterval, shift: TimeInterval, rate: Double,
+                                   firstAttempt: Bool) -> HandOverLineUp {
+        let lead = (page - (song + shift)) / rate
+        if lead > 0.06, lead < 8 { return .hold(max(0, lead - 0.04)) }
+        if lead <= -0.25, firstAttempt { return .seekAhead(song + shift + 1.2 * rate) }
+        return .none
     }
 
     /// A Song→Video handover that couldn't get the video playing: the song never stopped, so it simply goes on (the
@@ -504,7 +549,7 @@ public final class QTNativePlaybackEngine: QTPlaybackEngine {
         state.duration = cur.duration
         state.isBuffering = false
         state.ad = nil
-        state.timeline = QTPlaybackTimeline(time: t, rate: status == .playing ? 1 : 0, duration: cur.duration)
+        state.timeline = QTPlaybackTimeline(time: t, rate: status == .playing ? rate : 0, duration: cur.duration)
         publish()
         updateWatchdog()
     }
@@ -611,7 +656,8 @@ public final class QTNativePlaybackEngine: QTPlaybackEngine {
         transitionTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 guard let self, let now = self.player.position(of: cur.token) else { return }
-                let wait = cur.duration - fade - now
+                // Media seconds to the fade's start, slept in wall-clock seconds at the speed it plays.
+                let wait = (cur.duration - fade - now) / self.rate
                 if wait <= 0.02 { break }
                 try? await Task.sleep(for: .seconds(min(wait, 5)))
             }

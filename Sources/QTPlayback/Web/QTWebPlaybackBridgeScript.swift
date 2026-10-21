@@ -7,8 +7,9 @@ import Foundation
 ///
 /// Messages (`window.webkit.messageHandlers.qtPlayback`):
 /// - `{type:"ready"}` once the page's player API exists;
-/// - `{type:"state", gen, vid, t, d, paused, ps, buffering, ad, vol, muted, vw, vh, rs, pip, pic}` on media events (≤ 2/s;
-///   `pic` = bars still visible around the cropped picture, left/top/right/bottom fractions of the slot);
+/// - `{type:"state", gen, vid, t, d, paused, ps, buffering, ad, vol, muted, vw, vh, rs, pip, rate, pic}` on media events
+///   (≤ 2/s; `rate` = the media's playback rate, see `rate`; `pic` = bars still visible around the cropped picture,
+///   left/top/right/bottom fractions of the slot);
 /// - `{type:"ended", gen, vid}` exactly once per load generation when content (not an ad) finishes;
 /// - `{type:"error", gen, vid, code, status, reason}` when the player reports an error or the item's
 ///   playability status isn't OK (age-restricted, region-locked, removed…).
@@ -32,10 +33,10 @@ enum QTWebPlaybackBridgeScript {
     /// Injected at document start (page world): initial load parameters for the first document.
     static func bootstrap(generation: Int, videoID: String, hold: Bool, volume: Double, muted: Bool, silent: Bool,
                           lowQuality: Bool = true, present: Bool = false, quality: String = "tiny",
-                          standby: Bool = false) -> String {
+                          standby: Bool = false, rate: Double = 1) -> String {
         let payload: [String: Any] = [
             "gen": generation, "target": videoID, "hold": hold, "vol": volume, "muted": muted, "silent": silent,
-            "lowQuality": lowQuality, "present": present, "quality": quality, "standby": standby,
+            "lowQuality": lowQuality, "present": present, "quality": quality, "standby": standby, "rate": rate,
         ]
         let json = (try? JSONSerialization.data(withJSONObject: payload)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
         return "window.__qtInit = \(json);"
@@ -283,6 +284,52 @@ enum QTWebPlaybackBridgeScript {
     })();
     """
 
+    /// Playback speed (page world, document start, before the bridge). The wanted rate goes on YouTube's player
+    /// (`setPlaybackRate`, so its own state agrees and it doesn't put 1× back) and on the media element (`playbackRate`,
+    /// `preservesPitch`), and is put back whenever the page changes it (`ratechange`, a new source). Ads always play at
+    /// 1×: a sped-up ad is an ad-skipping trick, and the app shouldn't look like one. The bridge's `rate(r)` sets it,
+    /// its samples report the media's rate (`tick`); a fresh page starts at `__qtInit.rate`. `QTBridgeRateTests` pin it.
+    static let rate = """
+    (() => {
+      if (window.__qtRate) return;
+      const init = window.__qtInit || {};
+      const R = { want: +init.rate > 0 ? +init.rate : 1, applied: 1, asserts: 0, burstAt: 0, burst: 0 };
+      const player = () => document.getElementById('movie_player');
+      const video = () => { const p = player(); return (p && p.querySelector('video')) || document.querySelector('video'); };
+      function isAd(p) {
+        if (!p) return false;
+        try { if (p.getPresentingPlayerType && p.getPresentingPlayerType() === 2) return true; } catch (_) {}
+        return !!p.classList && (p.classList.contains('ad-showing') || p.classList.contains('ad-interrupting'));
+      }
+      // `ad`: the bridge's own reading (null: look here). Returns the rate the media plays at now.
+      function apply(ad) {
+        const p = player(), v = video(), r = (ad == null ? isAd(p) : ad) ? 1 : R.want;
+        try { if (p && p.setPlaybackRate && (!p.getPlaybackRate || p.getPlaybackRate() !== r)) p.setPlaybackRate(r); } catch (_) {}
+        if (v) {
+          try { v.preservesPitch = true; v.webkitPreservesPitch = true; } catch (_) {}
+          if (v.playbackRate !== r) try { v.playbackRate = r; R.asserts++; } catch (_) {}
+        }
+        R.applied = r;
+        const now = v ? v.playbackRate : r;
+        return (typeof now === 'number' && isFinite(now) && now > 0) ? now : r;
+      }
+      // Put back at once when the page changes it — at most a few times a second, so a page that keeps fighting
+      // can't loop; the bridge's next sample tries again.
+      function changed() {
+        const now = Date.now();
+        if (now - R.burstAt > 1000) { R.burstAt = now; R.burst = 0; }
+        if (++R.burst <= 6) apply(null);
+      }
+      for (const ev of ['ratechange', 'loadedmetadata', 'playing']) document.addEventListener(ev, changed, true);
+      window.__qtRate = {
+        set(r) { R.want = Math.min(2, Math.max(0.5, +r || 1)); return apply(null); },
+        // Every bridge sample: follows an ad starting or ending; reports the media's rate.
+        tick(ad) { return apply(!!ad); },
+        info() { return { want: R.want, applied: R.applied, asserts: R.asserts }; },
+      };
+    })();
+    """
+
     /// The bridge (page world, document start). Waits for `#movie_player`, then reports.
     static let bridge = """
     (() => {
@@ -394,7 +441,7 @@ enum QTWebPlaybackBridgeScript {
                  buffering: !paused && (ps === 3 || (v && v.readyState < 3)),
                  ad: ad ? adInfo(v) : null, vol: S.vol, muted: S.muted,
                  vw: v ? num(v.videoWidth) : 0, vh: v ? num(v.videoHeight) : 0, rs: v ? num(v.readyState) : 0,
-                 pip: !!v && v.webkitPresentationMode === 'picture-in-picture',
+                 pip: !!v && v.webkitPresentationMode === 'picture-in-picture', rate: window.__qtRate ? window.__qtRate.tick(ad) : 1,
                  pic: window.__qtVideo ? window.__qtVideo.pictureBars() : [0, 0, 0, 0] };
       }
       function changed(a, b) {
@@ -404,7 +451,7 @@ enum QTWebPlaybackBridgeScript {
         if (!!a.ad !== !!b.ad) return true;
         if (a.pic.some((x, i) => Math.abs(x - b.pic[i]) > 0.01)) return true;
         if (a.ad && (Math.ceil(a.ad.remaining) !== Math.ceil(b.ad.remaining) || a.ad.skippableIn !== b.ad.skippableIn)) return true;
-        return Math.abs(a.t - b.t) > 1.2;
+        return a.rate !== b.rate || Math.abs(a.t - b.t) > 1.2 * Math.max(1, a.rate);
       }
       function report(force) {
         if (!player()) return;
@@ -419,8 +466,9 @@ enum QTWebPlaybackBridgeScript {
       function maybeEnded(s) {
         if (s.ad || !s.match || !S.armed || S.endedGen === S.gen) return;
         // End just before the media does: YouTube Music never reaches ENDED, so it never starts its own autoplay
-        // pick (which would race the app's next load). The last half second of a track is its fade-out tail.
-        const atEnd = s.ps === 0 || (s.d > 0 && s.t >= s.d - 0.5);
+        // pick (which would race the app's next load). The last half second of a track is its fade-out tail (wider when
+        // sped up: half a second of listening, and samples land further apart).
+        const atEnd = s.ps === 0 || (s.d > 0 && s.t >= s.d - 0.5 * Math.max(1, s.rate));
         if (atEnd) {
           S.endedGen = S.gen; S.hold = true;
           pauseNow();
@@ -503,6 +551,7 @@ enum QTWebPlaybackBridgeScript {
                   if (S.endedGen === S.gen && t < num(p.getDuration()) - 1) S.endedGen = -1;
                   p.seekTo(Math.max(0, t), true); report(true); return true; },
         volume(v, muted) { thaw(); S.vol = v; S.muted = muted; applyVolume(); report(true); return true; },
+        rate(r) { if (!window.__qtRate) return false; window.__qtRate.set(r); report(true); return true; },
         // Where the Skip button is (viewport CSS px) — YouTube ignores untrusted script clicks, so the engine
         // delivers a real click to its own offscreen view.
         skipTarget() {

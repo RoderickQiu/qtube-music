@@ -104,6 +104,10 @@ public final class QTPlayerModel {
 
     public func cycleRepeatMode() { playback.cycleRepeatMode() }
 
+    /// Playback speed (1 = normal) of everything that plays; saved as the app's setting.
+    public var rate: Double { playback.rate }
+    public func setRate(_ rate: Double) { playback.setRate(rate) }
+
     // MARK: Queue edits
 
     public func playNext(_ tracks: [QTTrack]) { playback.playNext(tracks) }

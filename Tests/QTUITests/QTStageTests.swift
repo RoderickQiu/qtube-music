@@ -104,6 +104,7 @@ import Testing
         #expect(abs((next(at: 12) ?? 0) - 2) < 0.05)       // last word lit → next line
         #expect(next(at: 15) == nil)                       // nothing left
         #expect(next(at: 10.2, rate: 0) == nil)            // paused
+        #expect(abs((next(at: 12, rate: 2) ?? 0) - 1) < 0.05)  // at 2×, 2 s of song is 1 s away
         var nudged = doc
         nudged.offset = 0.5                                // lyrics 0.5 s earlier
         #expect(abs((QTStageCurrentLyric.secondsToNextChange(in: nudged, time: QTPlaybackTimeline(time: 9.7, rate: 1, anchorUptime: ProcessInfo.processInfo.systemUptime)) ?? 0) - 0.3) < 0.05)

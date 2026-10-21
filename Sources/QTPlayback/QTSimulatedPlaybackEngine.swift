@@ -20,6 +20,8 @@ public final class QTSimulatedPlaybackEngine: QTPlaybackEngine {
     /// Mirrors what the account really gets: Premium the native set, free the web engine's (visualizer included).
     public var capabilities: QTPlaybackCapabilities { account == .premium ? .premium : .web }
     public private(set) var state = QTPlaybackState()
+    /// Playback speed; the clock runs this fast while content plays (ads at 1×).
+    public private(set) var rate: Double = 1
 
     private let clock: @MainActor () -> TimeInterval
     private let tickInterval: Duration
@@ -77,7 +79,7 @@ public final class QTSimulatedPlaybackEngine: QTPlaybackEngine {
         if account == .free {
             beginAd(at: now)
         } else if autoplay {
-            state.timeline.rate = 1
+            state.timeline.rate = rate
         }
         publish()
         updateTicker()
@@ -93,7 +95,7 @@ public final class QTSimulatedPlaybackEngine: QTPlaybackEngine {
         if state.ad != nil {
             adAnchor = now
         } else {
-            state.timeline = QTPlaybackTimeline(time: state.timeline.time(atUptime: now), rate: 1, anchorUptime: now, duration: state.duration)
+            state.timeline = QTPlaybackTimeline(time: state.timeline.time(atUptime: now), rate: rate, anchorUptime: now, duration: state.duration)
         }
         publish()
         updateTicker()
@@ -118,7 +120,18 @@ public final class QTSimulatedPlaybackEngine: QTPlaybackEngine {
         let now = clock()
         let t = min(max(0, time), max(0, state.duration - 0.5))
         if state.status == .ended { state.status = .paused }
-        state.timeline = QTPlaybackTimeline(time: t, rate: state.status == .playing ? 1 : 0, anchorUptime: now, duration: state.duration)
+        state.timeline = QTPlaybackTimeline(time: t, rate: state.status == .playing ? rate : 0, anchorUptime: now, duration: state.duration)
+        publish()
+    }
+
+    public func setRate(_ rate: Double) {
+        let r = QTPlaybackSpeed.normalized(rate)
+        guard r != self.rate else { return }
+        self.rate = r
+        // Re-anchored where the clock is now, so the position never jumps.
+        guard state.item != nil, state.ad == nil, state.timeline.rate > 0 else { return }
+        let now = clock()
+        state.timeline = QTPlaybackTimeline(time: state.timeline.time(atUptime: now), rate: r, anchorUptime: now, duration: state.duration)
         publish()
     }
 
@@ -190,7 +203,7 @@ public final class QTSimulatedPlaybackEngine: QTPlaybackEngine {
     private func endAd() {
         let now = clock()
         state.ad = nil
-        state.timeline = QTPlaybackTimeline(time: 0, rate: state.status == .playing ? 1 : 0, anchorUptime: now, duration: state.duration)
+        state.timeline = QTPlaybackTimeline(time: 0, rate: state.status == .playing ? rate : 0, anchorUptime: now, duration: state.duration)
     }
 
     private func updateTicker() {

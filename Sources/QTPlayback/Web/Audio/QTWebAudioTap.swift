@@ -58,6 +58,8 @@ public final class QTWebAudioTap {
     public private(set) var pulls = 0
     /// True between the first pull and the release.
     public private(set) var isActive = false
+    /// Playback speed: a batch's frames are `frameStep` apart in wall time, `frameStep × rate` in the stream.
+    var rate: Double = 1
 
     /// `window.__qtAudio.frames(bands, ahead, dt)` in the page: an array of band arrays, a status string, or nil
     /// (no page).
@@ -106,8 +108,9 @@ public final class QTWebAudioTap {
         isFetching = true
         lastFetch = now
         pulls += 1
+        let step = Self.frameStep * rate
         Task { @MainActor [weak self] in
-            let result = await fetchFrames(Self.pageBandCount, Self.framesAhead, Self.frameStep)
+            let result = await fetchFrames(Self.pageBandCount, Self.framesAhead, step)
             guard let self else { return }
             self.isFetching = false
             // The page read its playhead somewhere in the round trip: anchor the batch at its midpoint.

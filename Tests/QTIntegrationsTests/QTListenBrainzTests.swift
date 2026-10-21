@@ -467,6 +467,20 @@ final class QTRecordingListenBrainz: @unchecked Sendable {
         #expect(tracker.scrobbleIfDue(at: Self.t0.addingTimeInterval(50)) == Self.play)
     }
 
+    /// At 1.5× (Controls › Playback Speed): half of a 200 s song after 66⅔ s; the 4-minute cap of a 10-minute song
+    /// after 160 s.
+    @Test func oneAndAHalfSpeedCountsMediaTime() {
+        var tracker = QTListenTracker()
+        tracker.start(Self.play, rate: 1.5, at: Self.t0)
+        #expect(tracker.scrobbleIfDue(at: Self.t0.addingTimeInterval(66)) == nil)
+        #expect(tracker.scrobbleIfDue(at: Self.t0.addingTimeInterval(67)) == Self.play)
+        let long = QTScrobble(artist: "A", track: "Long", duration: 600, timestamp: 1)
+        var longTracker = QTListenTracker()
+        longTracker.start(long, rate: 1.5, at: Self.t0)
+        #expect(longTracker.scrobbleIfDue(at: Self.t0.addingTimeInterval(159)) == nil)
+        #expect(longTracker.scrobbleIfDue(at: Self.t0.addingTimeInterval(160)) == long)
+    }
+
     @Test func speedChangesAndBufferingAreCountedInMediaTime() {
         var tracker = QTListenTracker()
         tracker.start(Self.play, rate: 1, at: Self.t0)

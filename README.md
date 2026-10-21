@@ -48,6 +48,8 @@ mini player. It's built in SwiftUI and AppKit, idles under 1% CPU and uses about
   Simplified or Traditional characters, whichever you pick.
 - **Song ⇄ Video.** Switch between the song and its music video without losing your place. Picture in Picture
   works too.
+- **Playback speed.** 0.5× to 2× with the pitch kept (Controls › Playback Speed, ⌥⌘. and ⌥⌘,). Lyrics, Now
+  Playing and scrobbles follow the speed; ads still play at 1×.
 - **Your library.** Home, Explore, Liked songs, playlists and history, in sortable, filterable tables, plus a
   docked Now Playing and Queue panel. Music you uploaded to YouTube Music has its own Uploads page (songs, albums,
   artists).
