@@ -92,6 +92,7 @@ import WebKit
     }
 
     final class Notices { var list: [QTPlaybackNotice] = [] }
+    final class Statuses { var list: [QTPlaybackStatus] = [] }
 
     /// `seconds` of the watch's clock, one at a time. After each tick the engine and the fake page answer first: the
     /// clock never moves on while a load is in flight, so the watch's steps follow the pages' answers, not machine load.
@@ -227,6 +228,105 @@ import WebKit
         native.isNativeActive = false
         native.startNextLoadAfresh()
         #expect(pages.engine.needsFreshPage, "the web engine plays it: its next load gets a fresh page")
+    }
+
+    // MARK: A next track whose player request hangs (live soak 2026-10-21, Wi-Fi brownouts)
+
+    /// Fake pages whose engine takes its media-wait steps within a second or two (real time).
+    func brownoutPages(_ wait: QTFakePlayerPages.MediaWait) -> QTFakePlayerPages {
+        let pages = QTFakePlayerPages()
+        pages.engine.mediaWaitPlay = 0.5
+        pages.engine.mediaWaitFreshPage = 1
+        pages.mediaWait = wait
+        return pages
+    }
+
+    /// The watch's clock moves on `seconds` while a load is in flight (no settling: nothing answers meanwhile).
+    func idle(_ queue: QTQueueController, _ clock: ManualClock, _ seconds: Int) async throws {
+        for _ in 0..<seconds {
+            clock.now += 1
+            queue.superviseTick()
+            try await Task.sleep(for: .milliseconds(5))
+        }
+    }
+
+    /// The live sequence (soak 3, t≈2711): the song ends during a brownout; YouTube's page takes the next id but its
+    /// player request never answers. Not a page that won't start: the track shows loading (never paused, so neither the
+    /// player bar nor the soak reads a pause), the engine sends Play once more, then loads it on a fresh page — the old
+    /// document retired first — which plays.
+    @Test func aNextTrackWaitingOnTheNetworkIsLoadingThenGetsAFreshPage() async throws {
+        let pages = brownoutPages(.inPage)
+        let clock = ManualClock()
+        let (queue, notices) = queue(on: pages, clock: clock)
+        await queue.play([QTModeSwitchBehaviourTests.song, QTModeSwitchBehaviourTests.next], startTime: 150)
+        try await pages.until { pages.engine.state.status == .playing }
+        let seen = Statuses()
+        let watching = Task { @MainActor in
+            for await s in pages.engine.stateUpdates() where s.item?.track.videoId == Self.nextID { seen.list.append(s.status) }
+        }
+        defer { watching.cancel() }
+        let gen = pages.engine.generation
+        pages.engine.receive(["type": "ended", "gen": gen])
+        try await pages.until { queue.nowPlayingTrack?.videoId == Self.nextID && pages.engine.isWaitingForMedia }
+        #expect(pages.engine.state.status == .loading && pages.engine.state.isBuffering && queue.loadInFlight != nil)
+        try await idle(queue, clock, 3)
+        try await pages.until { pages.calls(on: .main, "play").count == 1 }
+        try await pages.until { pages.navigations.count == 2 }
+        let url = try #require(pages.navigations.last?.absoluteString)
+        #expect(url.contains("v=\(Self.nextID)") && !url.contains("t="), "\(url)")
+        try await pages.until { !pages.calls(on: .main, "retire").isEmpty }
+        #expect(pages.calls(on: .main, "retire").map { $0.args.first as? Int } == [gen + 1], "the old document stops")
+        try await pages.until { pages.engine.state.status == .playing && queue.loadInFlight == nil }
+        try await tick(queue, clock, 10)
+        #expect(pages.engine.state.status == .playing && queue.wantsPlayback && notices.list.isEmpty)
+        #expect(pages.navigations.count == 2 && pages.mainLoads.count == 1, "one fresh page; the watch added nothing")
+        #expect(!seen.list.contains(.paused) && seen.list.contains(.loading), "loading, never paused: \(seen.list)")
+    }
+
+    /// A brownout longer than every step (the fresh page has no stream either): still loading, still wanted, never
+    /// "Playback was interrupted" — the old ladder's Play, fresh page, Play, notice and pause were for a page that has the
+    /// track — and it plays the moment the stream comes.
+    @Test func aLongWaitForTheNetworkIsNeverAnInterruption() async throws {
+        let pages = brownoutPages(.never)
+        let clock = ManualClock()
+        let (queue, notices) = queue(on: pages, clock: clock)
+        await queue.play([QTModeSwitchBehaviourTests.song, QTModeSwitchBehaviourTests.next], startTime: 150)
+        try await pages.until { pages.engine.state.status == .playing }
+        pages.mediaWait = .everywhere
+        pages.engine.receive(["type": "ended", "gen": pages.engine.generation])
+        try await pages.until { queue.nowPlayingTrack?.videoId == Self.nextID && pages.mainLoads.count == 1 }
+        // A minute of the watch's clock (and a few real seconds for the engine's own steps).
+        for _ in 0..<40 {
+            try await idle(queue, clock, 1)
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        try await idle(queue, clock, 20)
+        #expect(notices.list.isEmpty && queue.wantsPlayback)
+        #expect(pages.engine.state.status == .loading && queue.loadInFlight != nil)
+        #expect(pages.navigations.count == 2, "one fresh page, not a loop")
+        pages.mediaArrives()
+        try await pages.until { pages.engine.state.status == .playing && queue.loadInFlight == nil }
+        try await tick(queue, clock, 5)
+        #expect(pages.engine.state.status == .playing && pages.engine.state.item?.track.videoId == Self.nextID)
+        #expect(notices.list.isEmpty && queue.wantsPlayback)
+    }
+
+    /// Paused by the listener while the page waits: held, not loading, and nothing starts when the stream comes.
+    @Test func pausingWhileThePageWaitsForItsStreamHolds() async throws {
+        let pages = brownoutPages(.inPage)
+        try await pages.engine.load(QTPlaybackItem(track: QTModeSwitchBehaviourTests.song, startTime: 30), autoplay: true)
+        try await pages.until { pages.engine.state.status == .playing }
+        let next = Task { try await pages.engine.load(QTPlaybackItem(track: QTModeSwitchBehaviourTests.next), autoplay: true) }
+        try await pages.until { pages.engine.isWaitingForMedia }
+        #expect(pages.engine.state.status == .loading)
+        pages.engine.pause()
+        #expect(pages.engine.state.status == .paused)
+        // The page's next report of the same wait no longer counts as loading: the load finishes held.
+        pages.engine.receive(pages.waitingSample(gen: pages.engine.generation, videoID: Self.nextID))
+        try await next.value
+        #expect(pages.engine.state.status == .paused && !pages.engine.isWaitingForMedia)
+        try await Task.sleep(for: .milliseconds(1500))
+        #expect(pages.navigations.count == 1 && pages.calls(on: .main, "play").isEmpty, "no steps for a held load")
     }
 
     // MARK: Song⇄Video into a pre-roll (live soak 2026-10-21)

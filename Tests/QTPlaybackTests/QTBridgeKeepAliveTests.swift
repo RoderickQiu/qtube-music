@@ -113,3 +113,58 @@ import Testing
         #expect(QTWebPlaybackBridgeScript.bridge.contains("__qtKeepAlive"))
     }
 }
+
+/// The bridge at a track change on a broken network, and when its document is being replaced (live soak 2026-10-21:
+/// Wi-Fi brownouts left WebKit's pooled connections dead, so YouTube's player request for the next track hung and failed).
+@Suite struct QTBridgeTrackChangeTests {
+    private func makePage() -> JSContext {
+        let ctx = JSContext()!
+        ctx.exceptionHandler = { _, e in Issue.record("JS: \(e?.toString() ?? "?")") }
+        ctx.evaluateScript(QTBridgeKeepAliveTests.fakePage)
+        // YouTube's player takes a new id at once; its length and stream come with the player response.
+        ctx.evaluateScript("""
+            var __stops = 0; __p.stopVideo = function () { __stops++; this.ps = 5; __video.paused = true; };
+            __p.loadVideoById = function (a) { this.vid = a.videoId; this.t = 0; this.d = 0; this.ps = -1;
+              __video.paused = true; __video.currentTime = 0; __video.duration = NaN; __video.readyState = 0; };
+            """)
+        ctx.evaluateScript(QTWebPlaybackBridgeScript.keepAlive)
+        ctx.evaluateScript(QTWebPlaybackBridgeScript.bridge)
+        ctx.evaluateScript("""
+            __advance(300); __qtBridge.load('SONG', 30, true, 2);
+            __p.t = 30; __p.d = 200; __p.ps = 1; __video.paused = false; __video.readyState = 4; __advance(10); __fire('playing')
+            """)
+        return ctx
+    }
+
+    private func lastState(_ ctx: JSContext) -> [String: Any]? {
+        ctx.evaluateScript("__posts.filter(function (m) { return m.type === 'state'; }).pop()").toDictionary() as? [String: Any]
+    }
+
+    @Test func aTrackWhosePlayerRequestHasntAnsweredIsReportedWithoutALength() throws {
+        let ctx = makePage()
+        ctx.evaluateScript("__qtBridge.load('NEXTNEXTNEX', 0, true, 3); __advance(10)")
+        let s = try #require(lastState(ctx).flatMap(QTWebPlaybackSample.init))
+        #expect(s.generation == 3 && s.videoID == "NEXTNEXTNEX" && s.matchesLoad)
+        #expect(s.paused && s.duration == 0 && s.readyState == 0 && s.ad == nil,
+                "the shape the engine takes for a page still waiting on the network, not one refusing to start")
+        #expect(!ctx.evaluateScript("__posts.some(function (m) { return m.type === 'ended' && m.gen === 3; })").toBool())
+    }
+
+    @Test func aRetiredDocumentStopsHoldsAndGoesQuiet() {
+        let ctx = makePage()
+        #expect(!ctx.evaluateScript("__video.paused").toBool())
+        #expect(ctx.evaluateScript("__qtBridge.retire(3)").toBool())
+        #expect(ctx.evaluateScript("__video.paused").toBool() && ctx.evaluateScript("__stops").toInt32() == 1)
+        #expect(ctx.evaluateScript("__qtBridge.isFrozen()").toBool(), "its timers are frozen")
+        // YouTube's player there moves on to its own pick and starts it: held at once, and nothing it says counts.
+        ctx.evaluateScript("var before = __posts.length; __p.vid = 'YTPICK00000'; __p.d = 180; __p.playVideo(); __fire('play')")
+        #expect(ctx.evaluateScript("__video.paused").toBool())
+        #expect(ctx.evaluateScript("__posts.length > before && __posts.slice(before).every(function (m) { return m.gen === -1; })").toBool())
+    }
+
+    @Test func theNewDocumentIgnoresARetireMeantForTheOldOne() {
+        let ctx = makePage()
+        #expect(!ctx.evaluateScript("__qtBridge.retire(2)").toBool())
+        #expect(!ctx.evaluateScript("__video.paused").toBool() && ctx.evaluateScript("__stops").toInt32() == 0)
+    }
+}

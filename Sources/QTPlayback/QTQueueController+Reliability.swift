@@ -339,9 +339,10 @@ extension QTQueueController {
         }
     }
 
-    /// Paused before the track ever started (YouTube's page sometimes brings a new track up paused at its start and
-    /// ignores the first Play), or on an ad (a Song⇄Video reload's pre-roll): not an interruption, so it never uses
-    /// up the one silent resume. Play again after the
+    /// Paused before the track ever started (a page that has the item but brings it up paused at its start and ignores
+    /// the first Play), or on an ad (a Song⇄Video reload's pre-roll): not an interruption, so it never uses up the one
+    /// silent resume. (A page still waiting on the network for the item is a load in flight: the web engine's own steps,
+    /// `QTWebPlaybackEngine.isWaitingForMedia`.) Play again after the
     /// grace; still paused a while later, the same item on a fresh page at its position (the watch page's own
     /// autoplay); Play once more there; only then stop and say so. Each step waits for the page's answer: the grace
     /// right after a load, `startPatience` after a Play.
