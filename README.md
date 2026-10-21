@@ -51,7 +51,8 @@ mini player. It's built in SwiftUI and AppKit, idles under 1% CPU and uses about
 - **Your library.** Home, Explore, Liked songs, playlists and history, in sortable, filterable tables, plus a
   docked Now Playing and Queue panel.
 - **The rest of the Mac.** Media keys, Control Center, AirPlay, a mini player, a menu bar player, desktop lyrics,
-  Shortcuts and AppleScript.
+  Shortcuts and AppleScript. Optional global shortcuts (Settings › Shortcuts) play, skip, like and show the players
+  from any app, with no Accessibility permission.
 - **Song colours.** The app takes its accent colour from the cover art. You can switch back to the system accent
   in Settings.
 - **Scrobbling.** Last.fm and ListenBrainz (or a ListenBrainz-compatible server such as Maloja): paste your

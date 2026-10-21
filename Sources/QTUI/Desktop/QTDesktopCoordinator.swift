@@ -20,7 +20,7 @@ public enum QTDesktopLaunchKey {
     public static let lyricsUnlocked = "qt.desktop.lyricsUnlocked"
     /// bool — scroll the menu bar title.
     public static let menuBarScroll = "qt.desktop.menuBarScroll"
-    /// `general` | `playback` | `lyrics` | `account` | `integrations` | `advanced` — Settings tab to open on.
+    /// `general` | `playback` | `lyrics` | `account` | `integrations` | `shortcuts` | `advanced` — Settings tab to open on.
     public static let settingsTab = "qt.settingsTab"
     /// Desktop lyrics size in points (screenshots).
     public static let lyricsSize = "qt.desktop.lyricsSize"
@@ -34,6 +34,12 @@ public enum QTDesktopLaunchKey {
     public static let staleMenus = "qt.desktop.staleMenus"
     /// DEBUG: path — run the AppleScript self-test (`QTScriptingProbe`) once ready and write its results there.
     public static let scriptProbe = "qt.desktop.scriptProbe"
+    /// DEBUG: `suggested` — Settings › Shortcuts starts with the suggested set (session only; screenshots).
+    public static let hotKeys = "qt.desktop.hotKeys"
+    /// DEBUG: comma list of actions (`like`, `playPause`…) whose shortcut shows as used by another app (screenshots).
+    public static let hotKeyTaken = "qt.desktop.hotKeyTaken"
+    /// DEBUG: bool — register global shortcuts even in a launch with `-qt.*` arguments (those never do otherwise).
+    public static let registerHotKeys = "qt.desktop.registerHotKeys"
 }
 
 @MainActor
@@ -66,6 +72,7 @@ public final class QTDesktopCoordinator {
         observe()
         observeScreens()
         QTIntegrationsCoordinator.shared.start(model: model)
+        QTGlobalHotKeys.shared.start(model: model)
         if model.launch.surface == .mini { hideMainWindowAfterLaunch() }
         #if DEBUG
         if let lang = model.launch.string(QTDesktopLaunchKey.switchLanguage).flatMap(QTInterfaceLanguage.init(argument:)) {

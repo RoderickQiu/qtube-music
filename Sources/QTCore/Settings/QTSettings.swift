@@ -191,6 +191,8 @@ public struct QTSettings: Codable, Sendable, Hashable {
     public var miniPlayer = QTMiniPlayerPrefs()
     /// Premium-engine features (greyed out for free accounts).
     public var playbackEffects = QTPlaybackEffectsPrefs()
+    /// Settings › Shortcuts: system-wide shortcuts. None by default (media keys already work).
+    public var globalHotKeys = QTHotKeyBindings()
 
     public init() {}
 
@@ -213,6 +215,7 @@ public struct QTSettings: Codable, Sendable, Hashable {
         menuBarScrollsTitle = (try? c.decodeIfPresent(Bool.self, forKey: .menuBarScrollsTitle)) ?? d.menuBarScrollsTitle
         miniPlayer = (try? c.decodeIfPresent(QTMiniPlayerPrefs.self, forKey: .miniPlayer)) ?? d.miniPlayer
         playbackEffects = (try? c.decodeIfPresent(QTPlaybackEffectsPrefs.self, forKey: .playbackEffects)) ?? d.playbackEffects
+        globalHotKeys = (try? c.decodeIfPresent(QTHotKeyBindings.self, forKey: .globalHotKeys)) ?? d.globalHotKeys
     }
 }
 

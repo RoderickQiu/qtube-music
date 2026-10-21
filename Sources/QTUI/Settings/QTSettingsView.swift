@@ -3,10 +3,18 @@ import QTPlayback
 import SwiftUI
 
 // Owner: builder "desktop". Native Settings window: toolbar tabs + grouped Forms (General, Playback, Lyrics,
-// Account, Integrations, Advanced). Every control writes through `QTSettingsStore`, so changes apply live (language too).
+// Account, Integrations, Shortcuts, Advanced). Every control writes through `QTSettingsStore`, so changes apply live (language too).
 
 public enum QTSettingsTab: String, CaseIterable, Hashable, Sendable {
-    case general, playback, lyrics, account, integrations, advanced
+    case general, playback, lyrics, account, integrations, shortcuts, advanced
+}
+
+/// Asks an open (or opening) Settings window to show a tab, e.g. Help › Keyboard Shortcuts › Set Up….
+@MainActor
+@Observable
+public final class QTSettingsNavigation {
+    public static let shared = QTSettingsNavigation()
+    public var requestedTab: QTSettingsTab?
 }
 
 public struct QTSettingsView: View {
@@ -24,6 +32,7 @@ public struct QTSettingsView: View {
             Tab(QTLoc.tr("Lyrics"), systemImage: QTIcon.lyrics.systemName, value: QTSettingsTab.lyrics) { QTLyricsSettings().qtSettingsPane() }
             Tab(QTLoc.tr("Account"), systemImage: "person.crop.circle", value: QTSettingsTab.account) { QTAccountSettings().qtSettingsPane() }
             Tab(QTLoc.tr("Integrations", table: .desktop), systemImage: "puzzlepiece.extension", value: QTSettingsTab.integrations) { QTIntegrationsSettingsPane().qtSettingsPane() }
+            Tab(QTLoc.tr("Shortcuts", table: .desktop), systemImage: "keyboard", value: QTSettingsTab.shortcuts) { QTShortcutsSettingsPane().qtSettingsPane() }
             Tab(QTLoc.tr("Advanced", table: .desktop), systemImage: "gearshape.2", value: QTSettingsTab.advanced) { QTAdvancedSettings().qtSettingsPane() }
         }
         .frame(width: 560)
@@ -31,7 +40,9 @@ public struct QTSettingsView: View {
         .qtArtworkTint(model.palette)
         .onAppear {
             if let t = model.launch.string(QTDesktopLaunchKey.settingsTab).flatMap(QTSettingsTab.init(rawValue:)) { tab = t }
+            showRequestedTab()
         }
+        .onChange(of: QTSettingsNavigation.shared.requestedTab) { showRequestedTab() }
         .background(QTWindowAccessor { [model] window in
             window.identifier = QTWindowID.settings.identifier
             if model.launch.screen != nil {
@@ -46,6 +57,14 @@ public struct QTSettingsView: View {
             }
         })
         .accessibilityIdentifier("qt.settings")
+    }
+}
+
+extension QTSettingsView {
+    private func showRequestedTab() {
+        guard let requested = QTSettingsNavigation.shared.requestedTab else { return }
+        tab = requested
+        QTSettingsNavigation.shared.requestedTab = nil
     }
 }
 
