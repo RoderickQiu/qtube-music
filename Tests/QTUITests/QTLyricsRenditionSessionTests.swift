@@ -99,8 +99,15 @@ struct QTRenditionStubProvider: QTLyricsSourceProvider {
                  QTLyricsCandidate(source: source, remoteID: "mv2", title: query.title, artists: query.artists, duration: 338)]
             }
             func lyrics(for candidate: QTLyricsCandidate) async throws -> QTParsedLyrics? {
-                try await QTRenditionStubProvider().lyrics(for: QTLyricsCandidate(
+                var parsed = try await QTRenditionStubProvider().lyrics(for: QTLyricsCandidate(
                     source: source, remoteID: candidate.remoteID == "song" ? "song" : "mv", title: candidate.title, artists: candidate.artists))
+                // The second cut has words of its own (a report also covers the same words under another entry).
+                if candidate.remoteID == "mv2", let p = parsed {
+                    parsed = QTParsedLyrics(lines: p.lines.map {
+                        QTParsedLyricsLine(start: $0.start, end: $0.end, text: $0.text + "，再一次")
+                    })
+                }
+                return parsed
             }
         }
         let settings = QTSettingsStore(defaults: UserDefaults(suiteName: "qt.lyrics-rendition.tests.\(UUID().uuidString)")!)
@@ -123,7 +130,10 @@ struct QTRenditionStubProvider: QTLyricsSourceProvider {
         #expect(store.reportWrong(id) == "lrclib:mv1")
         await waitUntil { store.selected[id] == "lrclib:mv2" }
         #expect(session.renditionTiming == .own)
-        #expect(await cache.rejectedVersionIDs(for: "mvVideoId01~338s") == ["lrclib:mv1"])
+        // The reported version, and its words (`text:<fingerprint>`, so another entry with them is blocked too).
+        let rejected = await cache.rejectedVersionIDs(for: "mvVideoId01~338s")
+        #expect(rejected.filter { !$0.hasPrefix("text:") } == ["lrclib:mv1"])
+        #expect(rejected.contains { $0.hasPrefix("text:") })
         #expect(await cache.rejectedVersionIDs(for: id).isEmpty)
         #expect(session.chosenVersionID == "lrclib:song")
 

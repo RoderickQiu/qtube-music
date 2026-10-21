@@ -235,6 +235,7 @@ public actor QTLyricsResolver: QTLyricsProviding {
     public func pin(versionID: String, for query: QTLyricsQuery,
                     configuration: QTLyricsResolverConfiguration? = nil) async -> QTLyricsResolution {
         await cache?.removeRejection(versionID, for: query.videoId)
+        await takeBackReportedText(of: versionID, videoId: query.videoId)
         await cache?.setPinnedVersionID(versionID, for: query.videoId)
         return await resolve(query, configuration: configuration, forceRefresh: true)
     }
@@ -262,6 +263,10 @@ public actor QTLyricsResolver: QTLyricsProviding {
     public func reject(versionID: String, for query: QTLyricsQuery,
                        configuration: QTLyricsResolverConfiguration? = nil) async -> QTLyricsResolution {
         await cache?.addRejection(versionID, for: query.videoId)
+        // The same words from another entry of a source (sources list a song more than once) are just as wrong.
+        if let text = await textFingerprint(of: versionID, videoId: query.videoId) {
+            await cache?.addRejection(Self.rejectedTextPrefix + text, for: query.videoId)
+        }
         if await cache?.pinnedVersionID(for: query.videoId) == versionID {
             await cache?.setPinnedVersionID(nil, for: query.videoId)
         }
@@ -273,6 +278,7 @@ public actor QTLyricsResolver: QTLyricsProviding {
     public func undoReject(versionID: String, wasPinned: Bool, for query: QTLyricsQuery,
                            configuration: QTLyricsResolverConfiguration? = nil) async -> QTLyricsResolution {
         await cache?.removeRejection(versionID, for: query.videoId)
+        await takeBackReportedText(of: versionID, videoId: query.videoId)
         if wasPinned { await cache?.setPinnedVersionID(versionID, for: query.videoId) }
         return await resolve(query, configuration: configuration, forceRefresh: true)
     }
@@ -293,6 +299,26 @@ public actor QTLyricsResolver: QTLyricsProviding {
     }
 
     // MARK: Internals
+
+    /// A reported text is stored next to the reported version ids, as `text:<fingerprint>`.
+    static let rejectedTextPrefix = "text:"
+
+    /// Takes back the report of a version's words. A reported version isn't fetched again, so its words are often
+    /// unknown by then: the track's reported words all go (the reported version ids themselves stay).
+    private func takeBackReportedText(of versionID: String, videoId: String) async {
+        if let text = await textFingerprint(of: versionID, videoId: videoId) {
+            await cache?.removeRejection(Self.rejectedTextPrefix + text, for: videoId)
+            return
+        }
+        for id in await cache?.rejectedVersionIDs(for: videoId) ?? [] where id.hasPrefix(Self.rejectedTextPrefix) {
+            await cache?.removeRejection(id, for: videoId)
+        }
+    }
+
+    /// The fingerprint of a version's words, from the last lookup's versions (nil when it wasn't fetched).
+    private func textFingerprint(of versionID: String, videoId: String) async -> String? {
+        await cache?.entry(for: videoId)?.versions.first { $0.id == versionID }?.textFingerprint
+    }
 
     private func sourcesKey(_ config: QTLyricsResolverConfiguration) -> String {
         let enabled = providers.map(\.source).filter(config.isEnabled).map(\.id).sorted().joined(separator: ",")
@@ -411,7 +437,14 @@ public actor QTLyricsResolver: QTLyricsProviding {
             ranked[i].score.sanityPenalty = QTLyricsSanity.penalty(for: ranked[i].score.flags)
         }
         ranked = ranked.filter { !shared.contains($0.candidate.id) } + ranked.filter { shared.contains($0.candidate.id) }
-        let chosen = ranked.first { $0.candidate.id == pinned } ?? ranked.first { !shared.contains($0.candidate.id) }
+        // Words the user reported for this track, fetched again under another entry id: never picked automatically,
+        // and listed as reported (picking one takes the report back).
+        let rejectedTexts = Set(rejected.filter { $0.hasPrefix(Self.rejectedTextPrefix) }.map { String($0.dropFirst(Self.rejectedTextPrefix.count)) })
+        let reportedText = Set(ranked.filter { e in
+            e.candidate.id != pinned && QTLyricsSanity.fingerprint(e.parsed).map(rejectedTexts.contains) == true
+        }.map(\.candidate.id))
+        let chosen = ranked.first { $0.candidate.id == pinned }
+            ?? ranked.first { !shared.contains($0.candidate.id) && !reportedText.contains($0.candidate.id) }
         // Only the text actually shown counts as this song's (one per track). A lookup that couldn't reach every
         // source leaves the last one alone.
         if let chosen, let fingerprint = QTLyricsSanity.fingerprint(chosen.parsed) {
@@ -420,7 +453,7 @@ public actor QTLyricsResolver: QTLyricsProviding {
             await cache?.clearFingerprints(for: query.videoId)
         }
 
-        var versions = ranked.map { e in
+        var versions = ranked.filter { !reportedText.contains($0.candidate.id) }.map { e in
             var candidate = e.candidate
             if (candidate.duration ?? 0) <= 0 { candidate.duration = e.parsed.metadata.length }
             return QTResolvedLyricsVersion(candidate: candidate, score: e.score.total, syncKind: e.parsed.syncKind,
@@ -440,6 +473,10 @@ public actor QTLyricsResolver: QTLyricsProviding {
             let n = perSource[v.source.id, default: 0]
             perSource[v.source.id] = n + 1
             return n < config.versionsPerSource || v.id == chosen?.candidate.id || v.id == pinned
+        }
+        versions += ranked.filter { reportedText.contains($0.candidate.id) }.map { e in
+            QTResolvedLyricsVersion(candidate: e.candidate, score: e.score.total, syncKind: e.parsed.syncKind,
+                                    hasTranslation: false, isReported: true, textFingerprint: QTLyricsSanity.fingerprint(e.parsed))
         }
         versions += reported.values.sorted { $0.1.total == $1.1.total ? $0.0.id < $1.0.id : $0.1.total > $1.1.total }.map {
             QTResolvedLyricsVersion(candidate: $0.0, score: $0.1.total, syncKind: $0.0.syncHint, hasTranslation: false, isReported: true)

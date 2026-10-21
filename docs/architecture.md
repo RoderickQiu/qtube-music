@@ -475,7 +475,8 @@ Views:
   `pin` / `unpin` (Automatic always unpins, a stale pin whose version wasn't found included; `isPinned` /
   `pinnedID` come from the stored pin) / `turnOffLyrics` (pin `"none"`: no document, versions still listed) /
   `reject` (the `rejections(video_id, version_id)` table: never fetched or chosen again for that track, the next
-  best shows at once; listed last as "Reported", picking it takes the report back; the "Reported" toast has Undo →
+  best shows at once; its words are stored too, as `text:<fingerprint>`, so another entry of a source with the same
+  words isn't picked automatically either and lists as reported; listed last as "Reported", picking it takes the report back; the "Reported" toast has Undo →
   `undoReject`, which also restores a pin the report dropped; Report is disabled when no version is showing). In
   video mode with lyrics timed for the video's own cut, the menu, Report and Undo act on that cut's lookup (keyed
   `<id>~<s>s`); No Lyrics for This Song always goes to the song. Sanity checks in `QTLyricsMatchScorer.rescore` +

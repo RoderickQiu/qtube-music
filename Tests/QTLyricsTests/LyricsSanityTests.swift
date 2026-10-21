@@ -39,6 +39,22 @@ struct QTHonestLyricsProvider: QTLyricsSourceProvider {
     }
 }
 
+/// One source listing a song three times: entries "a" and "b" carry the same (word-synced) words, "c" its own.
+struct QTTwinLyricsProvider: QTLyricsSourceProvider {
+    let source = QTLyricsSource.lrclib
+
+    func search(_ query: QTLyricsQuery) async throws -> [QTLyricsCandidate] {
+        ["a", "b", "c"].map { QTLyricsCandidate(source: source, remoteID: $0, title: query.title, artists: query.artists,
+                                                duration: query.duration) }
+    }
+
+    func lyrics(for candidate: QTLyricsCandidate) async throws -> QTParsedLyrics? {
+        candidate.remoteID == "c"
+            ? QTLyricsSanityTests.parsed((1...8).map { "Own placeholder verse \($0) for the third entry" })
+            : QTLyricsSanityTests.parsed((1...8).map { "Twin placeholder verse \($0) shared by two entries" }, wordSynced: true)
+    }
+}
+
 @Suite struct QTLyricsSanityTests {
     /// Lines every 6 s from 2 s (the last one ends near 50 s of a 60 s track).
     static func parsed(_ texts: [String], wordSynced: Bool = false) -> QTParsedLyrics {
@@ -138,6 +154,25 @@ struct QTHonestLyricsProvider: QTLyricsSourceProvider {
         #expect(await relaunched.pin(versionID: wrong, for: q).chosenID == wrong)
         let back = await relaunched.unpin(for: q)
         #expect(back.versions.contains { $0.id == wrong && $0.isReported != true })
+    }
+
+    /// A report covers the reported words, not only that entry: the source's other entry with the same words is
+    /// never picked automatically either (listed as reported), and Undo takes both back.
+    @Test func reportingAVersionAlsoBlocksItsTwinEntry() async throws {
+        let resolver = QTLyricsResolver(providers: [QTTwinLyricsProvider()], cache: try QTLyricsCache(url: nil))
+        let q = Self.query("vidT", "Twin Entries")
+        let first = try #require(await resolver.resolve(q).chosenID)
+        #expect(first == "lrclib:a" || first == "lrclib:b")
+        let twin = first == "lrclib:a" ? "lrclib:b" : "lrclib:a"
+        let reported = await resolver.reject(versionID: first, for: q)
+        #expect(reported.chosenID == "lrclib:c")
+        #expect(reported.versions.contains { $0.id == twin && $0.isReported == true })
+        #expect(reported.versions.contains { $0.id == first && $0.isReported == true })
+        // A relaunch-style forced lookup keeps both out.
+        #expect(await resolver.resolve(q, forceRefresh: true).chosenID == "lrclib:c")
+        let undone = await resolver.undoReject(versionID: first, wasPinned: false, for: q)
+        #expect(undone.chosenID == first || undone.chosenID == twin)
+        #expect(!undone.versions.contains { $0.isReported == true })
     }
 
     /// Finding 10: Undo on the "Reported" toast restores the version, and the pin the report dropped.
