@@ -64,7 +64,7 @@ Launch arguments apply to one session only and are never saved. Pass them as
 |---|---|
 | `qt.catalog` | `live` (default), `mock` (demo library, debug builds only; never reads the Keychain), or a catalog folder path |
 | `qt.surface` | `window` · `stage` · `mini` |
-| `qt.section` | `home` `explore` `songs` `albums` `artists` `liked` `history` `playlist:<id>` |
+| `qt.section` | `home` `explore` `songs` `albums` `artists` `liked` `history` `uploads` `playlist:<id>` |
 | `qt.stageLayout` / `qt.stageBackground` | `standard` `lyrics-only` `art-only` / `blur` `cover` `vinyl` `video` `visual` |
 | `qt.theme` · `qt.lang` · `qt.account` | `auto` `light` `dark` · `auto` `en-US` `zh-CN` · `premium` `free` |
 | `qt.translation` | `auto` `off` `zh-Hans` `zh-Hant` `en` `ko` `ja` `vi` `es` `fr` `de` |

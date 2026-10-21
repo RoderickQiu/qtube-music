@@ -40,7 +40,7 @@ Everything is wired (integration of M1 polish + M2–M4):
 - **Catalog:** YouTube Music, always (data-live, M3; guest mode R7). `QTLiveCatalogStore` restores the saved session
   and loads the user's library; with no session it runs **guest mode** (`QTCatalogMode.guest`): Home, moods,
   Explore, search, album, artist and public playlist pages read anonymously, playback is anonymous (free, with ads),
-  and the library places (Liked Songs, Songs, Albums, Artists — `QTLiveCatalogStore.isLibrary`) show a native
+  and the library places (Liked Songs, Songs, Albums, Artists, Uploads — `QTLiveCatalogStore.isLibrary`) show a native
   sign-in state (`QTLiveSignInPrompt`: the place's SF Symbol, one line, Sign In). History stays the app's own local
   play history in every mode. The sidebar shows Sign In at its foot in guest mode and hides the empty Playlists
   section. Likes and "Add to Playlist" offer sign-in (`QTAccountGate`: a toast with Sign In) — never a local stand-in
@@ -191,6 +191,41 @@ alert. One coordinator, `QTAccountWriter` (AppModel/, `QTLiveCatalogStore.writer
   `Tests/QTUITests/QTAccountWriterTests.swift` (optimistic UI, collapse, rollback, overlay vs paging, bot check,
   Sync off + relaunch, owned playlist add/remove/move, create/rename/delete, identity switch) — hand-built fixtures
   (`Fixtures/handbuilt-*.json`), a fake transport and a fake identity switcher; never a live write.
+
+**Uploads (pre-launch §5; read-only).** Library › Uploads is the user's own uploaded music. Uploading and deleting
+are writes to the account's upload storage and stay on music.youtube.com.
+- **Client** (`QTInnerTubeClient`, MARK Uploads): `uploadedSongs` / `uploadedAlbums` / `uploadedArtists` browse
+  `FEmusic_library_privately_owned_tracks` / `_releases` / `_artists` (optional `QTLibraryOrder` → YouTube's sort
+  `params`), `uploadsContinuation` pages on. Every `FEmusic_library_privately_owned…` browse id needs the session
+  (`QTUploads.isUploadID` next to `authOnlyBrowseIds`; refused up front as a guest). `album(_:)` and `artist(_:)` route
+  by prefix: `…_release_detail…` parses with the older `musicDetailHeaderRenderer` (rows without artist / artwork take
+  the album's; the header menu's Play gives the playlist id), `…_artist_detail…` is a song list whose pages are all
+  read into `QTArtistPage.songs`. Ids and prefixes live in QTCore (`QTUploads`).
+- **Parsing** (`QTInnerTubeParser.uploads`, `uploadArtist`): the "Shuffle all" row is dropped (it has no menu; every
+  upload row does — ytmusicapi's rule), a row without a play link takes its id from the menu's
+  `queueAddEndpoint.queueTarget.videoId` (`QTParse.queueAddVideoId`, any list, never for greyed-out rows), and upload
+  album / artist links count as album / library-artist links whatever page type they name (`QTNavigation.pageType`;
+  never dropped as non-music).
+- **`QTTrack.isPrivatelyOwned`** (stored as an optional, so saved queues still decode): set for rows on uploads pages,
+  `MUSIC_VIDEO_TYPE_PRIVATELY_OWNED_TRACK` anywhere (lists, cards, queue rows) and rows whose menu can delete an upload.
+  An upload has `hasVideo == false` (Song⇄Video, Play Music Video and PiP are off), no counterpart lookup (no `next`,
+  no search: `counterpart(for:)` returns nil at once), no autoplay radio (the queue ends with it; the app has no other
+  Start Radio), and ListenBrainz gets no `origin_url` (`QTIntegrationsCoordinator.isPrivatelyOwned`). The web engine
+  plays it through the normal watch page; the native engine falls back per item.
+- **UI** (`Library/QTUploadsPage.swift`, window): the sidebar's last Library row (⌘8, `-qt.section uploads`), always
+  listed — a fixed ⌘-number, no extra request at launch just to decide whether to show a row, and an account without
+  uploads learns where they come from. A segmented Songs | Albums | Artists control sits in the toolbar
+  (`ToolbarItem(placement: .navigation)`, `@SceneStorage`): it stays put while the song table scrolls under its
+  pinned header and when the page under it changes from table to grid. Songs = the track table (kind `.uploads`);
+  Albums / Artists = the library card grids; upload albums open the album page (no Add to Library), upload artists a
+  track table of all their songs (the artist page would show nine). Live: one list per segment, loaded when first
+  shown (`QTLiveCatalogStore.loadUploads`, first page at once, the rest streams in), skeleton / failure states as
+  elsewhere; guest mode shows the sign-in prompt ("Sign in to see your uploads"). No uploads: "No Uploads" + "Music you
+  upload at music.youtube.com shows up here." + a link that opens music.youtube.com in the browser.
+- **Demo:** `QTMockCatalog.uploads` = `QTMockUploads.demo` (invented titles, no artwork, real prefixes so pages route
+  like live ones); `-qt.uploads.empty YES` shows the empty state.
+- Tests: `Tests/QTInnerTubeTests/UploadsTests.swift` (fixtures `handbuilt-uploads-*.json`), `QTUITests/QTUploadsTests`
+  and `QTLiveCatalogStoreTests.uploadsLoadSignedInOnly`.
 
 **Signed-in requests (privacy audit).** `QTInnerTubeClient.send(…, identity:)` sends the session (cookies +
 SAPISIDHASH + brand account) with `.session` (the default) and never with `.anonymous` (no cookies, no auth headers,
@@ -532,7 +567,7 @@ Coordinators (one per process, `@MainActor`):
   translation target, interface language) by itself. All network/SQLite work is off the main actor.
 
 Keyboard ownership: `QTCommands` (Commands/) is the only menu definition — every shortcut is bound once there
-(navigation items call `QTNavigator`); ⌘1–7 follow the sidebar (Home … History). **Space** in any of our windows is
+(navigation items call `QTNavigator`); ⌘1–8 follow the sidebar (Home … History, Uploads). **Space** in any of our windows is
 decided by `QTKeyRouting` (Commands/; `QTWindowKeyMonitor` in Shell/ only forwards to it): with nothing focused, a
 table/outline (track lists, sidebar) or a scroll view focused, it plays/pauses at once; otherwise the focused view gets
 it first (text fields, every `NSControl` incl. switches/steppers, SwiftUI-focused controls via their focus proxy) and
@@ -740,7 +775,8 @@ Booleans: `YES/NO`, `true/false`, `1/0` (empty = true).
 | Key | Values | Prototype |
 |---|---|---|
 | `qt.surface` | `window` · `stage` · `mini` (`desktop` alias) | `surface` |
-| `qt.section` | `home` `explore` `songs` `albums` `artists` `liked` `history` `playlist:<id>` (`pl-1`…`pl-7`) | `section` |
+| `qt.section` | `home` `explore` `songs` `albums` `artists` `liked` `history` `uploads` `playlist:<id>` (`pl-1`…`pl-7`) | `section` |
+| `qt.uploads.section` · `qt.uploads.empty` | `songs` · `albums` · `artists` (the Uploads segment, once per launch) · bool (DEBUG demo: no uploads, the empty state) | |
 | `qt.stageLayout` | `standard` · `lyrics-only` · `art-only` | `stageLayout` |
 | `qt.stageBackground` | `blur` · `cover` · `vinyl` · `video` · `visual` | `stageBackground` |
 | `qt.theme` | `auto` · `light` · `dark` | `theme` |

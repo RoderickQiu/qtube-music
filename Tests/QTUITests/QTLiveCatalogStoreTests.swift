@@ -24,15 +24,18 @@ import Testing
         ]
     }
 
-    /// Liked Songs answers with a recorded (anonymous, public) playlist page; everything else is offline.
+    /// Liked Songs answers with a recorded (anonymous, public) playlist page, the uploads songs list (two pages)
+    /// with hand-built ones; everything else is offline.
     final class StubTransport: QTHTTPTransport, @unchecked Sendable {
         private let lock = NSLock()
         private var likedRequests = 0
+        private var uploadRequests = 0
         let liked: Data?
+        static let fixtures = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("QTInnerTubeTests/Fixtures")
 
         init() {
-            let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-                .appendingPathComponent("QTInnerTubeTests/Fixtures/playlist-classic-rock-en.json")
+            let url = Self.fixtures.appendingPathComponent("playlist-classic-rock-en.json")
             // Recorded anonymously; answer as the signed-in account would (`logged_in` = 1), or the client treats
             // it as a lost session.
             liked = (try? String(contentsOf: url, encoding: .utf8))
@@ -40,9 +43,16 @@ import Testing
         }
 
         var likedRequestCount: Int { lock.withLock { likedRequests } }
+        var uploadRequestCount: Int { lock.withLock { uploadRequests } }
 
         func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
             let body = request.httpBody.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+            for (marker, name) in [(QTUploads.songsBrowseId, "handbuilt-uploads-songs"),
+                                   ("FAKEUPLOADSCONT1", "handbuilt-uploads-songs-continuation")] where body.contains(marker) {
+                lock.withLock { uploadRequests += 1 }
+                let data = try Data(contentsOf: Self.fixtures.appendingPathComponent(name + ".json"))
+                return (data, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: [:])!)
+            }
             if request.url?.path.hasSuffix("/browse") == true, body.contains("\"VLLM\""), let liked {
                 lock.withLock { likedRequests += 1 }
                 let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: [:])!
@@ -148,6 +158,29 @@ import Testing
         // Pages that can't reach the (stub) network fail as offline instead of spinning forever.
         await Self.waitUntil("home settled") { h.store.homePhase.isSettled }
         #expect(h.store.homePhase == .failed(.offline))
+    }
+
+    /// Library › Uploads: signed in, every page streams in (privately owned); a guest gets the sign-in prompt and
+    /// never sends a request for it.
+    @Test func uploadsLoadSignedInOnly() async throws {
+        defer { Self.cleanUp() }
+        let guest = try await Self.makeHarness()
+        await Self.waitUntil("guest") { guest.store.mode == .guest }
+        #expect(QTLiveCatalogStore.isLibrary(.section(.uploads)) && guest.store.handles(.section(.uploads)))
+        await guest.store.loadUploads(.songs)
+        #expect(guest.store.uploadsPhase(.songs) == .idle && guest.transport.uploadRequestCount == 0)
+
+        let h = try await Self.makeHarness(savedSession: Self.fakeLogin())
+        await Self.waitUntil("live") { h.store.mode == .live }
+        await h.store.loadUploads(.songs)
+        #expect(h.store.uploadsPhase(.songs) == .loaded)
+        #expect(h.store.uploads.songs.map(\.videoId) == ["upl0adVid01", "upl0adVid02", "upl0adVid03", "upl0adVid04"])
+        #expect(h.store.uploads.songs.allSatisfy { $0.isPrivatelyOwned && !$0.hasVideo })
+        #expect(h.transport.uploadRequestCount == 2)
+        // Upload ids are ids, never names to search for.
+        let album = QTUploads.albumPrefix + "b_po_fakeLanterns"
+        let artist = QTUploads.artistPrefix + "a_po_fakeMara"
+        #expect(h.store.albumID(for: album) == album && h.store.artistID(for: artist) == artist)
     }
 
     @Test func restoreFoldsFresherWebKitCookiesBackIntoTheKeychain() async throws {

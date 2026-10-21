@@ -4,7 +4,7 @@ import QTCore
 
 /// What a track-table page shows: Liked Songs, a playlist, an album, an artist, all songs, or search results.
 public struct QTTrackCollection: Identifiable, Sendable {
-    public enum Kind: Sendable, Hashable { case liked, playlist, album, artist, songs, history, search, shelf }
+    public enum Kind: Sendable, Hashable { case liked, playlist, album, artist, songs, history, search, shelf, uploads }
 
     public var id: String
     public var kind: Kind
@@ -31,7 +31,7 @@ public struct QTTrackCollection: Identifiable, Sendable {
         case .liked, .playlist: QTLoc.tr("Playlist")
         case .album: QTLoc.tr("Album")
         case .artist: QTLoc.tr("Artist", table: .main)
-        case .songs, .history: QTLoc.tr("Library")
+        case .songs, .history, .uploads: QTLoc.tr("Library")
         case .search: QTLoc.tr("Search music")
         case .shelf: QTLoc.tr("Songs")
         }
@@ -49,6 +49,7 @@ public struct QTTrackCollection: Identifiable, Sendable {
         case .artist: QTQueueSource(kind: .artist, title: .verbatim(title))
         case .songs: QTQueueSource(kind: .playlist, title: .localized("Songs"))
         case .history: QTQueueSource(kind: .playlist, title: .localized("History"))
+        case .uploads: QTQueueSource(kind: .playlist, title: .localized("Uploads"))
         case .search: QTQueueSource(kind: .search, title: .verbatim(title))
         case .shelf: QTQueueSource(kind: .playlist, title: .verbatim(title))
         }
@@ -64,6 +65,7 @@ public struct QTTrackCollection: Identifiable, Sendable {
         case .artist: .mic
         case .songs, .shelf: .note
         case .history: .clock
+        case .uploads: .upload
         case .playlist, .search: .playlist
         }
     }
@@ -103,6 +105,7 @@ public struct QTTrackCollection: Identifiable, Sendable {
         case .section(.liked): "liked"
         case .section(.songs): "songs"
         case .section(.history): "history"
+        case .section(.uploads): "uploads"
         case .section(.playlist(let id)): "playlist:\(id)"
         case .album(let t): "album:\(t)"
         case .artist(let n): "artist:\(n)"

@@ -166,7 +166,8 @@ public actor QTInnerTubeClient {
 
     // MARK: Raw requests
 
-    /// Endpoints that only make sense signed in (refused up front when anonymous).
+    /// Endpoints that only make sense signed in (refused up front when anonymous); so does every uploads page
+    /// (`QTUploads.browsePrefix`).
     static let authOnlyBrowseIds: Set<String> = [
         "VLLM", "FEmusic_liked_playlists", "FEmusic_liked_albums", "FEmusic_liked_videos", "FEmusic_history",
         "FEmusic_library_landing", "FEmusic_library_corpus_artists", "FEmusic_library_corpus_track_artists",
@@ -189,7 +190,7 @@ public actor QTInnerTubeClient {
         if Self.writeEndpoints.contains(endpoint), !allowsAccountWrites { throw QTInnerTubeError.writesDisabled }
         let credentials = identity == .anonymous ? nil : await credentialsProvider?.credentials()
         let needsAuth = requiresAuth || Self.writeEndpoints.contains(endpoint)
-            || (body["browseId"]?.string).map(Self.authOnlyBrowseIds.contains) == true
+            || (body["browseId"]?.string).map { Self.authOnlyBrowseIds.contains($0) || QTUploads.isUploadID($0) } == true
             || endpoint.hasPrefix("account/")
         if needsAuth, credentials == nil { throw QTInnerTubeError.notSignedIn }
 
@@ -434,13 +435,17 @@ public actor QTInnerTubeClient {
 
     // MARK: Album / artist / playlist
 
+    /// An album page; an uploaded album (`QTUploads.albumPrefix`) too, which needs the session.
     public func album(_ browseId: String) async throws -> QTAlbumPage {
-        let json = try await browse(browseId, ttl: QTCacheTTL.album)
+        let json = try await browse(browseId, ttl: QTUploads.isAlbumID(browseId) ? QTCacheTTL.library : QTCacheTTL.album)
         guard let page = QTInnerTubeParser.album(json, browseId: browseId) else { throw QTInnerTubeError.parse("album") }
         return page
     }
 
+    /// An artist page. An uploads artist (`QTUploads.artistPrefix`, signed in) is only the songs uploaded for that
+    /// artist: every page of them, in `songs`.
     public func artist(_ browseId: String) async throws -> QTArtistPage {
+        if QTUploads.isArtistID(browseId) { return try await uploadArtist(browseId) }
         let browseId = Self.channelId(browseId)
         let json = try await browse(browseId, ttl: QTCacheTTL.artist)
         guard let page = QTInnerTubeParser.artist(json, browseId: browseId) else { throw QTInnerTubeError.parse("artist") }
@@ -508,6 +513,61 @@ public actor QTInnerTubeClient {
         library("FEmusic_liked_videos", try await browse("FEmusic_liked_videos", ttl: QTCacheTTL.library)) {
             $0.track
         }
+    }
+
+    // MARK: Uploads (signed in, read-only)
+
+    /// Songs the user uploaded (`FEmusic_library_privately_owned_tracks`), marked `isPrivatelyOwned`; the list's
+    /// "Shuffle all" row is dropped. `order` nil = YouTube Music's default.
+    public func uploadedSongs(order: QTLibraryOrder? = nil) async throws -> QTLibraryPage<QTTrack> {
+        let page = try await uploads(QTUploads.songsBrowseId, order: order)
+        return QTLibraryPage(items: page.items.compactMap(\.track), continuation: page.continuation)
+    }
+
+    /// Albums of the uploaded songs (`…_releases`); ids are `QTUploads.albumPrefix…`, opened with `album(_:)`.
+    public func uploadedAlbums(order: QTLibraryOrder? = nil) async throws -> QTLibraryPage<QTAlbum> {
+        let page = try await uploads(QTUploads.albumsBrowseId, order: order)
+        return QTLibraryPage(items: page.items.compactMap { if case .album(let a) = $0 { a } else { nil } },
+                             continuation: page.continuation)
+    }
+
+    /// Artists of the uploaded songs (`…_artists`); ids are `QTUploads.artistPrefix…`, opened with `artist(_:)`.
+    public func uploadedArtists(order: QTLibraryOrder? = nil) async throws -> QTLibraryPage<QTArtist> {
+        let page = try await uploads(QTUploads.artistsBrowseId, order: order)
+        return QTLibraryPage(items: page.items.compactMap { if case .artist(let a) = $0 { a } else { nil } },
+                             continuation: page.continuation)
+    }
+
+    /// Next page of any uploads list (songs keep their privately-owned mark).
+    public func uploadsContinuation(_ token: QTContinuation) async throws -> QTLibraryPage<QTShelfItem> {
+        QTInnerTubeParser.uploads(try await continuation("browse", token, requiresAuth: true))
+    }
+
+    private func uploads(_ browseId: String, order: QTLibraryOrder?) async throws -> QTLibraryPage<QTShelfItem> {
+        QTInnerTubeParser.uploads(try await browse(browseId, params: order?.params, ttl: QTCacheTTL.library))
+    }
+
+    /// Every song of an uploads artist (bounded by `maxPages`).
+    private func uploadArtist(_ browseId: String, maxPages: Int = 20) async throws -> QTArtistPage {
+        let json = try await browse(browseId, ttl: QTCacheTTL.library)
+        guard let first = QTInnerTubeParser.uploadArtist(json, browseId: browseId) else {
+            throw QTInnerTubeError.parse("artist")
+        }
+        var page = first.page
+        var token = first.continuation
+        var pages = 1
+        while let t = token, pages < maxPages {
+            let more = QTInnerTubeParser.trackContinuation(try await continuation("browse", t, requiresAuth: true),
+                                                           context: QTItemContext(privatelyOwned: true))
+            page.songs += more.tracks.map { t in
+                var t = t
+                if t.artists.isEmpty { t.artists = [QTArtistRef(id: browseId, name: page.artist.name)] }
+                return t
+            }
+            token = more.continuation
+            pages += 1
+        }
+        return page
     }
 
     /// Library artist pages (`MPLAUC…`) only list the user's songs; the artist page is the channel (`UC…`).

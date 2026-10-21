@@ -37,6 +37,7 @@ struct QTLivePage: View {
         case .section(.explore): QTLiveSkeleton(layout: .shelves, title: QTLoc.tr("Explore"))
         case .section(.albums): QTLiveSkeleton(layout: .grid, title: QTLoc.tr("Albums"))
         case .section(.artists): QTLiveSkeleton(layout: .grid, title: QTLoc.tr("Artists"))
+        case .section(.uploads): QTLiveSkeleton(layout: .trackList, title: QTLoc.tr("Uploads"))
         case .artist: QTLiveSkeleton(layout: .artist)
         default: QTLiveSkeleton(layout: .trackList)
         }
@@ -55,6 +56,8 @@ struct QTLivePage: View {
         case .section(.albums): QTLibraryAlbumsPage()
         case .section(.artists): QTLibraryArtistsPage()
         case .section(.history): EmptyView() // not handled (local history)
+        // One Uploads page for demo + live (Library/QTUploadsPage.swift).
+        case .section(.uploads): QTUploadsPage()
         case .album(let key): QTAlbumPageView(key: key)
         case .artist(let key): QTArtistPageView(key: key)
         case .mood(let chip): QTMoodPageView(chip: chip)

@@ -1778,6 +1778,16 @@
           }
         }
       }
+    },
+    "Uploads" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上传的音乐"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

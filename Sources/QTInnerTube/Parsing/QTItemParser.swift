@@ -9,6 +9,8 @@ struct QTItemContext: Sendable {
     var album: QTAlbumRef?
     var albumArtists: [QTArtistRef] = []
     var albumArtwork: [QTArtworkImage] = []
+    /// Rows of the uploads library and its album / artist pages: every song on them is the user's own upload.
+    var privatelyOwned = false
 
     static let plain = QTItemContext()
 }
@@ -81,8 +83,10 @@ enum QTItemParser {
         let titleNav = titleRuns.first?.navigation
         // A greyed-out row (not available here, removed) may come without any playable id: it stays in the list as a
         // greyed row, like on YouTube Music, so playlist and Liked counts agree with it.
+        // Upload rows may link nothing to play but their menu's "Add to queue" (ytmusicapi `parse_uploaded_items`).
         let videoId = r[path: "playlistItemData", "videoId"].string ?? titleNav?.videoId ?? overlayNav?.videoId
-            ?? itemNav?.videoId ?? (availability(r).isPlayable ? nil : unavailableRowID(r, title: title))
+            ?? itemNav?.videoId
+            ?? (availability(r).isPlayable ? QTParse.queueAddVideoId(menu: r["menu"]) : unavailableRowID(r, title: title))
 
         let primaryNav: QTNavigation? = {
             if let itemNav, case .browse = itemNav { return itemNav }
@@ -119,7 +123,9 @@ enum QTItemParser {
                 album: subtitleRuns.albumRef ?? context.album, duration: duration,
                 artwork: artwork.isEmpty ? context.albumArtwork : artwork, musicVideoType: type,
                 isExplicit: isExplicit(r), availability: availability(r),
-                setVideoId: setVideoId(r), likeStatus: likeStatus(menu: r["menu"]))
+                setVideoId: setVideoId(r), likeStatus: likeStatus(menu: r["menu"]),
+                isPrivatelyOwned: context.privatelyOwned || mvtRaw == QTParse.privatelyOwnedType
+                    || QTParse.hasDeleteUploadCommand(menu: r["menu"]))
             if type.isVideo, let audioId = QTParse.creditsVideoId(menu: r["menu"]), audioId != videoId {
                 track.counterpart = QTCounterpart(videoId: audioId, musicVideoType: .atv)
             }
@@ -164,7 +170,7 @@ enum QTItemParser {
             let duration = groups.lazy.compactMap { QTParse.duration($0.text) }.first ?? 0
             let track = QTTrack(videoId: videoId, title: title, artists: artists, album: subtitle.albumRef,
                                 duration: duration, artwork: artwork, musicVideoType: type,
-                                isExplicit: isExplicit(r))
+                                isExplicit: isExplicit(r), isPrivatelyOwned: mvt == QTParse.privatelyOwnedType)
             return .item(shelfItem(for: track))
         case .watchPlaylist(let playlistId, _)?:
             return .item(.playlist(QTPlaylist(id: QTParse.playlistBrowseId(playlistId), title: .verbatim(title),
@@ -286,7 +292,8 @@ enum QTItemParser {
             videoId: videoId, title: title, artists: artists, album: byline.albumRef,
             duration: r["lengthText"].text.flatMap(QTParse.duration) ?? 0,
             artwork: QTParse.artwork(r["thumbnail"]), musicVideoType: type,
-            isExplicit: isExplicit(r), likeStatus: likeStatus(menu: r["menu"]))
+            isExplicit: isExplicit(r), likeStatus: likeStatus(menu: r["menu"]),
+            isPrivatelyOwned: nav?.musicVideoTypeRaw == QTParse.privatelyOwnedType)
         if type.isVideo, let audioId = QTParse.creditsVideoId(menu: r["menu"]), audioId != videoId {
             track.counterpart = QTCounterpart(videoId: audioId, musicVideoType: .atv)
         }

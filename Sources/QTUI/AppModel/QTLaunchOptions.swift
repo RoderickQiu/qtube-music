@@ -16,7 +16,7 @@ public enum QTSurface: String, Sendable, Hashable, CaseIterable {
 
 /// Sidebar destinations. `qt.section` accepts the raw names plus `playlist:<id>`.
 public enum QTSidebarItem: Hashable, Sendable {
-    case home, explore, songs, albums, artists, liked, history
+    case home, explore, songs, albums, artists, liked, history, uploads
     case playlist(String)
 
     public init?(argument: String) {
@@ -28,6 +28,7 @@ public enum QTSidebarItem: Hashable, Sendable {
         case "artists": self = .artists
         case "liked": self = .liked
         case "history": self = .history
+        case "uploads": self = .uploads
         default:
             guard argument.hasPrefix("playlist:") else { return nil }
             self = .playlist(String(argument.dropFirst("playlist:".count)))
@@ -43,6 +44,7 @@ public enum QTSidebarItem: Hashable, Sendable {
         case .artists: "artists"
         case .liked: "liked"
         case .history: "history"
+        case .uploads: "uploads"
         case .playlist(let id): "playlist:\(id)"
         }
     }

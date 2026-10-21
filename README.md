@@ -49,7 +49,8 @@ mini player. It's built in SwiftUI and AppKit, idles under 1% CPU and uses about
 - **Song ⇄ Video.** Switch between the song and its music video without losing your place. Picture in Picture
   works too.
 - **Your library.** Home, Explore, Liked songs, playlists and history, in sortable, filterable tables, plus a
-  docked Now Playing and Queue panel.
+  docked Now Playing and Queue panel. Music you uploaded to YouTube Music has its own Uploads page (songs, albums,
+  artists).
 - **The rest of the Mac.** Media keys, Control Center, AirPlay, a mini player, a menu bar player, desktop lyrics,
   Shortcuts and AppleScript. Optional global shortcuts (Settings › Shortcuts) play, skip, like and show the players
   from any app, with no Accessibility permission.

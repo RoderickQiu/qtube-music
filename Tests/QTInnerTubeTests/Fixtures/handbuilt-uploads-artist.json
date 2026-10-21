@@ -1,0 +1,51 @@
+{
+  "responseContext" : {
+    "serviceTrackingParams" : [ { "service" : "GFEEDBACK", "params" : [ { "key" : "logged_in", "value" : "1" } ] } ]
+  },
+  "header" : {
+    "musicHeaderRenderer" : {
+      "title" : { "runs" : [ { "text" : "Mara Sol" } ] }
+    }
+  },
+  "contents" : {
+    "singleColumnBrowseResultsRenderer" : {
+      "tabs" : [ {
+        "tabRenderer" : {
+          "content" : {
+            "sectionListRenderer" : {
+              "contents" : [ {
+                "musicShelfRenderer" : {
+                  "contents" : [
+                    {
+                      "musicResponsiveListItemRenderer" : {
+                        "flexColumns" : [
+                          { "musicResponsiveListItemFlexColumnRenderer" : { "text" : { "runs" : [ { "text" : "Shuffle all" } ] } } }
+                        ],
+                        "navigationEndpoint" : { "watchPlaylistEndpoint" : { "playlistId" : "MLPT_fakeMara", "params" : "wAEB8gECKAE%3D" } }
+                      }
+                    },
+                    {
+                      "musicResponsiveListItemRenderer" : {
+                        "flexColumns" : [
+                          { "musicResponsiveListItemFlexColumnRenderer" : { "text" : { "runs" : [ { "text" : "Kitchen Demo (Take 2)" } ] } } },
+                          { "musicResponsiveListItemFlexColumnRenderer" : { "text" : { "runs" : [ { "text" : "Mara Sol", "navigationEndpoint" : { "browseEndpoint" : { "browseId" : "FEmusic_library_privately_owned_artist_detaila_po_fakeMara" } } } ] } } }
+                        ],
+                        "fixedColumns" : [ { "musicResponsiveListItemFixedColumnRenderer" : { "text" : { "runs" : [ { "text" : "2:23" } ] } } } ],
+                        "menu" : { "menuRenderer" : {
+                          "items" : [
+                            { "menuServiceItemRenderer" : { "text" : { "runs" : [ { "text" : "Add to queue" } ] }, "serviceEndpoint" : { "queueAddEndpoint" : { "queueTarget" : { "videoId" : "upl0adVid03" }, "queueInsertPosition" : "INSERT_AT_END" } } } }
+                          ]
+                        } }
+                      }
+                    }
+                  ],
+                  "continuations" : [ { "nextContinuationData" : { "continuation" : "FAKEUPLOADARTISTCONT1" } } ]
+                }
+              } ]
+            }
+          }
+        }
+      } ]
+    }
+  }
+}

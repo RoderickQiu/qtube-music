@@ -1,0 +1,25 @@
+{
+  "responseContext" : {
+    "serviceTrackingParams" : [ { "service" : "GFEEDBACK", "params" : [ { "key" : "logged_in", "value" : "1" } ] } ]
+  },
+  "continuationContents" : {
+    "musicShelfContinuation" : {
+      "contents" : [
+        {
+          "musicResponsiveListItemRenderer" : {
+            "flexColumns" : [
+              { "musicResponsiveListItemFlexColumnRenderer" : { "text" : { "runs" : [ { "text" : "Voice Memo, March" } ] } } },
+              { "musicResponsiveListItemFlexColumnRenderer" : { "text" : { "runs" : [ { "text" : "Mara Sol", "navigationEndpoint" : { "browseEndpoint" : { "browseId" : "FEmusic_library_privately_owned_artist_detaila_po_fakeMara" } } } ] } } }
+            ],
+            "fixedColumns" : [ { "musicResponsiveListItemFixedColumnRenderer" : { "text" : { "runs" : [ { "text" : "1:37" } ] } } } ],
+            "menu" : { "menuRenderer" : {
+              "items" : [
+                { "menuServiceItemRenderer" : { "text" : { "runs" : [ { "text" : "Add to queue" } ] }, "serviceEndpoint" : { "queueAddEndpoint" : { "queueTarget" : { "videoId" : "upl0adVid04" }, "queueInsertPosition" : "INSERT_AT_END" } } } }
+              ]
+            } }
+          }
+        }
+      ]
+    }
+  }
+}

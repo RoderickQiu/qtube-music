@@ -70,9 +70,13 @@ public enum QTNavigation: Sendable, Hashable {
         return nil
     }
 
+    /// The page type; an upload's album or artist (`FEmusic_library_privately_owned_…_detail…`) counts as an album or
+    /// library artist whatever page type the link names, so upload rows link like any other.
     var pageType: QTPageType? {
-        if case .browse(_, _, let p) = self, let p { return QTPageType(rawValue: p) }
-        return nil
+        guard case .browse(let id, _, let p) = self else { return nil }
+        if QTUploads.isAlbumID(id) { return .album }
+        if QTUploads.isArtistID(id) { return .libraryArtist }
+        return p.flatMap(QTPageType.init(rawValue:))
     }
 
     var musicVideoTypeRaw: String? {
@@ -220,10 +224,13 @@ enum QTParse {
         // Music a label uploads as a video on its channel (YouTube's "official source" program): a music video.
         case "MUSIC_VIDEO_TYPE_OFFICIAL_SOURCE_MUSIC": return .ugc
         // A song the user uploaded to their own library: audio.
-        case "MUSIC_VIDEO_TYPE_PRIVATELY_OWNED_TRACK": return .atv
+        case privatelyOwnedType: return .atv
         default: return .other
         }
     }
+
+    /// A song the user uploaded to their own library (`QTTrack.isPrivatelyOwned`).
+    static let privatelyOwnedType = "MUSIC_VIDEO_TYPE_PRIVATELY_OWNED_TRACK"
 
     // MARK: Music-only filter
 
@@ -236,6 +243,7 @@ enum QTParse {
             guard let type else { return false }
             return type.contains("PODCAST") || type.contains("EPISODE") || type.contains("AUDIOBOOK")
         case .browse(let id, _, let pageType):
+            if QTUploads.isUploadID(id) { return false }
             if id.hasPrefix("MPSP") || id.hasPrefix("MPED") { return true }
             let lower = id.lowercased()
             if lower.contains("non_music") || lower.contains("podcast") || lower.contains("audiobook") { return true }
@@ -282,6 +290,18 @@ enum QTParse {
         if ["single", "单曲", "單曲", "đĩa đơn", "シングル", "싱글"].contains(l) { return .single }
         if ["album", "专辑", "專輯", "アルバム", "앨범"].contains(l) { return .album }
         return nil
+    }
+
+    /// The video id a row's "Add to queue" menu item names (`queueAddEndpoint.queueTarget.videoId`). Upload rows link
+    /// nothing else to play (ytmusicapi `parse_uploaded_items`).
+    static func queueAddVideoId(menu: QTJSON) -> String? {
+        menu.all("queueAddEndpoint").lazy.compactMap { $0[path: "queueTarget", "videoId"].string }
+            .first { !$0.isEmpty }
+    }
+
+    /// The row's menu offers to delete it from the account's uploads (`musicDeletePrivatelyOwnedEntityCommand`).
+    static func hasDeleteUploadCommand(menu: QTJSON) -> Bool {
+        menu.first("musicDeletePrivatelyOwnedEntityCommand") != nil
     }
 
     /// The audio-track video id from a row's "View song credits" menu entry (`MPTC<videoId>`). On official music

@@ -247,10 +247,8 @@ public final class QTIntegrationsCoordinator {
                    durationMs: t.duration > 0 ? Int((t.duration * 1000).rounded()) : nil)
     }
 
-    /// An upload to the user's own library: its link is private, so ListenBrainz gets no `origin_url`. `QTTrack`
-    /// doesn't carry the distinction yet (the parser maps uploads to plain audio tracks); the uploads library
-    /// (pre-launch §5) fills this in.
-    static func isPrivatelyOwned(_ t: QTTrack) -> Bool { false }
+    /// An upload to the user's own library: its link is private, so ListenBrainz gets no `origin_url`.
+    static func isPrivatelyOwned(_ t: QTTrack) -> Bool { t.isPrivatelyOwned }
 
     // MARK: Notifications
 

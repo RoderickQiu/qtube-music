@@ -76,6 +76,8 @@ extension QTInnerTubeClient {
     /// land in the account's search history.
     public func counterpart(for track: QTTrack) async throws -> QTCounterpart? {
         if let c = track.counterpart { return c }
+        // An upload is the user's own file: no video exists, and a search would only find someone else's.
+        if track.isPrivatelyOwned { return nil }
         if let c = try? await counterpart(for: track.videoId) { return c }
         let query = ([track.title] + track.artists.prefix(1).map(\.name)).joined(separator: " ")
         let filter: QTSearchFilter = track.musicVideoType.isVideo ? .songs : .videos

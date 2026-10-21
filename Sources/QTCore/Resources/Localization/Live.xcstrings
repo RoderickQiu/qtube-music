@@ -526,6 +526,56 @@
           }
         }
       }
+    },
+    "No Uploads" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有上传的音乐"
+          }
+        }
+      }
+    },
+    "Music you upload at music.youtube.com shows up here." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你在 music.youtube.com 上传的音乐会显示在这里。"
+          }
+        }
+      }
+    },
+    "Open YouTube Music in Your Browser" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在浏览器中打开 YouTube Music"
+          }
+        }
+      }
+    },
+    "Sign in to see your uploads" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "登录以查看你上传的音乐"
+          }
+        }
+      }
+    },
+    "Show uploaded songs, albums or artists" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示上传的歌曲、专辑或艺人"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

@@ -373,6 +373,8 @@ struct QTAlbumPageView: View {
         var c = QTTrackCollection(id: "album:\(key)", kind: .album, title: page.album.title, artwork: page.album.artwork,
                                   tracks: page.album.tracks ?? [])
         // Add to Library saves the album's playlist (`OLAK…`); the demo's albums have none, so they get a stand-in.
+        // An uploaded album is the user's own already: nothing to add.
+        guard !QTUploads.isAlbumID(key) else { return c }
         c.libraryID = page.playlistId ?? (QTLiveCatalogStore.shared.mode == .mock ? "demo-album-\(key)" : nil)
         return c
     }
@@ -387,8 +389,18 @@ struct QTArtistPageView: View {
         QTBrowseLoader(.artist(key), extract: \.artist) {
             QTLiveSkeleton(layout: .artist)
         } content: { page, _ in
-            QTArtistPageContent(page: page, destination: .artist(key))
-                .task(id: page.artist.name) { QTNavigator.shared.notePageTitle(page.artist.name, for: .artist(key)) }
+            Group {
+                if QTUploads.isArtistID(key) {
+                    // An uploads artist is just the songs uploaded for them (no bio, albums or videos): every one of
+                    // them in the track table, not the artist page's nine top songs.
+                    QTLibraryView(collection: QTTrackCollection(id: "artist:\(key)", kind: .artist, title: page.artist.name,
+                                                                artwork: page.artist.artwork, tracks: page.songs),
+                                  destination: .artist(key))
+                } else {
+                    QTArtistPageContent(page: page, destination: .artist(key))
+                }
+            }
+            .task(id: page.artist.name) { QTNavigator.shared.notePageTitle(page.artist.name, for: .artist(key)) }
         }
     }
 }

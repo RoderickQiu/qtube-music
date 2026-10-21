@@ -446,7 +446,7 @@ struct QTLivePhaseView<Content: View>: View {
 
 // MARK: - Guest
 
-/// Guest mode on a library place (Liked Songs, Songs, Albums, Artists): the place's symbol, one line, Sign In.
+/// Guest mode on a library place (Liked Songs, Songs, Albums, Artists, Uploads): the place's symbol, one line, Sign In.
 struct QTLiveSignInPrompt: View {
     let destination: QTDestination
     var auth: QTAuthController { QTLiveCatalogStore.shared.auth }
@@ -468,6 +468,7 @@ struct QTLiveSignInPrompt: View {
         if destination == .section(.liked) || destination == .section(.playlist("LM")) {
             return QTLoc.tr("Sign in to see your liked songs", table: .live)
         }
+        if destination == .section(.uploads) { return QTLoc.tr("Sign in to see your uploads", table: .live) }
         return QTLoc.tr("Sign in to see your library", table: .live)
     }
 

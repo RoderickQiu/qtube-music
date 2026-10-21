@@ -1,0 +1,99 @@
+{
+  "responseContext" : {
+    "serviceTrackingParams" : [ { "service" : "GFEEDBACK", "params" : [ { "key" : "logged_in", "value" : "1" } ] } ]
+  },
+  "contents" : {
+    "singleColumnBrowseResultsRenderer" : {
+      "tabs" : [ {
+        "tabRenderer" : {
+          "content" : {
+            "sectionListRenderer" : {
+              "contents" : [
+                { "musicSideAlignedItemRenderer" : { "startItems" : [ { "chipCloudRenderer" : { "chips" : [ ] } } ] } },
+                {
+                  "itemSectionRenderer" : {
+                    "header" : {
+                      "itemSectionTabbedHeaderRenderer" : {
+                        "title" : { "runs" : [ { "text" : "Uploads" } ] },
+                        "endItems" : [ { "dropdownRenderer" : { "entries" : [
+                          { "dropdownItemRenderer" : { "label" : { "runs" : [ { "text" : "Recently added" } ] }, "onSelectCommand" : { "browseEndpoint" : { "browseId" : "FEmusic_library_privately_owned_tracks", "params" : "ggMGKgQIABAB" } } } }
+                        ] } } ]
+                      }
+                    },
+                    "contents" : [ {
+                      "musicShelfRenderer" : {
+                        "contents" : [
+                          {
+                            "musicResponsiveListItemRenderer" : {
+                              "thumbnail" : { "musicThumbnailRenderer" : { "thumbnail" : { "thumbnails" : [ { "url" : "https://example.invalid/shuffle.png", "width" : 60, "height" : 60 } ] } } },
+                              "flexColumns" : [
+                                { "musicResponsiveListItemFlexColumnRenderer" : { "text" : { "runs" : [ { "text" : "Shuffle all" } ] } } }
+                              ],
+                              "navigationEndpoint" : { "watchEndpoint" : { "videoId" : "upl0adVid01", "playlistId" : "MLPT_fakeShuffle", "params" : "wAEB8gECKAE%3D" } }
+                            }
+                          },
+                          {
+                            "musicResponsiveListItemRenderer" : {
+                              "thumbnail" : { "musicThumbnailRenderer" : { "thumbnail" : { "thumbnails" : [ { "url" : "https://example.invalid/porch-light.jpg", "width" : 60, "height" : 60 } ] } } },
+                              "overlay" : { "musicItemThumbnailOverlayRenderer" : { "content" : { "musicPlayButtonRenderer" : { "playNavigationEndpoint" : { "watchEndpoint" : { "videoId" : "upl0adVid01", "watchEndpointMusicSupportedConfigs" : { "watchEndpointMusicConfig" : { "musicVideoType" : "MUSIC_VIDEO_TYPE_PRIVATELY_OWNED_TRACK" } } } } } } } },
+                              "flexColumns" : [
+                                { "musicResponsiveListItemFlexColumnRenderer" : { "text" : { "runs" : [ { "text" : "Porch Light" } ] } } },
+                                { "musicResponsiveListItemFlexColumnRenderer" : { "text" : { "runs" : [ { "text" : "Juniper Field", "navigationEndpoint" : { "browseEndpoint" : { "browseId" : "FEmusic_library_privately_owned_artist_detaila_po_fakeJuniper", "browseEndpointContextSupportedConfigs" : { "browseEndpointContextMusicConfig" : { "pageType" : "MUSIC_PAGE_TYPE_LIBRARY_ARTIST" } } } } } ] } } },
+                                { "musicResponsiveListItemFlexColumnRenderer" : { "text" : { "runs" : [ { "text" : "Paper Lanterns", "navigationEndpoint" : { "browseEndpoint" : { "browseId" : "FEmusic_library_privately_owned_release_detailb_po_fakeLanterns" } } } ] } } }
+                              ],
+                              "fixedColumns" : [ { "musicResponsiveListItemFixedColumnRenderer" : { "text" : { "runs" : [ { "text" : "3:34" } ] } } } ],
+                              "menu" : { "menuRenderer" : {
+                                "items" : [
+                                  { "menuServiceItemRenderer" : { "text" : { "runs" : [ { "text" : "Add to queue" } ] }, "serviceEndpoint" : { "queueAddEndpoint" : { "queueTarget" : { "videoId" : "upl0adVid01" }, "queueInsertPosition" : "INSERT_AT_END" } } } },
+                                  { "menuNavigationItemRenderer" : { "text" : { "runs" : [ { "text" : "Delete song" } ] }, "navigationEndpoint" : { "confirmDialogEndpoint" : { "content" : { "confirmDialogRenderer" : { "confirmButton" : { "buttonRenderer" : { "command" : { "musicDeletePrivatelyOwnedEntityCommand" : { "entityId" : "t_po_fakeEntity01" } } } } } } } } } }
+                                ],
+                                "topLevelButtons" : [ { "likeButtonRenderer" : { "target" : { "videoId" : "upl0adVid01" }, "likeStatus" : "LIKE" } } ]
+                              } }
+                            }
+                          },
+                          {
+                            "musicResponsiveListItemRenderer" : {
+                              "thumbnail" : { "musicThumbnailRenderer" : { "thumbnail" : { "thumbnails" : [ { "url" : "https://example.invalid/kites.jpg", "width" : 60, "height" : 60 } ] } } },
+                              "flexColumns" : [
+                                { "musicResponsiveListItemFlexColumnRenderer" : { "text" : { "runs" : [ { "text" : "Kites Over Harbour Street" } ] } } },
+                                { "musicResponsiveListItemFlexColumnRenderer" : { "text" : { "runs" : [ { "text" : "Juniper Field", "navigationEndpoint" : { "browseEndpoint" : { "browseId" : "FEmusic_library_privately_owned_artist_detaila_po_fakeJuniper" } } } ] } } },
+                                { "musicResponsiveListItemFlexColumnRenderer" : { "text" : { "runs" : [ { "text" : "Paper Lanterns", "navigationEndpoint" : { "browseEndpoint" : { "browseId" : "FEmusic_library_privately_owned_release_detailb_po_fakeLanterns" } } } ] } } }
+                              ],
+                              "fixedColumns" : [ { "musicResponsiveListItemFixedColumnRenderer" : { "text" : { "runs" : [ { "text" : "4:07" } ] } } } ],
+                              "menu" : { "menuRenderer" : {
+                                "items" : [
+                                  { "menuServiceItemRenderer" : { "text" : { "runs" : [ { "text" : "Add to queue" } ] }, "serviceEndpoint" : { "queueAddEndpoint" : { "queueTarget" : { "videoId" : "upl0adVid02" }, "queueInsertPosition" : "INSERT_AT_END" } } } },
+                                  { "menuNavigationItemRenderer" : { "text" : { "runs" : [ { "text" : "Delete song" } ] }, "navigationEndpoint" : { "confirmDialogEndpoint" : { "content" : { "confirmDialogRenderer" : { "confirmButton" : { "buttonRenderer" : { "command" : { "musicDeletePrivatelyOwnedEntityCommand" : { "entityId" : "t_po_fakeEntity02" } } } } } } } } } }
+                                ],
+                                "topLevelButtons" : [ { "likeButtonRenderer" : { "target" : { "videoId" : "upl0adVid02" }, "likeStatus" : "INDIFFERENT" } } ]
+                              } }
+                            }
+                          },
+                          {
+                            "musicResponsiveListItemRenderer" : {
+                              "flexColumns" : [
+                                { "musicResponsiveListItemFlexColumnRenderer" : { "text" : { "runs" : [ { "text" : "Kitchen Demo (Take 2)" } ] } } },
+                                { "musicResponsiveListItemFlexColumnRenderer" : { "text" : { "runs" : [ { "text" : "Mara Sol" } ] } } }
+                              ],
+                              "fixedColumns" : [ { "musicResponsiveListItemFixedColumnRenderer" : { "text" : { "runs" : [ { "text" : "2:23" } ] } } } ],
+                              "menu" : { "menuRenderer" : {
+                                "items" : [
+                                  { "menuServiceItemRenderer" : { "text" : { "runs" : [ { "text" : "Add to queue" } ] }, "serviceEndpoint" : { "queueAddEndpoint" : { "queueTarget" : { "videoId" : "upl0adVid03" }, "queueInsertPosition" : "INSERT_AT_END" } } } }
+                                ]
+                              } }
+                            }
+                          }
+                        ],
+                        "continuations" : [ { "nextContinuationData" : { "continuation" : "FAKEUPLOADSCONT1" } } ]
+                      }
+                    } ]
+                  }
+                }
+              ]
+            }
+          }
+        }
+      } ]
+    }
+  }
+}
