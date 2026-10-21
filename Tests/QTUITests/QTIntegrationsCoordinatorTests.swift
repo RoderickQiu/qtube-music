@@ -26,6 +26,23 @@ final class QTUIRecordingLastFM: @unchecked Sendable {
     }
 }
 
+/// Records ListenBrainz submissions (listen type + first track) without the network.
+final class QTUIRecordingListenBrainz: @unchecked Sendable {
+    private let lock = NSLock()
+    private var calls: [(type: String, track: String)] = []
+    var types: [String] { lock.withLock { calls.map(\.type) } }
+    var listenedTracks: [String] { lock.withLock { calls.filter { $0.type != "playing_now" }.map(\.track) } }
+
+    var transport: QTListenBrainzClient.Transport {
+        { [self] request in
+            let json = request.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
+            let first = (json?["payload"] as? [[String: Any]])?.first?["track_metadata"] as? [String: Any]
+            lock.withLock { calls.append((json?["listen_type"] as? String ?? "?", first?["track_name"] as? String ?? "")) }
+            return (Data(#"{"status":"ok"}"#.utf8), HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+    }
+}
+
 final class QTUITestClock: @unchecked Sendable {
     private let lock = NSLock()
     private var t = Date(timeIntervalSince1970: 1_760_000_000)
@@ -52,6 +69,7 @@ final class QTUIStubEngine: QTPlaybackEngine {
 @MainActor
 @Suite struct QTIntegrationsCoordinatorTests {
     let lastfm = QTUIRecordingLastFM()
+    let listenBrainz = QTUIRecordingListenBrainz()
     let clock = QTUITestClock()
     var notified: [String] { notifications.values }
     let notifications = QTUINotificationLog()
@@ -60,22 +78,28 @@ final class QTUIStubEngine: QTPlaybackEngine {
         QTTrack(videoId: id, title: "Song \(id)", artists: [QTArtistRef(name: "Artist")], duration: duration)
     }
 
-    func makeCoordinator(lastFM: Bool = true, notify: Bool = true, launchTrack: QTTrack? = nil) -> QTIntegrationsCoordinator {
+    func makeCoordinator(lastFM: Bool = true, listenBrainz: Bool = false, notify: Bool = true,
+                         launchTrack: QTTrack? = nil) -> QTIntegrationsCoordinator {
         let defaults = UserDefaults(suiteName: "qt.tests.integrations.\(UUID().uuidString)")!
         let store = QTIntegrationsStore(defaults: defaults, secrets: QTMemorySecretStore([.lastFMSecret: "secret",
-                                                                                          .lastFMSessionKey: "SK"]))
+                                                                                          .lastFMSessionKey: "SK",
+                                                                                          .listenBrainzToken: "TOKEN"]))
         store.update {
             $0.lastFM.apiKey = "key"
             $0.lastFM.hasSecret = true
             $0.lastFM.username = "listener"
             $0.lastFM.isEnabled = lastFM
+            $0.listenBrainz.username = "listener"
+            $0.listenBrainz.isEnabled = listenBrainz
             $0.notifiesTrackChanges = notify
         }
         let clock = clock
-        let c = QTIntegrationsCoordinator(store: store, scrobbler: QTScrobbler(queueURL: nil, now: { clock.now }),
+        let c = QTIntegrationsCoordinator(store: store, scrobbler: QTScrobbler(queueFolder: nil, now: { clock.now }),
                                           discord: QTDiscordPresence(paths: []))
         let transport = lastfm.transport
         c.makeLastFMClient = { QTLastFMClient(credentials: $0, transport: transport) }
+        let lbTransport = self.listenBrainz.transport
+        c.makeListenBrainzClient = { QTListenBrainzClient(token: $0, server: $1, pacer: QTRequestPacer(interval: 0), transport: lbTransport) }
         let log = notifications
         c.postNotification = { log.append($0.videoId) }
         c.startForTesting(launchTrack: launchTrack)
@@ -213,6 +237,59 @@ final class QTUIStubEngine: QTPlaybackEngine {
         c.store.update { $0.lastFM.isEnabled = false }
         await apply(c, s)
         #expect(lastfm.scrobbledTracks.isEmpty, "turned off: the listen is forgotten, not sent")
+    }
+
+    // MARK: ListenBrainz, media time
+
+    @Test func oneListenReachesLastFMAndListenBrainz() async {
+        let c = makeCoordinator(listenBrainz: true)
+        var s = QTIntegrationsSnapshot(track: Self.song("a"), playSerial: 1, isPlaying: true)
+        await apply(c, s)
+        #expect(lastfm.methods == ["track.updateNowPlaying"])
+        #expect(listenBrainz.types == ["playing_now"])
+        clock.advance(120)
+        s.track = Self.song("b")
+        s.playSerial = 2
+        await apply(c, s)
+        #expect(lastfm.scrobbledTracks == ["Song a"])
+        #expect(listenBrainz.listenedTracks == ["Song a"])
+        #expect(listenBrainz.types == ["playing_now", "playing_now", "single"])
+    }
+
+    @Test func listenBrainzAloneScrobblesAndTurningItOffForgetsTheListen() async {
+        let c = makeCoordinator(lastFM: false, listenBrainz: true)
+        let s = QTIntegrationsSnapshot(track: Self.song("a"), playSerial: 1, isPlaying: true)
+        await apply(c, s)
+        #expect(listenBrainz.types == ["playing_now"])
+        clock.advance(150)
+        c.store.update { $0.listenBrainz.isEnabled = false }
+        await apply(c, s)
+        #expect(listenBrainz.listenedTracks.isEmpty)
+        #expect(lastfm.methods.isEmpty)
+    }
+
+    /// At 2× a 200 s song has had half its length after 50 s; while buffering (rate 0) nothing counts.
+    @Test func listensCountMediaTime() async {
+        let c = makeCoordinator()
+        var s = QTIntegrationsSnapshot(track: Self.song("a"), playSerial: 1, isPlaying: true, rate: 2)
+        await apply(c, s)
+        clock.advance(30)          // 60 s of music
+        s.rate = 0                 // buffering
+        await apply(c, s)
+        clock.advance(60)
+        s.rate = 2
+        await apply(c, s)
+        clock.advance(19)          // + 38 → 98
+        s.track = Self.song("b")
+        s.playSerial = 2
+        await apply(c, s)
+        #expect(lastfm.scrobbledTracks.isEmpty)
+
+        clock.advance(50)          // b: 100 s of music at 2×
+        s.track = Self.song("c")
+        s.playSerial = 3
+        await apply(c, s)
+        #expect(lastfm.scrobbledTracks == ["Song b"])
     }
 
     @Test func notificationsOnlyWhenInactive() async {

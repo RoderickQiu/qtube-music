@@ -45,7 +45,7 @@ swift test  --scratch-path .build/<you> --disable-xctest
 - **Keep `--disable-xctest` for now.** Every suite uses Swift Testing, so the XCTest pass has nothing to run. A
   plain `swift test` still runs that pass first, and on this host (Xcode 27.1, macOS 27) the `QTUITests.xctest`
   runner hangs in it, blocked in a CFPreferences XPC call. Re-checked 2026-10-19.
-- **Current result:** 467 tests in 79 suites pass (after the R5 integration). They need no network and none of the git-ignored data.
+- **Current result:** 576 tests in 97 suites pass (after ListenBrainz). They need no network and none of the git-ignored data.
 - **Opt-in suites** are gated by environment variables:
   - `QT_LIVE=1`: live, anonymous InnerTube, lyrics and playback.
   - `QT_RECORD=1`: re-record the InnerTube fixtures.
@@ -100,7 +100,7 @@ All modules are SwiftPM targets. Ownership, frozen APIs, the privacy audit and t
 | `QTAuth` | Google sign-in in a throwaway WebKit store, session in the Keychain, non-persistent playback cookie jar. |
 | `QTPlayback` | Engine protocol, web engine (hidden WKWebView), video output and PiP, web-audio spectrum tap, queue controller, sole Now Playing owner. Also holds the unused native-spike code in `Native/`. |
 | `QTLyrics` | Lyrics: providers (YouTube Music, LRCLIB, AMLL; opt-in NetEase, Kugou and QQ), LRC/YRC/QRC/KRC/TTML parsers, matcher, SQLite cache, translation engines. |
-| `QTIntegrations` | Last.fm and Discord Rich Presence, both off by default. |
+| `QTIntegrations` | Last.fm, ListenBrainz and Discord Rich Presence, all off by default. |
 | `QTUI` | SwiftUI and AppKit: window, library tables, inspector, player bar, Stage, karaoke renderer, mini player, menu bar, desktop lyrics, Settings. |
 | `QTubeMusicApp` | `@main` app, menus, App Intents, AppleScript, Sparkle (dormant). |
 | `QTPlaybackLab`, `QTDevSession`, `QTNativeSpike` | Dev-only executables. |

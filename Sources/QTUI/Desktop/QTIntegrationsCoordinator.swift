@@ -5,8 +5,8 @@ import QTIntegrations
 import QTPlayback
 @preconcurrency import UserNotifications
 
-// Owner: builder "desktop". Feeds playback into the opt-in integrations (spec §8 notifications, §10 Last.fm and
-// Discord). Each one is off by default and does nothing — no network, no socket, no Keychain read, no permission
+// Owner: builder "desktop". Feeds playback into the opt-in integrations (spec §8 notifications, §10 Last.fm,
+// ListenBrainz and Discord). Each one is off by default and does nothing — no network, no socket, no Keychain read, no permission
 // prompt — until the user turns it on in Settings. Ads are never scrobbled, announced or notified, and neither is
 // anything that isn't the user really listening to their library: the demo library, the simulated engine, silent
 // (scripted / test) playback — `reportsPlays`.
@@ -21,6 +21,8 @@ struct QTIntegrationsSnapshot: Equatable {
     var isAd = false
     /// Position in the track (Discord timestamps).
     var elapsed: TimeInterval = 0
+    /// Media seconds per second (`QTPlaybackTimeline.rate`): 0 while buffering, 2 at 2× speed. Listens count media time.
+    var rate: Double = 1
     /// Real, audible playback of the user's library (see `QTIntegrationsCoordinator.reportsPlays`).
     var reportsPlays = true
     var isAppActive = false
@@ -36,24 +38,27 @@ public final class QTIntegrationsCoordinator {
     let notifier = QTTrackChangeNotifier()
     /// Last.fm client for an API account (tests inject a recording transport).
     var makeLastFMClient: (QTLastFMCredentials) -> QTLastFMClient = { QTLastFMClient(credentials: $0) }
+    /// ListenBrainz client for a token and server (tests inject a recording transport).
+    var makeListenBrainzClient: (String, URL) -> QTListenBrainzClient = { QTListenBrainzClient(token: $0, server: $1) }
     /// Posts "now playing" notifications (tests record instead).
     var postNotification: ((QTTrack) -> Void)?
 
     /// Each integration's calls run one after another, in the order playback produced them (a separate unstructured
     /// Task per call would let Swift reorder e.g. `disconnect()` before a pending `update()`). Separate queues, so a
-    /// Discord client that hangs never holds up scrobbling.
-    let lastFMQueue = QTSerialTaskQueue()
+    /// Discord client that hangs never holds up scrobbling. Last.fm and ListenBrainz share the scrobbler (one
+    /// listen tracker), which talks to both at once.
+    let scrobbleQueue = QTSerialTaskQueue()
     let discordQueue = QTSerialTaskQueue()
 
     private weak var model: QTAppModel?
     private var isStarted = false
     /// Notifications: the song last seen (nil during ads). Seeded with the launch track, which isn't a "song change".
     private var notifiedTrackID: String?
-    /// Last.fm: the listen the scrobbler is tracking ("<video id>#<play serial>"), and whether it is playing.
+    /// Scrobbling: the listen the scrobbler is tracking ("<video id>#<play serial>"), and its media rate (0 = paused).
     private var scrobbleKey: String?
-    private var scrobblePlaying = false
+    private var scrobbleRate: Double = 0
     private var lastDiscordSignature: String?
-    private var scrobblerConfig: String?
+    private var scrobblerConfigs: [QTScrobbleServiceID: String] = [:]
     private var ticker: Task<Void, Never>?
 
     init(store: QTIntegrationsStore = QTIntegrationsStore(), scrobbler: QTScrobbler = QTScrobbler(),
@@ -91,13 +96,14 @@ public final class QTIntegrationsCoordinator {
         let snapshot = QTIntegrationsSnapshot(
             track: player.nowPlaying, playSerial: player.playback.playSerial, isPlaying: player.isPlaying,
             isAd: player.ad != nil, elapsed: player.timeline.currentTime, // seeks re-anchor the Discord timestamps
+            rate: player.timeline.rate,
             reportsPlays: Self.reportsPlays(setup: QTPlaybackServices.shared.setup, engine: player.engine,
                                             catalogMode: model.liveCatalog?.mode),
             isAppActive: NSApp?.isActive ?? false)
         apply(snapshot)
     }
 
-    /// Only real, audible playback of the user's library reaches Last.fm, Discord and notifications: never the demo
+    /// Only real, audible playback of the user's library reaches Last.fm, ListenBrainz, Discord and notifications: never the demo
     /// library (its 12 prototype songs), the simulated engine (no audio at all) or silent scripted/test playback.
     static func reportsPlays(setup: QTPlaybackSetup?, engine: any QTPlaybackEngine, catalogMode: QTCatalogMode?) -> Bool {
         guard let setup, setup.source == .live, !setup.isSilent else { return false }
@@ -110,65 +116,92 @@ public final class QTIntegrationsCoordinator {
         let song = s.reportsPlays ? s.track : nil
         let playing = song != nil && s.isPlaying && !s.isAd
 
-        configureScrobbler(settings.lastFM)
-        updateScrobbling(song: song, serial: s.playSerial, playing: playing, enabled: settings.lastFM.isEnabled)
+        configureLastFM(settings.lastFM)
+        configureListenBrainz(settings.listenBrainz)
+        updateScrobbling(song: song, serial: s.playSerial, rate: playing ? max(0, s.rate) : 0, playing: playing,
+                         enabled: settings.lastFM.isEnabled || settings.listenBrainz.isEnabled)
         updateNotifications(shown: s.isAd ? nil : song, playing: playing, enabled: settings.notifiesTrackChanges,
                             appActive: s.isAppActive)
         updateDiscord(settings.discord, track: s.isAd ? nil : song, playing: playing, elapsed: s.elapsed)
     }
 
-    // MARK: Last.fm
+    // MARK: Scrobbling (Last.fm, ListenBrainz)
 
     /// One listen = one (video id, play serial): Repeat One and replays of the same song start a new listen; the
-    /// launch track (cued, paused) starts one when it first plays; turning Last.fm on mid-song tracks it from then.
-    private func updateScrobbling(song: QTTrack?, serial: Int, playing: Bool, enabled: Bool) {
+    /// launch track (cued, paused) starts one when it first plays; turning scrobbling on mid-song tracks it from then.
+    /// `rate` is the media rate (0 while paused or buffering), so the listen counts media time.
+    private func updateScrobbling(song: QTTrack?, serial: Int, rate: Double, playing: Bool, enabled: Bool) {
         let key = enabled ? song.map { "\($0.videoId)#\(serial)" } : nil
         let scrobbler = scrobbler
         if key != scrobbleKey {
             if let key, let song, playing {
                 scrobbleKey = key
-                scrobblePlaying = true
+                scrobbleRate = rate
                 let item = Self.scrobble(song)
-                lastFMQueue.enqueue { await scrobbler.trackChanged(to: item, playing: true) }
+                scrobbleQueue.enqueue { await scrobbler.trackChanged(to: item, rate: rate) }
             } else if scrobbleKey != nil {
                 scrobbleKey = nil
-                scrobblePlaying = false
+                scrobbleRate = 0
                 // The listen ended (another song cued, stopped, or the demo library took over): what was really
-                // listened to scrobbles if it qualified. Last.fm turned off: forget it without sending.
+                // listened to scrobbles if it qualified. Every service turned off: forget it without sending.
                 if enabled {
-                    lastFMQueue.enqueue { await scrobbler.trackChanged(to: nil, playing: false) }
+                    scrobbleQueue.enqueue { await scrobbler.trackChanged(to: nil, playing: false) }
                 } else {
-                    lastFMQueue.enqueue { await scrobbler.reset() }
+                    scrobbleQueue.enqueue { await scrobbler.reset() }
                 }
             }
-        } else if key != nil, playing != scrobblePlaying {
-            scrobblePlaying = playing
-            lastFMQueue.enqueue { await scrobbler.playbackChanged(playing: playing) }
+        } else if key != nil, rate != scrobbleRate {
+            scrobbleRate = rate
+            scrobbleQueue.enqueue { await scrobbler.playbackChanged(rate: rate) }
         }
         updateTicker(running: playing && key != nil)
     }
 
-    private func configureScrobbler(_ prefs: QTLastFMPrefs) {
+    private func configureLastFM(_ prefs: QTLastFMPrefs) {
         let signature = "\(prefs.isEnabled)|\(prefs.isConnected)|\(prefs.apiKey)|\(prefs.hasSecret)|\(prefs.sendsNowPlaying)"
-        guard signature != scrobblerConfig else { return }
-        scrobblerConfig = signature
+        guard signature != scrobblerConfigs[.lastFM] else { return }
+        scrobblerConfigs[.lastFM] = signature
         let scrobbler = scrobbler
         guard prefs.isEnabled, prefs.isConnected else {
-            lastFMQueue.enqueue { await scrobbler.configure(client: nil, sessionKey: nil) }
+            scrobbleQueue.enqueue { await scrobbler.configure(.lastFM, service: nil) }
             return
         }
         let store = store, makeClient = makeLastFMClient
-        lastFMQueue.enqueue {
+        scrobbleQueue.enqueue {
             // The Keychain read happens off the main thread (`loadLastFMSession`).
             guard let session = await store.loadLastFMSession() else {
-                await scrobbler.configure(client: nil, sessionKey: nil)
+                await scrobbler.configure(.lastFM, service: nil)
                 return
             }
-            await scrobbler.configure(client: makeClient(session.credentials), sessionKey: session.sessionKey,
-                                      sendsNowPlaying: prefs.sendsNowPlaying,
-                                      onInvalidSession: { Task { @MainActor in QTIntegrationsCoordinator.shared.lastFMSessionWasRevoked() } },
+            let service = QTLastFMScrobbleService(client: makeClient(session.credentials), sessionKey: session.sessionKey)
+            await scrobbler.configure(.lastFM, service: service, sendsNowPlaying: prefs.sendsNowPlaying,
+                                      onInvalidCredentials: { Task { @MainActor in QTIntegrationsCoordinator.shared.lastFMSessionWasRevoked() } },
                                       onPaused: { Task { @MainActor in QTIntegrationsCoordinator.shared.lastFMSendingPaused() } })
-            await scrobbler.flush()
+            await scrobbler.flush(.lastFM)
+        }
+    }
+
+    private func configureListenBrainz(_ prefs: QTListenBrainzPrefs) {
+        let signature = "\(prefs.isEnabled)|\(prefs.username ?? "-")|\(prefs.serverURL)|\(prefs.sendsNowPlaying)"
+        guard signature != scrobblerConfigs[.listenBrainz] else { return }
+        scrobblerConfigs[.listenBrainz] = signature
+        let scrobbler = scrobbler
+        guard prefs.isEnabled, prefs.isConnected else {
+            scrobbleQueue.enqueue { await scrobbler.configure(.listenBrainz, service: nil) }
+            return
+        }
+        let store = store, makeClient = makeListenBrainzClient
+        scrobbleQueue.enqueue {
+            // The token is read from the Keychain off the main thread too (`loadListenBrainzSession`).
+            guard let session = await store.loadListenBrainzSession() else {
+                await scrobbler.configure(.listenBrainz, service: nil)
+                return
+            }
+            let service = QTListenBrainzScrobbleService(client: makeClient(session.token, session.server))
+            await scrobbler.configure(.listenBrainz, service: service, sendsNowPlaying: prefs.sendsNowPlaying,
+                                      onInvalidCredentials: { Task { @MainActor in QTIntegrationsCoordinator.shared.listenBrainzTokenWasRevoked() } },
+                                      onPaused: { Task { @MainActor in QTIntegrationsCoordinator.shared.listenBrainzSendingPaused() } })
+            await scrobbler.flush(.listenBrainz)
         }
     }
 
@@ -181,6 +214,15 @@ public final class QTIntegrationsCoordinator {
         model?.showToast(QTLoc.tr("Last.fm isn’t accepting scrobbles. Check the API key in Settings.", table: .desktop))
     }
 
+    private func listenBrainzTokenWasRevoked() {
+        store.disconnectListenBrainz()
+        model?.showToast(QTLoc.tr("ListenBrainz disconnected. Connect again in Settings.", table: .desktop))
+    }
+
+    private func listenBrainzSendingPaused() {
+        model?.showToast(QTLoc.tr("ListenBrainz isn’t accepting listens. Check the server in Settings.", table: .desktop))
+    }
+
     /// Long tracks scrobble at the threshold, not only when they end.
     private func updateTicker(running: Bool) {
         if running, ticker == nil {
@@ -189,7 +231,7 @@ public final class QTIntegrationsCoordinator {
                     try? await Task.sleep(for: .seconds(15))
                     guard let self, !Task.isCancelled else { return }
                     let scrobbler = self.scrobbler
-                    self.lastFMQueue.enqueue { await scrobbler.tick() }
+                    self.scrobbleQueue.enqueue { await scrobbler.tick() }
                 }
             }
         } else if !running {
@@ -200,8 +242,15 @@ public final class QTIntegrationsCoordinator {
 
     static func scrobble(_ t: QTTrack) -> QTScrobble {
         QTScrobble(artist: t.artists.first?.name ?? t.artistLine, track: t.title, album: t.album?.title,
-                   duration: t.duration > 0 ? Int(t.duration.rounded()) : nil, timestamp: Int(Date().timeIntervalSince1970))
+                   duration: t.duration > 0 ? Int(t.duration.rounded()) : nil, timestamp: Int(Date().timeIntervalSince1970),
+                   videoId: t.videoId, isPrivatelyOwned: isPrivatelyOwned(t),
+                   durationMs: t.duration > 0 ? Int((t.duration * 1000).rounded()) : nil)
     }
+
+    /// An upload to the user's own library: its link is private, so ListenBrainz gets no `origin_url`. `QTTrack`
+    /// doesn't carry the distinction yet (the parser maps uploads to plain audio tracks); the uploads library
+    /// (pre-launch §5) fills this in.
+    static func isPrivatelyOwned(_ t: QTTrack) -> Bool { false }
 
     // MARK: Notifications
 
@@ -246,7 +295,7 @@ public final class QTIntegrationsCoordinator {
 
     /// Waits until every integration call queued so far has run (tests).
     func drain() async {
-        await lastFMQueue.drain()
+        await scrobbleQueue.drain()
         await discordQueue.drain()
     }
 }

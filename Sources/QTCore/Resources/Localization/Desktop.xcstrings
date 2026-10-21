@@ -151,6 +151,26 @@
         }
       }
     },
+    "Check the server URL" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请检查服务器地址"
+          }
+        }
+      }
+    },
+    "Check the token" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请检查令牌"
+          }
+        }
+      }
+    },
     "Close Mini Player" : {
       "localizations" : {
         "zh-Hans" : {
@@ -191,6 +211,16 @@
         }
       }
     },
+    "Connect" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "连接"
+          }
+        }
+      }
+    },
     "Connect…" : {
       "localizations" : {
         "zh-Hans" : {
@@ -207,6 +237,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "未能连接 Last.fm"
+          }
+        }
+      }
+    },
+    "Couldn’t connect to ListenBrainz" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未能连接 ListenBrainz"
           }
         }
       }
@@ -301,6 +341,16 @@
         }
       }
     },
+    "For ListenBrainz-compatible servers, such as Maloja." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "适用于 Maloja 等兼容 ListenBrainz 的服务器。"
+          }
+        }
+      }
+    },
     "Free accounts play through YouTube’s own player, which doesn’t support these." : {
       "localizations" : {
         "zh-Hans" : {
@@ -327,6 +377,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "获取 API 密钥"
+          }
+        }
+      }
+    },
+    "Get your user token" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "获取用户令牌"
           }
         }
       }
@@ -417,6 +477,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "行数"
+          }
+        }
+      }
+    },
+    "ListenBrainz can’t be reached" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法连接到 ListenBrainz"
+          }
+        }
+      }
+    },
+    "ListenBrainz disconnected. Connect again in Settings." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ListenBrainz 已断开连接，请在设置中重新连接。"
+          }
+        }
+      }
+    },
+    "ListenBrainz isn’t accepting listens. Check the server in Settings." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ListenBrainz 暂不接受收听记录，请在设置中检查服务器。"
           }
         }
       }
@@ -791,6 +881,26 @@
         }
       }
     },
+    "Server" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "服务器"
+          }
+        }
+      }
+    },
+    "Server URL" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "服务器地址"
+          }
+        }
+      }
+    },
     "Session expired" : {
       "localizations" : {
         "zh-Hans" : {
@@ -971,6 +1081,16 @@
         }
       }
     },
+    "Submit listens to ListenBrainz" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "向 ListenBrainz 提交收听记录"
+          }
+        }
+      }
+    },
     "Switch Size" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1071,6 +1191,16 @@
         }
       }
     },
+    "Use a custom server" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用自定义服务器"
+          }
+        }
+      }
+    },
     "Use your own API key" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1087,6 +1217,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "使用自己的应用 ID"
+          }
+        }
+      }
+    },
+    "User Token" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "用户令牌"
           }
         }
       }

@@ -54,6 +54,8 @@ mini player. It's built in SwiftUI and AppKit, idles under 1% CPU and uses about
   Shortcuts and AppleScript.
 - **Song colours.** The app takes its accent colour from the cover art. You can switch back to the system accent
   in Settings.
+- **Scrobbling.** Last.fm and ListenBrainz (or a ListenBrainz-compatible server such as Maloja): paste your
+  ListenBrainz token and click Connect. Plays wait offline and go out later. Both are off until you turn them on.
 
 ![My own library: lyrics follow the song word by word](docs/images/library.jpg)
 
@@ -84,8 +86,8 @@ macOS may ask once whether QTube Music can use its Keychain item. Click **Always
 - **What goes where.** Browsing and playback talk to YouTube Music, as the web player does, so your plays show up in
   your YouTube Music history. Searches are always sent signed out, so they don't land in your search history.
   Lyrics come from LRCLIB, the AMLL TTML DB on GitHub, YouTube Music, and NetEase, Kugou and QQ Music only if you
-  turn on Unofficial sources. Last.fm scrobbling and Discord status are off until you turn them on with your own
-  keys.
+  turn on Unofficial sources. Last.fm and ListenBrainz scrobbling and Discord status are off until you turn them on
+  with your own keys or token.
 - **Read-only.** The app doesn't change anything in your YouTube Music account (likes, playlists). Those changes
   stay in the app for now.
 - **No analytics.** No tracking, no telemetry, no crash reporting service. Translation runs on your Mac.

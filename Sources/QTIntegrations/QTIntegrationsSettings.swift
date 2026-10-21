@@ -9,15 +9,19 @@ import Security
 //   their own API key + shared secret (https://www.last.fm/api/account/create) and connects through Last.fm's web
 //   authorization (auth.getToken → browser → auth.getSession). Now-playing updates, scrobbles per Last.fm's rules
 //   (> 30 s; half the track or 4 minutes), an offline queue that survives relaunch.
+// - ListenBrainz (`QTListenBrainz*`): the user pastes their user token (https://listenbrainz.org/settings/), Connect
+//   checks it (validate-token). The same listens as Last.fm, with their own queue. A custom server URL covers
+//   ListenBrainz-compatible servers (Maloja, self-hosted ListenBrainz).
 // - Discord Rich Presence (`QTDiscord*`): the local IPC socket of the Discord desktop app (no network from us);
 //   the user enters the client ID of a Discord application they created.
 // - Track-change notifications (`notifiesTrackChanges`), shown by the app target via UNUserNotificationCenter.
 //
-// Secrets (Last.fm shared secret and session key) live in the Keychain, never in defaults, files or logs.
+// Secrets (Last.fm shared secret and session key, the ListenBrainz token) live in the Keychain, never in defaults, files or logs.
 
 /// Non-secret integration preferences (UserDefaults `qt.integrations.v1`).
 public struct QTIntegrationsSettings: Codable, Sendable, Hashable {
     public var lastFM = QTLastFMPrefs()
+    public var listenBrainz = QTListenBrainzPrefs()
     public var discord = QTDiscordPrefs()
     /// Post a notification when the song changes while QTube Music isn't frontmost. Off by default; turning it on
     /// asks macOS for permission.
@@ -29,6 +33,7 @@ public struct QTIntegrationsSettings: Codable, Sendable, Hashable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let d = QTIntegrationsSettings()
         lastFM = (try? c.decodeIfPresent(QTLastFMPrefs.self, forKey: .lastFM)) ?? d.lastFM
+        listenBrainz = (try? c.decodeIfPresent(QTListenBrainzPrefs.self, forKey: .listenBrainz)) ?? d.listenBrainz
         discord = (try? c.decodeIfPresent(QTDiscordPrefs.self, forKey: .discord)) ?? d.discord
         notifiesTrackChanges = (try? c.decodeIfPresent(Bool.self, forKey: .notifiesTrackChanges)) ?? d.notifiesTrackChanges
     }
@@ -58,6 +63,37 @@ public struct QTLastFMPrefs: Codable, Sendable, Hashable {
     }
 
     public var isConnected: Bool { username != nil }
+}
+
+public struct QTListenBrainzPrefs: Codable, Sendable, Hashable {
+    /// Submitting switch (needs a connected account too).
+    public var isEnabled = false
+    /// Set once connected: the ListenBrainz user name (display only). The token is in the Keychain.
+    public var username: String?
+    public var sendsNowPlaying = true
+    /// API root of a ListenBrainz-compatible server; empty = listenbrainz.org. Fixed while connected (the token
+    /// belongs to that server).
+    public var serverURL = ""
+
+    public init() {}
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = QTListenBrainzPrefs()
+        isEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .isEnabled)) ?? d.isEnabled
+        username = try? c.decodeIfPresent(String.self, forKey: .username)
+        sendsNowPlaying = (try? c.decodeIfPresent(Bool.self, forKey: .sendsNowPlaying)) ?? d.sendsNowPlaying
+        serverURL = (try? c.decodeIfPresent(String.self, forKey: .serverURL)) ?? d.serverURL
+    }
+
+    public var isConnected: Bool { username != nil }
+    /// The API root to use (nil = the field isn't a usable URL).
+    public var server: URL? { QTListenBrainzRequest.server(from: serverURL) }
+    /// The custom server's host, nil for listenbrainz.org.
+    public var customServerHost: String? {
+        guard let server, server != QTListenBrainzRequest.defaultServer else { return nil }
+        return server.host
+    }
 }
 
 public struct QTDiscordPrefs: Codable, Sendable, Hashable {
@@ -157,6 +193,36 @@ public final class QTIntegrationsStore {
             return (QTLastFMCredentials(apiKey: key, apiSecret: secret), session)
         }.value
     }
+
+    // MARK: ListenBrainz
+
+    /// Saves the token (Keychain) of the account Connect validated, and turns submitting on.
+    public func connectListenBrainz(token: String, username: String) {
+        secrets.set(token.trimmingCharacters(in: .whitespacesAndNewlines), for: .listenBrainzToken)
+        update {
+            $0.listenBrainz.username = username
+            $0.listenBrainz.isEnabled = true
+        }
+    }
+
+    public func disconnectListenBrainz() {
+        secrets.remove(.listenBrainzToken)
+        update {
+            $0.listenBrainz.username = nil
+            $0.listenBrainz.isEnabled = false
+        }
+    }
+
+    /// The token and server for submitting, the token read from the Keychain **off the main thread** (see
+    /// `loadLastFMSession`). nil when ListenBrainz isn't connected.
+    public func loadListenBrainzSession() async -> (token: String, server: URL)? {
+        let prefs = settings.listenBrainz
+        guard prefs.isConnected, let server = prefs.server else { return nil }
+        let secrets = secrets
+        return await Task.detached(priority: .utility) { () -> (token: String, server: URL)? in
+            secrets.get(.listenBrainzToken).map { ($0, server) }
+        }.value
+    }
 }
 
 // MARK: - Secrets
@@ -164,6 +230,7 @@ public final class QTIntegrationsStore {
 public enum QTIntegrationSecret: String, Sendable, CaseIterable {
     case lastFMSecret = "lastfm.secret"
     case lastFMSessionKey = "lastfm.session"
+    case listenBrainzToken = "listenbrainz.token"
 }
 
 public protocol QTIntegrationSecretStore: Sendable {

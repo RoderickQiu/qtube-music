@@ -2,7 +2,8 @@ import CryptoKit
 import Foundation
 
 // Last.fm API 2.0 (https://www.last.fm/api): request building + signing, web authorization, now playing,
-// scrobble batches. The user supplies the API key + shared secret (no app-wide key is registered yet).
+// scrobble batches, and `QTLastFMScrobbleService` (what its error codes mean for the queue). The user supplies the
+// API key + shared secret (no app-wide key is registered yet).
 
 public struct QTLastFMCredentials: Sendable, Hashable {
     public var apiKey: String
@@ -23,7 +24,9 @@ public struct QTLastFMSession: Sendable, Hashable {
     }
 }
 
-/// One play to scrobble (`track.scrobble` item) or announce (`track.updateNowPlaying`).
+/// One play to scrobble (`track.scrobble` item, a ListenBrainz listen) or announce (now playing). Saved in the offline
+/// queues: fields added later are optional and decoded with `decodeIfPresent`, so queues written by older versions
+/// still load.
 public struct QTScrobble: Codable, Sendable, Hashable {
     public var artist: String
     public var track: String
@@ -32,13 +35,35 @@ public struct QTScrobble: Codable, Sendable, Hashable {
     public var duration: Int?
     /// Unix time (UTC) the track started playing.
     public var timestamp: Int
+    /// The YouTube video id (ListenBrainz `origin_url`).
+    public var videoId: String?
+    /// A song the user uploaded to their own library: its link is private, so it is never sent.
+    public var isPrivatelyOwned: Bool
+    /// Exact length in milliseconds (ListenBrainz `duration_ms`).
+    public var durationMs: Int?
 
-    public init(artist: String, track: String, album: String? = nil, duration: Int? = nil, timestamp: Int) {
+    public init(artist: String, track: String, album: String? = nil, duration: Int? = nil, timestamp: Int,
+                videoId: String? = nil, isPrivatelyOwned: Bool = false, durationMs: Int? = nil) {
         self.artist = artist
         self.track = track
         self.album = album
         self.duration = duration
         self.timestamp = timestamp
+        self.videoId = videoId
+        self.isPrivatelyOwned = isPrivatelyOwned
+        self.durationMs = durationMs
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        artist = try c.decode(String.self, forKey: .artist)
+        track = try c.decode(String.self, forKey: .track)
+        album = try c.decodeIfPresent(String.self, forKey: .album)
+        duration = try c.decodeIfPresent(Int.self, forKey: .duration)
+        timestamp = try c.decode(Int.self, forKey: .timestamp)
+        videoId = try c.decodeIfPresent(String.self, forKey: .videoId)
+        isPrivatelyOwned = try c.decodeIfPresent(Bool.self, forKey: .isPrivatelyOwned) ?? false
+        durationMs = try c.decodeIfPresent(Int.self, forKey: .durationMs)
     }
 }
 
@@ -231,5 +256,38 @@ public struct QTLastFMClient: Sendable {
 
     public func scrobble(_ batch: [QTScrobble], sessionKey: String) async throws {
         _ = try await send(QTLastFMRequest.scrobble(batch, credentials, sessionKey: sessionKey))
+    }
+}
+
+/// Last.fm as a scrobble service: 50 plays per request, nothing older than 14 days.
+public struct QTLastFMScrobbleService: QTScrobbleService {
+    public let client: QTLastFMClient
+    public let sessionKey: String
+
+    public init(client: QTLastFMClient, sessionKey: String) {
+        self.client = client
+        self.sessionKey = sessionKey
+    }
+
+    public var maxBatch: Int { QTLastFMRequest.maxBatch }
+    public var maxAge: TimeInterval? { QTScrobbleRules.maximumAge }
+
+    public func nowPlaying(_ play: QTScrobble) async throws {
+        try await client.updateNowPlaying(play, sessionKey: sessionKey)
+    }
+
+    public func submit(_ plays: [QTScrobble]) async throws {
+        try await client.scrobble(plays, sessionKey: sessionKey)
+    }
+
+    /// 9 (revoked session) disconnects; 8 / 11 / 16 / 29 and the network wait; 6 / 7 reject the plays themselves;
+    /// anything that says the API account is wrong (10 invalid key, 26 suspended, 13 bad signature, an unreadable
+    /// answer…) pauses sending and keeps the queue.
+    public func classify(_ error: any Error) -> QTScrobbleFailure {
+        guard let error = error as? QTLastFMError else { return .temporary(retryAfter: nil) }
+        if error.isInvalidSession { return .invalidCredentials }
+        if error.isTemporary { return .temporary(retryAfter: nil) }
+        if error.isRejectedPlay { return .rejectedPlays }
+        return .accountProblem
     }
 }

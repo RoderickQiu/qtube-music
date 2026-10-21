@@ -18,7 +18,7 @@ SwiftPM package `QTubeMusic` (`Package.swift`, tools 6.2, Swift 6 language mode,
 | `QTPlaybackLab` | QTPlayback | dev-only executable: drives the web engine live, muted and anonymous (`swift run --scratch-path .build/<you> QTPlaybackLab --scenario basic`) | playback |
 | `QTNativeSpike` | QTPlayback, QTAuth | DEBUG-only executable for the M5 spike: `clients` / `bench` / `cipher` / `avplayer` — stream resolution per client, download → AVAudioEngine (muted), TTFA, CPU, gapless, crossfade, EQ, spectrum; `--signed-in` reads the shared dev session (never prints cookie values). Uses the vendored EJS solver; downloads audio into `~/Library/Caches/com.roderickqiu.qtube.native-spike/` (purged after each run) | native-spike |
 | `QTLyrics` | QTCore, OpenCC (SwiftyOpenCC) | `QTLyricsResolver` (actor, `QTLyricsProviding`): parsers (LRC, YRC, QRC, KRC, TTML), QRC/KRC decryption, providers (YouTube Music, LRCLIB, AMLL; NetEase/Kugou/QQ opt-in), matcher, `QTLyricsCache` (SQLite), romanization, translation (selector, coordinator, Apple Intelligence + Translation framework engines), Chinese script (`QTChineseScript`, `QTChineseConverter`, `QTLyricsScriptConversion`); `QTMockLyricsProvider` | lyrics |
-| `QTIntegrations` | QTCore | Opt-in integrations, all off by default: Last.fm (`QTLastFMRequest` signing/requests, `QTLastFMClient`, `QTScrobbleRules`, `QTListenTracker`, `QTScrobbleQueue` offline queue, `QTScrobbler` actor), Discord Rich Presence (`QTDiscordIPC` framing, `QTDiscordActivity`, `QTDiscordPresence` socket actor), `QTIntegrationsSettings` + `QTIntegrationsStore` (defaults `qt.integrations.v1`; secrets in the Keychain via `QTKeychainSecretStore`) | desktop |
+| `QTIntegrations` | QTCore | Opt-in integrations, all off by default: scrobbling (`QTScrobbleRules`, `QTListenTracker` in media time, `QTScrobbleQueue` offline queue per service, `QTScrobbleService` protocol, `QTScrobbler` actor fanning one listen out), Last.fm (`QTLastFMRequest` signing/requests, `QTLastFMClient`, `QTLastFMScrobbleService`), ListenBrainz (`QTListenBrainzRequest` payloads, `QTListenBrainzClient`, `QTRequestPacer`, `QTListenBrainzScrobbleService`), Discord Rich Presence (`QTDiscordIPC` framing, `QTDiscordActivity`, `QTDiscordPresence` socket actor), `QTIntegrationsSettings` + `QTIntegrationsStore` (defaults `qt.integrations.v1`; secrets in the Keychain via `QTKeychainSecretStore`) | desktop |
 | `QTUI` | all | SwiftUI/AppKit UI, app model, theme | per folder, below |
 | `QTubeMusicApp` (product `QTubeMusic`) | QTUI, Sparkle | `@main` app: `Window` (main), `Settings`, `MenuBarExtra`, `QTCommands`, app delegate (Dock menu, AppleScript application properties), `QTAppIntents.swift` (App Intents + App Shortcuts), `QTUpdater.swift` (Sparkle, dormant); `Resources/` (sdef, intent String Catalogs — excluded from SwiftPM, put in the bundle by build-app.sh) | desktop |
 
@@ -690,7 +690,7 @@ Builders add their own as `qt.<area>.<name>` (e.g. `qt.stage.chrome hidden`, `qt
 | lyrics-ui | `qt.lyrics.scrolled` · `qt.lyrics.options` · `qt.lyrics.demoVersions` · `qt.lyrics.translationState same\|translating\|download\|unavailable\|onDevice\|appleIntelligence` · `qt.lyrics.lab` · `qt.lyrics.debug` |
 | stage | `qt.stage.chrome hidden` · `qt.stage.queue YES` · `qt.stage.popover appearance` · `qt.stage.window YES` (detached window) · `qt.stage.reduceMotion YES` · `qt.stage.visualizerOnBattery YES` · `qt.stage.closeAfter <s>` · `qt.stage.noAd YES` (free account without the simulated pre-roll, e.g. the visualizer fallback) |
 | glass | DEBUG `qt.reduceTransparency YES` (every glass primitive draws its Reduce Transparency solid) |
-| desktop | `qt.desktop.miniMode compact\|art` · `qt.desktop.miniLyric` · `qt.desktop.miniHover` · `qt.desktop.lyricsUnlocked` · `qt.desktop.menuBarScroll` · `qt.desktop.lyricsSize <pt>` · `qt.settingsTab general\|playback\|lyrics\|account\|integrations\|advanced`; DEBUG: `qt.desktop.switchLanguage`, `qt.desktop.popUpMenu <index>` (1 = File, 3 = View, 4 = Controls), `qt.desktop.showShortcuts`, `qt.desktop.accountPreview signedIn\|premium\|signingIn\|expired\|signedOut` (Settings › Account without Keychain access), `qt.desktop.staleMenus YES` (General shows Relaunch), `qt.desktop.integrationsExpanded YES` (Integrations opens both "Use your own …" disclosures), `qt.desktop.scriptProbe <path>` (runs AppleScript against the app from inside it — no Automation prompt — and writes the results as JSON) |
+| desktop | `qt.desktop.miniMode compact\|art` · `qt.desktop.miniLyric` · `qt.desktop.miniHover` · `qt.desktop.lyricsUnlocked` · `qt.desktop.menuBarScroll` · `qt.desktop.lyricsSize <pt>` · `qt.settingsTab general\|playback\|lyrics\|account\|integrations\|advanced`; DEBUG: `qt.desktop.switchLanguage`, `qt.desktop.popUpMenu <index>` (1 = File, 3 = View, 4 = Controls), `qt.desktop.showShortcuts`, `qt.desktop.accountPreview signedIn\|premium\|signingIn\|expired\|signedOut` (Settings › Account without Keychain access), `qt.desktop.staleMenus YES` (General shows Relaunch), `qt.desktop.integrationsExpanded YES` (Integrations opens every "Use your own …" / custom-server disclosure), `qt.desktop.listenBrainzPreview connected\|failed` (ListenBrainz connected with a sample account and custom server, or a failed Connect; no Keychain, no network), `qt.desktop.scriptProbe <path>` (runs AppleScript against the app from inside it — no Automation prompt — and writes the results as JSON) |
 | lyrics-live | `qt.lyrics.unofficial all\|none\|netease,kugou,qq` (session-only Settings override) · `qt.lyrics.engine live\|mock` (default live) · `qt.lyrics.cache memory\|<path>` (fresh lookup; default Application Support/<bundle id>/Lyrics.sqlite) · `qt.lyrics.offline YES` (every source unreachable → fallback path) |
 | data-live | `qt.live.open album:<id\|title>` · `artist:<id\|name>` · `playlist:<id>` (once the library has loaded) · `qt.live.state skeleton\|offline\|unavailable\|expired\|botCheck` (pins every live page's state) · `qt.live.loadDelay <s>` (DEBUG: Home and mood feeds arrive that much later — loading and transition shots) · `qt.live.signedOut YES` (guest mode, no Keychain read) · DEBUG `qt.auth.store memory` (the session lives in memory: a guest run never reads, and a sign-out never clears, the shared dev session) · DEBUG `qt.live.fixtures YES` (YouTube Music answered offline from `Tests/QTInnerTubeTests/Fixtures`, artwork offline — guest screenshots with no network) · with `qt.live.signedOut`, `qt.live.signIn YES` (Google sign-in window in a throwaway WebKit store; a login there is never kept) |
 | stage-video | DEBUG `qt.video.debugVisibleHost YES` (orders the web engine's host window onto U270CA, alpha 1 — page diagnostics only) |
@@ -813,9 +813,9 @@ InnerTube fixtures), `QT_DUMP=1` (print parser output), `QT_KEYCHAIN_TEST=1` (Ke
 - **Notifications**: General › "Notify when the song changes" (off; permission is requested only when turned on).
   Posted by `QTTrackChangeNotifier` when the song changes while the app isn't active (not for the paused launch
   track, never for ads), artwork attached, one at a time.
-- **Settings › Integrations** is switches + Connect…: Last.fm shows "Scrobble to Last.fm  [Connect…]", Discord its
-  two switches. The app has no Last.fm API account or Discord application of its own yet (shipping credentials is
-  user-gated), so the user's own go in collapsed **"Use your own API key" / "Use your own application ID"**
+- **Settings › Integrations** is switches + Connect…: Last.fm shows "Scrobble to Last.fm  [Connect…]", ListenBrainz
+  "Submit listens to ListenBrainz  [Connect]" above its token field, Discord its two switches. The app has no
+  Last.fm API account or Discord application of its own yet (shipping credentials is user-gated), so the user's own go in collapsed **"Use your own API key" / "Use your own application ID"**
   disclosures (bordered fields, no "Required" prompts, the "Get an API key" / "Create a Discord application" link
   inside), which open by themselves when Connect… or the Discord switch needs them. DEBUG
   `-qt.desktop.integrationsExpanded YES` opens both (screenshots). When the app ships its own credentials, drop them.
@@ -834,6 +834,23 @@ InnerTube fixtures), `QT_DUMP=1` (print parser output), `QT_KEYCHAIN_TEST=1` (Ke
   session) disconnects with a toast; only 6 / 7 (the plays themselves rejected) drop a batch; key / signature /
   suspension errors (10, 13, 26, unreadable answers) **pause** sending and keep the queue (toast "Last.fm isn’t
   accepting scrobbles…") until new credentials or a relaunch.
+- **Scrobble services** (`QTScrobbleService`: `maxBatch`, `maxAge`, `nowPlaying`, `submit`, `classify(Error)` →
+  temporary / rejected plays / invalid credentials / account problem). One `QTListenTracker` counts **media time**
+  (wall-clock × `QTPlaybackTimeline.rate`: 2× counts double, buffering and ads nothing; Last.fm's thresholds
+  unchanged) and each qualifying listen lands in the queue of every configured service, each with its own file
+  (`Scrobbles.json` for Last.fm, `ListenBrainz.json`), backoff (15 s doubling to 10 min, or the server's wait) and
+  paused state; now playing and sends go to both services at once. A batch refused as plays is halved until the bad
+  play is alone and only that one is dropped. Old queue files load (new `QTScrobble` fields are `decodeIfPresent`).
+- **ListenBrainz** (off): paste the user token (https://listenbrainz.org/settings/) → Connect validates it
+  (`GET /1/validate-token`) → "name [Disconnect]", "Submit listens", "Update “Now Playing”". Token in the Keychain
+  (`QTIntegrationSecret.listenBrainzToken`), read off the main thread (`loadListenBrainzSession`). Submissions:
+  `single` (one queued listen), `import` (up to 1,000), `playing_now`; `additional_info` names QTube Music as player
+  and client (with versions), `music.youtube.com`, `origin_url` (never for uploads) and `duration_ms`. At most one
+  call per second (`QTRequestPacer`); 401 disconnects with a toast; 429 waits `X-RateLimit-Reset-In` (and a used-up
+  `X-RateLimit-Remaining` holds the next call); 5xx / network back off; 400 splits the batch; other answers (403, a
+  404 page from a wrong server) pause with a toast. A collapsed "Use a custom server" takes the API root of a
+  ListenBrainz-compatible server (Maloja: `https://<host>/apis/listenbrainz`); it is fixed while connected. DEBUG
+  `-qt.desktop.listenBrainzPreview connected|failed` shows those states without the Keychain or the network.
 - **Discord Rich Presence** (off): needs the user's Discord application ID; talks only to the local Discord client
   over `$TMPDIR/discord-ipc-N` (handshake, `SET_ACTIVITY` "Listening to": title, artist, album art by its https URL,
   elapsed/remaining, "Open in YouTube Music" button). Paused/stopped clears it. Sends time out after 0.5 s
@@ -843,7 +860,8 @@ InnerTube fixtures), `QT_DUMP=1` (print parser output), `QT_KEYCHAIN_TEST=1` (Ke
   `disconnect()` overtaking a pending `update()`).
 - Tests use stub transports and local frames only — never real Last.fm/Discord accounts
   (`Tests/QTUITests/QTIntegrationsCoordinatorTests.swift`: demo, Repeat One, launch track, ads, switching on mid-song,
-  `switchSource`, the serial queue; `QTIntegrationsTests`: pause vs drop).
+  `switchSource`, the serial queue, Last.fm + ListenBrainz, media time; `QTIntegrationsTests`: pause vs drop;
+  `QTListenBrainzTests`).
 
 ## Updates (Sparkle)
 
@@ -874,7 +892,7 @@ signing + notarization, an appcast URL in `SUFeedURL`, `SUPublicEDKey` from Spar
 Swift Testing (`import Testing`, `@Test`, `#expect`). One test target per module:
 `QTCoreTests` (models, queue, lyrics, settings, catalog, localization + catalog coverage — a quote-aware scan of
 every `QTLoc.tr(…)` call, plus the App Intents catalogs), `QTIntegrationsTests` (Last.fm signing/requests, scrobble
-rules and queue, Discord framing — no network), `QTPlaybackTests`
+rules and queue, ListenBrainz golden payloads / errors / split-on-400 / fan-out / media time, Discord framing — no network), `QTPlaybackTests`
 (simulated engine with an injected clock — no sleeps), `QTLyricsTests` and `QTInnerTubeTests` (recorded fixtures
 go in their `Fixtures/` folders, accessed with `Bundle.module.url(forResource: "Fixtures", withExtension: nil)`;
 record only anonymous public responses, no user data), `QTUITests` (launch options, SF Symbols, theme, key routing,

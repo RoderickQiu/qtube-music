@@ -3,11 +3,12 @@ import QTCore
 import QTIntegrations
 import SwiftUI
 
-// Owner: builder "desktop". Settings › Integrations (spec §10): Last.fm scrobbling and Discord Rich Presence,
-// both off until the user sets them up. The pane is switches + Connect…; the app has no Last.fm API account or
+// Owner: builder "desktop". Settings › Integrations (spec §10): Last.fm scrobbling, ListenBrainz and Discord Rich
+// Presence, all off until the user sets them up. The pane is switches + Connect…; the app has no Last.fm API account or
 // Discord application of its own yet (shipping them is the user's call), so the user's own key / application ID go in
 // a collapsed "Use your own …" disclosure that opens by itself when Connect… or the switch needs it. Then Last.fm's
-// web authorization in the browser. When the app ships its own credentials, drop the disclosures.
+// web authorization in the browser. When the app ships its own credentials, drop the disclosures. ListenBrainz needs
+// only the user's token: paste it, Connect (checks it), done; a custom server stays in a collapsed disclosure.
 
 struct QTIntegrationsSettingsPane: View {
     private var store: QTIntegrationsStore { QTIntegrationsCoordinator.shared.store }
@@ -15,6 +16,7 @@ struct QTIntegrationsSettingsPane: View {
     var body: some View {
         Form {
             QTLastFMSettingsSection(store: store)
+            QTListenBrainzSettingsSection(store: store)
             QTDiscordSettingsSection(store: store)
         }
         .formStyle(.grouped)
@@ -167,6 +169,165 @@ struct QTLastFMSettingsSection: View {
         case .api(10, _)?, .api(26, _)?, .api(13, _)?: QTLoc.tr("Check the API key and secret", table: .desktop)
         case .network?: QTLoc.tr("Last.fm can’t be reached", table: .desktop)
         default: QTLoc.tr("Couldn’t connect to Last.fm", table: .desktop)
+        }
+    }
+}
+
+// MARK: - ListenBrainz
+
+#if DEBUG
+/// `-qt.desktop.listenBrainzPreview connected|failed`: Settings › Integrations shows ListenBrainz connected (sample
+/// account, custom server) or with a failed Connect, without the Keychain or the network (screenshots).
+@MainActor
+private var qtListenBrainzPreview: String? { QTAppModel.shared.launch.string("qt.desktop.listenBrainzPreview") }
+#endif
+
+struct QTListenBrainzSettingsSection: View {
+    let store: QTIntegrationsStore
+    @State private var tokenDraft = ""
+    @State private var isWorking = false
+    @State private var failure: String?
+    /// "Use a custom server" (Maloja, a self-hosted ListenBrainz): collapsed unless one is set.
+    @State private var showsServer: Bool
+    @FocusState private var focusesToken: Bool
+    @FocusState private var focusesServer: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(store: QTIntegrationsStore) {
+        self.store = store
+        _showsServer = State(initialValue: qtIntegrationsLaunchExpanded || !store.settings.listenBrainz.serverURL.isEmpty)
+        #if DEBUG
+        if qtListenBrainzPreview == "failed" { _failure = State(initialValue: Self.message(for: QTListenBrainzError.http(status: 401, message: ""), customServer: false)) }
+        #endif
+    }
+
+    /// What the section shows: the saved prefs, or the DEBUG preview's sample account.
+    private var prefs: QTListenBrainzPrefs {
+        #if DEBUG
+        if qtListenBrainzPreview == "connected" {
+            var p = QTListenBrainzPrefs()
+            p.username = "alexrivera"
+            p.isEnabled = true
+            p.serverURL = "https://maloja.example.net/apis/listenbrainz"
+            return p
+        }
+        #endif
+        return store.settings.listenBrainz
+    }
+
+    private var isPreview: Bool {
+        #if DEBUG
+        qtListenBrainzPreview != nil
+        #else
+        false
+        #endif
+    }
+
+    /// Writes to the store, except in the DEBUG preview (which never touches the user's settings).
+    private func setting<T>(_ keyPath: WritableKeyPath<QTIntegrationsSettings, T>) -> Binding<T> {
+        isPreview ? .constant(store.settings[keyPath: keyPath]) : binding(store, keyPath)
+    }
+
+    var body: some View {
+        let prefs = prefs
+        Section {
+            if let name = prefs.username {
+                Toggle(QTLoc.tr("Submit listens to ListenBrainz", table: .desktop),
+                       isOn: isPreview ? .constant(prefs.isEnabled) : binding(store, \.listenBrainz.isEnabled))
+                    .accessibilityIdentifier("qt.settings.listenbrainz.enabled")
+                Toggle(QTLoc.tr("Update “Now Playing”", table: .desktop),
+                       isOn: isPreview ? .constant(prefs.sendsNowPlaying) : binding(store, \.listenBrainz.sendsNowPlaying))
+                    .disabled(!prefs.isEnabled)
+                LabeledContent(QTLoc.tr("Account", table: .desktop)) {
+                    HStack(spacing: QTTheme.Spacing.s) {
+                        Text(verbatim: name).foregroundStyle(.secondary)
+                        Button(QTLoc.tr("Disconnect", table: .desktop)) { if !isPreview { store.disconnectListenBrainz() } }
+                            .accessibilityIdentifier("qt.settings.listenbrainz.disconnect")
+                    }
+                }
+                if let host = prefs.customServerHost {
+                    LabeledContent(QTLoc.tr("Server", table: .desktop)) {
+                        Text(verbatim: host).foregroundStyle(.secondary)
+                    }
+                }
+            } else {
+                LabeledContent {
+                    HStack(spacing: QTTheme.Spacing.s) {
+                        if isWorking { ProgressView().controlSize(.small) }
+                        Button(QTLoc.tr("Connect", table: .desktop), action: connect)
+                            .disabled(isWorking)
+                    }
+                } label: {
+                    Text(QTLoc.tr("Submit listens to ListenBrainz", table: .desktop))
+                    if let failure { Text(verbatim: failure) }
+                }
+                .accessibilityIdentifier("qt.settings.listenbrainz.connect")
+                QTIntegrationFieldRow(QTLoc.tr("User Token", table: .desktop)) {
+                    SecureField(QTLoc.tr("User Token", table: .desktop), text: $tokenDraft)
+                        .focused($focusesToken)
+                        .onSubmit(connect)
+                        .accessibilityIdentifier("qt.settings.listenbrainz.token")
+                }
+                QTIntegrationLinkRow(QTLoc.tr("Get your user token", table: .desktop),
+                                     destination: QTListenBrainzRequest.tokenPage)
+                DisclosureGroup(QTLoc.tr("Use a custom server", table: .desktop), isExpanded: $showsServer) {
+                    QTIntegrationFieldRow(QTLoc.tr("Server URL", table: .desktop)) {
+                        TextField(QTLoc.tr("Server URL", table: .desktop), text: setting(\.listenBrainz.serverURL),
+                                  prompt: Text(verbatim: QTListenBrainzRequest.defaultServer.absoluteString))
+                            .textContentType(.URL)
+                            .autocorrectionDisabled()
+                            .focused($focusesServer)
+                            .accessibilityIdentifier("qt.settings.listenbrainz.server")
+                    }
+                    Text(QTLoc.tr("For ListenBrainz-compatible servers, such as Maloja.", table: .desktop))
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .accessibilityIdentifier("qt.settings.listenbrainz.customServer")
+            }
+        } header: {
+            Text(verbatim: "ListenBrainz")
+        }
+    }
+
+    /// Checks the token with the server (validate-token) and connects the account it belongs to.
+    private func connect() {
+        guard !isPreview else { return }
+        let token = tokenDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty else {
+            focusesToken = true
+            return
+        }
+        let customServer = !store.settings.listenBrainz.serverURL.trimmingCharacters(in: .whitespaces).isEmpty
+        guard let server = store.settings.listenBrainz.server else {
+            failure = QTLoc.tr("Check the server URL", table: .desktop)
+            withAnimation(QTTheme.Motion.animation(QTTheme.Motion.ui, reduceMotion: reduceMotion)) { showsServer = true }
+            focusesServer = true
+            return
+        }
+        isWorking = true
+        failure = nil
+        let client = QTIntegrationsCoordinator.shared.makeListenBrainzClient(token, server)
+        Task { @MainActor in
+            defer { isWorking = false }
+            do {
+                let name = try await client.validateToken()
+                tokenDraft = ""
+                store.connectListenBrainz(token: token, username: name)
+            } catch {
+                failure = Self.message(for: error, customServer: customServer)
+            }
+        }
+    }
+
+    static func message(for error: any Error, customServer: Bool) -> String {
+        switch error as? QTListenBrainzError {
+        case .http(401, _)?, .http(400, _)?: QTLoc.tr("Check the token", table: .desktop)
+        case .network?, .rateLimited?: QTLoc.tr("ListenBrainz can’t be reached", table: .desktop)
+        case .http(let status, _)? where status >= 500: QTLoc.tr("ListenBrainz can’t be reached", table: .desktop)
+        case _ where customServer: QTLoc.tr("Check the server URL", table: .desktop)
+        default: QTLoc.tr("Couldn’t connect to ListenBrainz", table: .desktop)
         }
     }
 }
