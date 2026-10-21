@@ -1,12 +1,12 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "Adds the current song to Liked Songs in QTube Music." : {
+    "Likes the song that’s playing: in your YouTube Music account when Sync is on, otherwise on this Mac." : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "将当前歌曲加入 QTube Music 的“喜欢的音乐”。"
+            "value" : "喜欢正在播放的歌曲：开启同步时记入你的 YouTube Music 账户，否则只保存在这台 Mac 上。"
           }
         }
       }

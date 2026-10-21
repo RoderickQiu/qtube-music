@@ -13,7 +13,8 @@ import WebKit
 //   jar `QTWebKitCookieStore.session` that the web playback engine plays in. Never in a persistent WebKit store (WebKit
 //   saves those as plain-text `.binarycookies`), files, logs or fixtures. Sign-in runs in a throwaway non-persistent
 //   store; its cookies move to the Keychain and the throwaway is cleared.
-// Writing to the user's account is gated: ask the user first (`QTInnerTubeClient.setAllowsAccountWrites`).
+// Account writes go through QTUI's `QTAccountWriter`, which turns `QTInnerTubeClient.setAllowsAccountWrites` on only
+// while signed in with Settings › Account › Sync on. Brand accounts: `switchIdentity(to:)` (QTIdentitySwitcher.swift).
 
 /// Signed-in state as the UI sees it.
 public enum QTAuthState: Sendable, Hashable {
@@ -30,6 +31,10 @@ public final class QTAuthController {
     public private(set) var account: QTAccountInfo?
     /// Last sign-in/restore failure, for diagnostics (never contains cookie values).
     public private(set) var lastError: QTAuthError?
+    /// The brand account the session acts as (`onBehalfOfUser`), nil for the Google account itself.
+    public private(set) var brandAccountId: String?
+    /// Moves the player page's web session to another identity (`switchIdentity(to:)`); tests inject a fake.
+    @ObservationIgnored public var identitySwitcher: any QTSessionIdentitySwitching = QTWebIdentitySwitcher()
 
     public let sessionStore: QTSessionStore
     @ObservationIgnored private let cookieStore: any QTWebCookieStore
@@ -74,6 +79,7 @@ public final class QTAuthController {
             }
             await syncWebCookies(from: session)
             account = session.account
+            brandAccountId = session.brandAccountId
             state = .signedIn(accountName: session.account?.name ?? "", isPremium: session.account?.isPremium ?? false)
         } catch let error as QTAuthError {
             lastError = error
@@ -179,7 +185,38 @@ public final class QTAuthController {
         await cookieStore.removeGoogleCookies()
         await client?.clearCache()
         account = nil
+        brandAccountId = nil
         state = .signedOut
+    }
+
+    // MARK: Brand accounts
+
+    /// Acts as another identity of the signed-in Google account (a brand account / channel, or the account itself).
+    /// The player page moves first and must confirm the new identity (`QTSessionIdentitySwitching`); only then do
+    /// the API requests follow (`onBehalfOfUser`, cache cleared). If the page can't confirm it, nothing changes and
+    /// this throws — plays never go to one identity while the library shows another.
+    public func switchIdentity(to identity: QTAccountIdentity) async throws {
+        guard isSignedIn else { throw QTIdentitySwitchError.noWebSession }
+        guard let url = identity.signinURL else { throw QTIdentitySwitchError.invalidLink }
+        try await identitySwitcher.switchIdentity(to: url, brandId: identity.brandId, dataStore: webDataStore)
+        try await sessionStore.setBrandAccount(identity.brandId)
+        brandAccountId = identity.brandId
+        await client?.setCredentialsProvider(sessionStore)
+        let premium: Bool
+        if case .signedIn(_, let p) = state { premium = p } else { premium = false }
+        account = QTAccountInfo(name: identity.name, handle: identity.handle, photo: identity.photo)
+        state = .signedIn(accountName: identity.name, isPremium: premium)
+        await refreshAccount()
+    }
+
+    /// Back to the Google account itself for the API, without touching the web session (a launch whose saved brand
+    /// account couldn't be confirmed in the player page).
+    public func useMainIdentity() async {
+        guard brandAccountId != nil else { return }
+        try? await sessionStore.setBrandAccount(nil)
+        brandAccountId = nil
+        await client?.setCredentialsProvider(sessionStore)
+        await refreshAccount()
     }
 
     // MARK: Session loss

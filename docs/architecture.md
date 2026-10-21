@@ -11,7 +11,7 @@ SwiftPM package `QTubeMusic` (`Package.swift`, tools 6.2, Swift 6 language mode,
 | Target | Depends on | Contents | Owner |
 |---|---|---|---|
 | `QTCore` | — | Models (`QTTrack`, `QTAlbum`, `QTArtist`, `QTPlaylist`, `QTShelf`/`QTHomeFeed`, `QTArtworkPalette`), `QTQueue`, `QTLyricsDocument`, `QTSettings` + `QTSettingsStore`, `QTMockCatalog` + `QTCatalogService`, `QTFormat`, `QTLoc` localization, **all String Catalogs** | shared (scaffold) |
-| `QTInnerTube` | QTCore | `QTInnerTubeClient` (actor: ytcfg scrape, WEB_REMIX context, hl/gl, SAPISIDHASH, TTL+LRU cache, retries, session-loss detection; account writes gated by `setAllowsAccountWrites`), parsers → QTCore models (music-only filter), `QTCounterpartResolver` (Song⇄Video), `QTInnerTubeCatalog` (`QTCatalogService`), `QTInnerTubeConfiguration`; `Lyrics/QTInnerTubeLyricsClient` (anonymous ANDROID_MUSIC `post(_:payload:)` for timed lyrics, follows a client's hl/gl/visitor id — lyrics-live) | data-layer |
+| `QTInnerTube` | QTCore | `QTInnerTubeClient` (actor: ytcfg scrape, WEB_REMIX context, hl/gl, SAPISIDHASH, TTL+LRU cache, retries, session-loss detection; account writes in `QTInnerTubeWrites.swift`, refused unless `setAllowsAccountWrites`, never retried), parsers → QTCore models (music-only filter), `QTCounterpartResolver` (Song⇄Video), `QTInnerTubeCatalog` (`QTCatalogService`), `QTInnerTubeConfiguration`; `Lyrics/QTInnerTubeLyricsClient` (anonymous ANDROID_MUSIC `post(_:payload:)` for timed lyrics, follows a client's hl/gl/visitor id — lyrics-live) | data-layer |
 | `QTAuth` | QTInnerTube | `QTAuthController` (`restore()`, `beginSignIn(hl:over:)`, `signOut()`, `webDataStore`, DEBUG-only session import), `QTSessionStore` (actor, Keychain `com.roderickqiu.qtube`), `QTAuthSession`/`QTCookie` (auth-cookie allowlist), `QTWebCookieStore` (`QTWebKitCookieStore.session`: the non-persistent jar playback uses), `QTLegacyWebStorage` (deletes old plain-text WebKit data), `QTAuthState` | data-layer |
 | `QTPlayback` | QTCore, QTInnerTube | `QTPlaybackEngine` protocol, `QTSimulatedPlaybackEngine`, `QTQueueController` (queue + context, shuffle/repeat, autoplay continuation, persistence via `QTQueueStore`, holds a process activity while playing), `QTNowPlayingController` (sole owner of Now Playing + remote commands), `Web/QTWebPlaybackEngine` (hidden WKWebView in the non-persistent session jar `QTWebKitCookieStore.session`, `sessionDidChange()`, JS bridge, ads, playability errors, offline recovery, 144p decode, page freeze while paused; `QTWebKitTuning` keeps the hidden page scheduled), `Web/QTWebVideoOutput` (M5: the page's music video in app views, native PiP, `QTModeSwitchReport`), `Web/Audio/` (web-audio: `QTWebAudioScript` page tap + `QTWebAudioTap` = `QTWebPlaybackEngine.audio`, spectrum for the visualizer decoded from the audio the page appends to its MediaSource, pulled only while a visualizer shows — `docs/web-audio.md`), `QTPlaybackEngineSelector`; `Native/` = the native Premium engine (opt-in, option B of `docs/native-engine-spike.md`): `QTNativePlaybackEngine` (wraps a `QTWebPlaybackEngine` for videos and fallback; `prepareNext` → prefetch, gapless join, crossfade; Song⇄Video handovers; session fallback), `QTNativeAudioPlayer` + `QTNativeDeck` (AVAudioEngine: two player-node decks → mixer → 10-band EQ → main mixer; decode-ahead from memory; FFT tap only while asked), `QTNativeMemoryAudioFile` (AudioToolbox read callbacks + ExtAudioFile over in-memory AAC, never on disk), `QTNativeAudioFetcher` (resolve + ranged download into memory, retry with a re-checked player, LRU of 4 tracks), `QTNativeStreamResolver` (`resolvePremium`: WEB_REMIX + session; `QTNativeFailure` systemic/item), `QTNativePlayerScript` (vendored EJS solver in JavaScriptCore, `Resources/EJS` pinned by `Scripts/update-ejs.sh`; `QTNativePlayerCache` keeps preprocessed players per hash in Caches). Spike-only: `QTNativeAudioGraph`, `QTNativeStreamDownloader` (DEBUG), `QTNativeAVPlayerProbe` | playback (Web video parts: stage-video; Web/Audio: web-audio); Native/: native-engine |
 | `QTDevSession` | QTAuth | DEBUG-only executable: import the dev session from CDP cookie JSON on stdin; read-only `status` / `summary` / `probe` / `ytcfg` (never prints cookie values) | data-live |
@@ -150,7 +150,47 @@ real layout, quiet pulse) and a failure state (`QTLiveFailureView`: offline / si
 action). Album, artist and playlist cards prefetch their page on hover. `hl` follows the interface language
 (pages reload on change); `gl` and Premium come from the signed-in web client's `ytcfg` (`INNERTUBE_CONTEXT_GL`,
 `IS_SUBSCRIBER`) via `QTInnerTubeClient.accountContext()`, and set `QTAppModel.account` unless `-qt.account` is
-given. Read-only: account writes stay disabled; likes / playlist edits remain session-only.
+given. Library changes go through `QTAccountWriter` (below).
+
+**Account writes (approved by the owner 2026-10-20).** Signed in with Settings › Account › "Sync likes and
+playlists to YouTube Music" on (`QTSettings.syncsToYouTubeMusic`, default on; session override `-qt.account.sync`),
+likes, playlist adds / removals / reorders, new / renamed / deleted playlists, Save Queue as Playlist, subscriptions
+and Add to Library change the account; with Sync off (and in the demo library) they stay on this Mac. No first-use
+alert. One coordinator, `QTAccountWriter` (AppModel/, `QTLiveCatalogStore.writer`, `QTAccountWriter.shared`):
+- **One overlay** (`QTPlaylistEdits`, AppModel/): `local` (Sync off / demo; saved per identity in
+  `Application Support/<bundle id>/LocalLibrary.json`, never in scripted runs) and `pending` (writes on their way).
+  Every list, heart and sidebar row reads catalog + local + pending, so a change shows at once and pages that stream
+  in (Liked Songs paging via `setLiked`, playlist continuations) never clobber it. Playlists made here have `local:`
+  ids, ones still being created `pending:` ids (`QTNavigator.replacePlaylist` follows the real id).
+- **Writes** run one at a time on a serial chain, are never retried (`QTInnerTubeClient.perform` uses
+  `QTRetryPolicy.none` for `writeEndpoints`) and count only with `STATUS_SUCCEEDED` where YouTube states a status
+  (`QTInnerTubeError.writeRejected`; `edit_playlist` must state one). Success lands in the catalog
+  (`QTLiveCatalogStore.confirm…`) and drops the client's cached pages it touches (`invalidateCache(mentioning:)`);
+  failure takes the change back off the screen with one toast + Try Again. Like toggles of one song collapse into
+  one write (none when they cancel). A bot check pauses writes until Try Again (which redoes every change it turned
+  away); an expired session says so through the auth toast only. `onRemoteLike` (Now Playing) and every heart go
+  through `QTPlayerModel.likeHandler` → the writer.
+- **Parsing**: rows carry `setVideoId` (remove / move) and `likeStatus` (songs past Liked Songs' page cap still show
+  liked); playlist pages `isEditable` / `privacy` / `description` (the owner's editable header), album and playlist
+  pages their saved state, artist pages `channelId` / `isSubscribed`. The Add to Playlist submenu
+  (`QTAddToPlaylistMenu`: New Playlist…, then the account's playlists, checked when they already hold the songs)
+  opens with what the app knows and refines itself from `playlist/get_add_to_playlist` while open.
+- **UI**: track tables (⌫ / Edit › Delete removes from an owned playlist or Liked Songs with Undo, drag to reorder in
+  playlist order, Remove from Playlist), sidebar (Rename in place, Edit Playlist…, Delete Playlist…, Remove from
+  Library), File › New Playlist… ⌘N, header More menu and "+" Add to Library, artist Subscribe, Save Queue as
+  Playlist → `QTPlaylistSheets.swift` (New / Edit sheet, Delete alert that says what deleting does). Toasts say
+  "… on this Mac" when not syncing.
+- **Brand accounts** (`account/accounts_list` → `QTAccountIdentity`, picker in Settings › Account and the Account
+  menu): `QTAuthController.switchIdentity(to:)` first loads YouTube's own switch link (only
+  `https://www.youtube.com/signin`) in a hidden page in the session jar (`QTWebIdentitySwitcher`, QTAuth) and only
+  continues once its `ytcfg.DATASYNC_ID` names the new identity (Kaset ADR-0023: plays follow the page, not
+  `onBehalfOfUser`); then `onBehalfOfUser`, cache cleared, library reloaded, player page reloaded. Queued writes
+  finish first. A saved brand account is re-confirmed at launch; if that fails the app falls back to the Google
+  account itself. The native engine still sends only `X-Goog-AuthUser` (its plays don't reach history anyway).
+- Tests: `Tests/QTInnerTubeTests/WritesTests.swift` (shapes, no retry, status, cache, parsers) and
+  `Tests/QTUITests/QTAccountWriterTests.swift` (optimistic UI, collapse, rollback, overlay vs paging, bot check,
+  Sync off + relaunch, owned playlist add/remove/move, create/rename/delete, identity switch) — hand-built fixtures
+  (`Fixtures/handbuilt-*.json`), a fake transport and a fake identity switcher; never a live write.
 
 **Signed-in requests (privacy audit).** `QTInnerTubeClient.send(…, identity:)` sends the session (cookies +
 SAPISIDHASH + brand account) with `.session` (the default) and never with `.anonymous` (no cookies, no auth headers,
@@ -676,7 +716,7 @@ Booleans: `YES/NO`, `true/false`, `1/0` (empty = true).
 | `qt.ad` | bool — force the ad state (simulated engine) | `playAd` |
 | `qt.screen` | display-name substring (`U270CA`, `Built-in`), or `main` / `any` / `none`. DEBUG only: defaults to `U270CA` when any `-qt.*` argument is given, and a launch whose display isn't connected refuses to start (`QTScreenGuard`). Release builds ignore it | |
 | `qt.window` | `1440x900` (default) | |
-| `qt.show` | comma list: `mini`, `desktopLyrics`, `menuBarPopover`, `settings` | |
+| `qt.show` | comma list: `mini`, `desktopLyrics`, `menuBarPopover`, `settings`; DEBUG `newPlaylist` (New Playlist sheet with the launch queue), `editPlaylist` / `deletePlaylist` (with `-qt.section playlist:<id>`) | |
 | `qt.readyFile` | path; JSON `{pid, bundleID, windows:[{identifier, number, title, frame}]}` when settled | |
 | `qt.catalog` | `live` (default: the saved session, else guest mode) · `mock` (DEBUG builds only — release builds ignore it — demo catalog; never reads the Keychain; `Scripts/shoot.sh` passes it unless you give `-qt.catalog`) · a mock catalog folder path (also `$QT_MOCK_CATALOG`) | |
 
@@ -692,7 +732,7 @@ Builders add their own as `qt.<area>.<name>` (e.g. `qt.stage.chrome hidden`, `qt
 | glass | DEBUG `qt.reduceTransparency YES` (every glass primitive draws its Reduce Transparency solid) |
 | desktop | `qt.desktop.miniMode compact\|art` · `qt.desktop.miniLyric` · `qt.desktop.miniHover` · `qt.desktop.lyricsUnlocked` · `qt.desktop.menuBarScroll` · `qt.desktop.lyricsSize <pt>` · `qt.settingsTab general\|playback\|lyrics\|account\|integrations\|advanced`; DEBUG: `qt.desktop.switchLanguage`, `qt.desktop.popUpMenu <index>` (1 = File, 3 = View, 4 = Controls), `qt.desktop.showShortcuts`, `qt.desktop.accountPreview signedIn\|premium\|signingIn\|expired\|signedOut` (Settings › Account without Keychain access), `qt.desktop.staleMenus YES` (General shows Relaunch), `qt.desktop.integrationsExpanded YES` (Integrations opens both "Use your own …" disclosures), `qt.desktop.scriptProbe <path>` (runs AppleScript against the app from inside it — no Automation prompt — and writes the results as JSON) |
 | lyrics-live | `qt.lyrics.unofficial all\|none\|netease,kugou,qq` (session-only Settings override) · `qt.lyrics.engine live\|mock` (default live) · `qt.lyrics.cache memory\|<path>` (fresh lookup; default Application Support/<bundle id>/Lyrics.sqlite) · `qt.lyrics.offline YES` (every source unreachable → fallback path) |
-| data-live | `qt.live.open album:<id\|title>` · `artist:<id\|name>` · `playlist:<id>` (once the library has loaded) · `qt.live.state skeleton\|offline\|unavailable\|expired\|botCheck` (pins every live page's state) · `qt.live.loadDelay <s>` (DEBUG: Home and mood feeds arrive that much later — loading and transition shots) · `qt.live.signedOut YES` (guest mode, no Keychain read) · DEBUG `qt.auth.store memory` (the session lives in memory: a guest run never reads, and a sign-out never clears, the shared dev session) · DEBUG `qt.live.fixtures YES` (YouTube Music answered offline from `Tests/QTInnerTubeTests/Fixtures`, artwork offline — guest screenshots with no network) · with `qt.live.signedOut`, `qt.live.signIn YES` (Google sign-in window in a throwaway WebKit store; a login there is never kept) |
+| data-live | `qt.account.sync YES\|NO` (session-only Settings › Account › Sync override) · `qt.live.open album:<id\|title>` · `artist:<id\|name>` · `playlist:<id>` (once the library has loaded) · `qt.live.state skeleton\|offline\|unavailable\|expired\|botCheck` (pins every live page's state) · `qt.live.loadDelay <s>` (DEBUG: Home and mood feeds arrive that much later — loading and transition shots) · `qt.live.signedOut YES` (guest mode, no Keychain read) · DEBUG `qt.auth.store memory` (the session lives in memory: a guest run never reads, and a sign-out never clears, the shared dev session) · DEBUG `qt.live.fixtures YES` (YouTube Music answered offline from `Tests/QTInnerTubeTests/Fixtures`, artwork offline — guest screenshots with no network) · with `qt.live.signedOut`, `qt.live.signIn YES` (Google sign-in window in a throwaway WebKit store; a login there is never kept) |
 | stage-video | DEBUG `qt.video.debugVisibleHost YES` (orders the web engine's host window onto U270CA, alpha 1 — page diagnostics only) |
 | playback | `qt.engine auto\|simulated\|web` · `qt.webaudio.tap NO` (web engine without the spectrum tap: A/B CPU) · `qt.playback.silent` · `qt.playback.persist` · `qt.playback.nowPlaying` · `qt.playback.anonymous` · `qt.playback.readyWhen playing\|ad\|buffering\|failed\|toast` (+ `qt.playback.readyTimeout <s>`, default 120) · `qt.playback.loadDelay <s>` (slow-network look) · DEBUG: `qt.playback.statusFile <path>` (JSON status twice a second: engine, queue, Now Playing, the player page's `LOGGED_IN`/`IS_SUBSCRIBER`, main window, catalog mode) and distributed-notification commands (`QTPlaybackDebugHooks`, incl. `window:close` / `window:reopen` without activation) |
 
@@ -803,7 +843,7 @@ InnerTube fixtures), `QT_DUMP=1` (print parser output), `QT_KEYCHAIN_TEST=1` (Ke
   (`player.capabilities`), not the account tier: the web engine (free and Premium today) shows them off + a note.
   The web engine does have visualizer data (`docs/web-audio.md`); EQ and crossfade can't be done inside its page.
 - **Shortcuts / App Intents** (app target): Play or Pause, Play, Pause, Next Song, Previous Song, Like Current Song
-  (in-app only — nothing is written to YouTube Music), Play Playlist (Liked Songs + library playlists as an
+  (to the account when Sync is on, else on this Mac), Play Playlist (Liked Songs + library playlists as an
   `AppEntity`), Get Current Song (returns "Title — Artist"); App Shortcuts phrases in en + zh-Hans. None open the app.
   Each phrase does what it says: "Play or pause …" toggles, "Pause …" → `QTPauseIntent` (never resumes), "Resume …"
   → `QTPlayIntent` (`Tests/QTCoreTests/AppShortcutPhraseTests.swift` reads the mapping from the source).
@@ -866,7 +906,7 @@ signing + notarization, an appcast URL in `SUFeedURL`, `SUPublicEDKey` from Spar
   (`qt.stage.background.vinyl`, not `stage`/`mini`). Two real bugs came from reused generic names.
 - Swift 6 strict concurrency; UI types `@MainActor`; macOS 26 APIs (Liquid Glass, Foundation Models) behind
   `if #available(macOS 26, *)`. Keep real audio muted in tests.
-- Ask-before (record as gaps, don't do): writing to the user's YouTube Music account, using their session,
+- Ask-before (record as gaps, don’t do): live writes to the user’s YouTube Music account from tests or agents (the app’s own writes are approved, see *Account writes*), using their session,
   new third-party dependencies, Developer ID/notarization, sending user data anywhere.
 
 ## Tests

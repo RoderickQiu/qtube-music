@@ -87,6 +87,13 @@ public enum QTPlaylistKind: String, Codable, Sendable, Hashable {
     case mix
 }
 
+/// Who can see a playlist (YouTube's `privacyStatus`).
+public enum QTPlaylistPrivacy: String, Codable, Sendable, Hashable, CaseIterable {
+    case `private` = "PRIVATE"
+    case unlisted = "UNLISTED"
+    case `public` = "PUBLIC"
+}
+
 public struct QTPlaylist: Codable, Sendable, Hashable, Identifiable {
     /// Playlist id (`VL…` / `LM` / mock ids like `pl-sugar`).
     public var id: String
@@ -96,15 +103,23 @@ public struct QTPlaylist: Codable, Sendable, Hashable, Identifiable {
     public var artwork: [QTArtworkImage]
     /// nil until the playlist page is loaded.
     public var tracks: [QTTrack]?
+    /// The account owns the playlist and may edit it (its page has the editable header). nil = not known yet.
+    public var isEditable: Bool?
+    public var privacy: QTPlaylistPrivacy?
+    public var description: String?
 
     public init(id: String, title: QTDisplayText, kind: QTPlaylistKind = .user, owner: String? = nil,
-                artwork: [QTArtworkImage] = [], tracks: [QTTrack]? = nil) {
+                artwork: [QTArtworkImage] = [], tracks: [QTTrack]? = nil, isEditable: Bool? = nil,
+                privacy: QTPlaylistPrivacy? = nil, description: String? = nil) {
         self.id = id
         self.title = title
         self.kind = kind
         self.owner = owner
         self.artwork = artwork
         self.tracks = tracks
+        self.isEditable = isEditable
+        self.privacy = privacy
+        self.description = description
     }
 
     public var trackCount: Int { tracks?.count ?? 0 }

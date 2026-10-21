@@ -1,0 +1,88 @@
+{
+  "responseContext" : {
+    "serviceTrackingParams" : [ { "service" : "GFEEDBACK", "params" : [ { "key" : "logged_in", "value" : "1" } ] } ]
+  },
+  "contents" : {
+    "twoColumnBrowseResultsRenderer" : {
+      "tabs" : [ {
+        "tabRenderer" : {
+          "content" : {
+            "sectionListRenderer" : {
+              "contents" : [ {
+                "musicEditablePlaylistDetailHeaderRenderer" : {
+                  "header" : {
+                    "musicResponsiveHeaderRenderer" : {
+                      "title" : { "runs" : [ { "text" : "Road Trip" } ] },
+                      "straplineTextOne" : { "runs" : [ { "text" : "Alex Rivera" } ] },
+                      "description" : { "musicDescriptionShelfRenderer" : { "description" : { "runs" : [ { "text" : "Songs for the drive" } ] } } },
+                      "secondSubtitle" : { "runs" : [ { "text" : "3 songs" }, { "text" : " • " }, { "text" : "11 minutes" } ] },
+                      "thumbnail" : { "musicThumbnailRenderer" : { "thumbnail" : { "thumbnails" : [ { "url" : "https://example.invalid/roadtrip.jpg", "width" : 226, "height" : 226 } ] } } }
+                    }
+                  },
+                  "editHeader" : {
+                    "musicPlaylistEditHeaderRenderer" : {
+                      "title" : { "runs" : [ { "text" : "Road Trip" } ] },
+                      "privacy" : "UNLISTED",
+                      "playlistId" : "PLowned"
+                    }
+                  }
+                }
+              } ]
+            }
+          }
+        }
+      } ],
+      "secondaryContents" : {
+        "sectionListRenderer" : {
+          "contents" : [ {
+            "musicPlaylistShelfRenderer" : {
+              "playlistId" : "PLowned",
+              "contents" : [
+                {
+                  "musicResponsiveListItemRenderer" : {
+                    "flexColumns" : [
+                      { "musicResponsiveListItemFlexColumnRenderer" : { "text" : { "runs" : [ { "text" : "Song One", "navigationEndpoint" : { "watchEndpoint" : { "videoId" : "vidOwned001", "playlistId" : "PLowned", "watchEndpointMusicSupportedConfigs" : { "watchEndpointMusicConfig" : { "musicVideoType" : "MUSIC_VIDEO_TYPE_ATV" } } } } } ] } } },
+                      { "musicResponsiveListItemFlexColumnRenderer" : { "text" : { "runs" : [ { "text" : "Artist A", "navigationEndpoint" : { "browseEndpoint" : { "browseId" : "UCartistA0000000000000000", "browseEndpointContextSupportedConfigs" : { "browseEndpointContextMusicConfig" : { "pageType" : "MUSIC_PAGE_TYPE_ARTIST" } } } } } ] } } },
+                      { "musicResponsiveListItemFlexColumnRenderer" : { "text" : { "runs" : [ { "text" : "Album A", "navigationEndpoint" : { "browseEndpoint" : { "browseId" : "MPREb_albumA", "browseEndpointContextSupportedConfigs" : { "browseEndpointContextMusicConfig" : { "pageType" : "MUSIC_PAGE_TYPE_ALBUM" } } } } } ] } } }
+                    ],
+                    "fixedColumns" : [ { "musicResponsiveListItemFixedColumnRenderer" : { "text" : { "runs" : [ { "text" : "3:21" } ] } } } ],
+                    "playlistItemData" : { "playlistSetVideoId" : "SETID001", "videoId" : "vidOwned001" },
+                    "menu" : { "menuRenderer" : {
+                      "items" : [ { "menuServiceItemRenderer" : { "text" : { "runs" : [ { "text" : "Remove from playlist" } ] }, "serviceEndpoint" : { "playlistEditEndpoint" : { "playlistId" : "PLowned", "actions" : [ { "setVideoId" : "SETID001", "action" : "ACTION_REMOVE_VIDEO", "removedVideoId" : "vidOwned001" } ] } } } } ],
+                      "topLevelButtons" : [ { "likeButtonRenderer" : { "target" : { "videoId" : "vidOwned001" }, "likeStatus" : "LIKE" } } ]
+                    } }
+                  }
+                },
+                {
+                  "musicResponsiveListItemRenderer" : {
+                    "flexColumns" : [
+                      { "musicResponsiveListItemFlexColumnRenderer" : { "text" : { "runs" : [ { "text" : "Song Two", "navigationEndpoint" : { "watchEndpoint" : { "videoId" : "vidOwned002", "playlistId" : "PLowned", "watchEndpointMusicSupportedConfigs" : { "watchEndpointMusicConfig" : { "musicVideoType" : "MUSIC_VIDEO_TYPE_ATV" } } } } } ] } } },
+                      { "musicResponsiveListItemFlexColumnRenderer" : { "text" : { "runs" : [ { "text" : "Artist B", "navigationEndpoint" : { "browseEndpoint" : { "browseId" : "UCartistB0000000000000000", "browseEndpointContextSupportedConfigs" : { "browseEndpointContextMusicConfig" : { "pageType" : "MUSIC_PAGE_TYPE_ARTIST" } } } } } ] } } }
+                    ],
+                    "fixedColumns" : [ { "musicResponsiveListItemFixedColumnRenderer" : { "text" : { "runs" : [ { "text" : "4:02" } ] } } } ],
+                    "menu" : { "menuRenderer" : {
+                      "items" : [
+                        { "toggleMenuServiceItemRenderer" : { "defaultText" : { "runs" : [ { "text" : "Add to liked songs" } ] }, "defaultServiceEndpoint" : { "likeEndpoint" : { "status" : "LIKE", "target" : { "videoId" : "vidOwned002" } } }, "toggledServiceEndpoint" : { "likeEndpoint" : { "status" : "INDIFFERENT", "target" : { "videoId" : "vidOwned002" } } } } },
+                        { "menuServiceItemRenderer" : { "text" : { "runs" : [ { "text" : "Remove from playlist" } ] }, "serviceEndpoint" : { "playlistEditEndpoint" : { "playlistId" : "PLowned", "actions" : [ { "setVideoId" : "SETID002", "action" : "ACTION_REMOVE_VIDEO", "removedVideoId" : "vidOwned002" } ] } } } }
+                      ]
+                    } }
+                  }
+                },
+                {
+                  "musicResponsiveListItemRenderer" : {
+                    "flexColumns" : [
+                      { "musicResponsiveListItemFlexColumnRenderer" : { "text" : { "runs" : [ { "text" : "Song Three", "navigationEndpoint" : { "watchEndpoint" : { "videoId" : "vidOwned003", "playlistId" : "PLowned", "watchEndpointMusicSupportedConfigs" : { "watchEndpointMusicConfig" : { "musicVideoType" : "MUSIC_VIDEO_TYPE_ATV" } } } } } ] } } },
+                      { "musicResponsiveListItemFlexColumnRenderer" : { "text" : { "runs" : [ { "text" : "Artist C", "navigationEndpoint" : { "browseEndpoint" : { "browseId" : "UCartistC0000000000000000", "browseEndpointContextSupportedConfigs" : { "browseEndpointContextMusicConfig" : { "pageType" : "MUSIC_PAGE_TYPE_ARTIST" } } } } } ] } } }
+                    ],
+                    "fixedColumns" : [ { "musicResponsiveListItemFixedColumnRenderer" : { "text" : { "runs" : [ { "text" : "3:45" } ] } } } ],
+                    "playlistItemData" : { "playlistSetVideoId" : "SETID003", "videoId" : "vidOwned003" }
+                  }
+                }
+              ]
+            }
+          } ]
+        }
+      }
+    }
+  }
+}

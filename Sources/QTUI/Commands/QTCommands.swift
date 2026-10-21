@@ -25,9 +25,15 @@ public struct QTCommands: Commands {
     public var body: some Commands {
         let _ = desktop.register(openWindow: openWindow)
 
-        // File: no document model, so no New/Open/Print — but keep the menu with Close Window ⌘W, like Music.
+        // File: New Playlist ⌘N (like Music) and Close Window ⌘W; no document model, so no Open/Print.
         // (An empty File menu makes SwiftUI drop it and move Close into the Window menu.)
-        CommandGroup(replacing: .newItem) {}
+        CommandGroup(replacing: .newItem) {
+            Button(QTLoc.tr("New Playlist…", table: .main)) {
+                bringUpBrowsing()
+                QTPlaylistActions.newPlaylist(model: model)
+            }
+            .keyboardShortcut("n", modifiers: .command)
+        }
         CommandGroup(replacing: .saveItem) {
             Button(QTLoc.tr("Close Window", table: .desktop)) { NSApp.keyWindow?.performClose(nil) }
                 .keyboardShortcut("w", modifiers: .command)
@@ -132,6 +138,11 @@ public struct QTCommands: Commands {
                 .disabled(player.lyrics == nil)
         }
 
+        // Account (like Music's): who you are, the brand accounts to switch to, Sync, Settings › Account.
+        CommandMenu(QTLoc.tr("Account", table: .desktop)) {
+            QTAccountMenuContent(model: model)
+        }
+
         // Window: the main window scene lists itself with ⌘0 (set on the scene in the app target); bringing it
         // back leaves the mini player (QTDesktopCoordinator observes the window becoming key).
 
@@ -186,6 +197,46 @@ public struct QTCommands: Commands {
 // MARK: - Keyboard Shortcuts window (Help › Keyboard Shortcuts, ⌘/)
 
 /// A native, read-only list of every shortcut, grouped like the menus.
+/// The Account menu: the signed-in name, the brand accounts to act as (checked = in use), Sync, Account Settings….
+struct QTAccountMenuContent: View {
+    let model: QTAppModel
+    @Environment(\.openSettings) private var openSettings
+
+    var body: some View {
+        let store = QTLiveCatalogStore.shared
+        let auth = store.auth
+        if auth.isSignedIn {
+            Text(verbatim: auth.account?.name ?? QTLoc.tr("YouTube Music", table: .desktop))
+            if store.identities.count > 1 {
+                Picker(QTLoc.tr("Account", table: .desktop), selection: Binding(
+                    get: { store.switchingIdentity?.id ?? auth.brandAccountId ?? "primary" },
+                    set: { id in
+                        guard let target = store.identities.first(where: { $0.id == id }) else { return }
+                        Task { await store.switchIdentity(to: target) }
+                    })) {
+                    ForEach(store.identities) { identity in
+                        Text(verbatim: QTIdentityPicker.title(identity, among: store.identities)).tag(identity.id)
+                    }
+                }
+                .pickerStyle(.inline)
+                .disabled(store.switchingIdentity != nil)
+            }
+            Divider()
+            Toggle(QTLoc.tr("Sync Likes and Playlists", table: .desktop), isOn: Binding(
+                get: { model.settings.settings.syncsToYouTubeMusic },
+                set: { on in model.settings.update { $0.syncsToYouTubeMusic = on } }))
+        } else {
+            Button(QTLoc.tr("Sign In…", table: .desktop)) { store.signIn() }
+                .disabled(auth.state == .signingIn || store.mode == .mock)
+        }
+        Divider()
+        Button(QTLoc.tr("Account Settings…", table: .desktop)) {
+            model.settingsTabRequest = .account
+            openSettings()
+        }
+    }
+}
+
 public struct QTKeyboardShortcutsView: View {
     public static let sceneID = "qt.window.keyboardShortcuts"
 
@@ -225,6 +276,8 @@ public struct QTKeyboardShortcutsView: View {
             ] + QTCommands.sidebarShortcutOrder.enumerated().map { i, item in
                 Row(title: QTSidebarView.title(for: item), keys: "⌘\(i + 1)")
             } + [
+                Row(title: QTLoc.tr("New Playlist…", table: .main), keys: "⌘N"),
+                Row(title: QTLoc.tr("Remove from Playlist", table: .main), keys: "⌫"),
                 Row(title: QTLoc.tr("Back"), keys: "⌘["),
                 Row(title: QTLoc.tr("Forward"), keys: "⌘]"),
                 Row(title: QTLoc.tr("Show Panel", table: .desktop), keys: "⌥⌘N"),

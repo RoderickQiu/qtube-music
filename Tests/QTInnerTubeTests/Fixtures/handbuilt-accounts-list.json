@@ -1,0 +1,52 @@
+{
+  "responseContext" : {
+    "serviceTrackingParams" : [ { "service" : "GFEEDBACK", "params" : [ { "key" : "logged_in", "value" : "1" } ] } ]
+  },
+  "actions" : [ {
+    "getMultiPageMenuAction" : {
+      "menu" : {
+        "multiPageMenuRenderer" : {
+          "sections" : [ {
+            "accountSectionListRenderer" : {
+              "header" : { "googleAccountHeaderRenderer" : { "name" : { "runs" : [ { "text" : "Alex Rivera" } ] }, "email" : { "runs" : [ { "text" : "alex@example.invalid" } ] } } },
+              "contents" : [ {
+                "accountItemSectionRenderer" : {
+                  "contents" : [
+                    { "accountItem" : {
+                      "accountName" : { "runs" : [ { "text" : "Alex Rivera" } ] },
+                      "channelHandle" : { "runs" : [ { "text" : "@alexrivera" } ] },
+                      "accountPhoto" : { "thumbnails" : [ { "url" : "https://example.invalid/alex.jpg", "width" : 88, "height" : 88 } ] },
+                      "isSelected" : true,
+                      "serviceEndpoint" : { "selectActiveIdentityEndpoint" : { "supportedTokens" : [
+                        { "accountStateToken" : { "hasChannel" : true, "isMerged" : false, "obfuscatedGaiaId" : "000000000000000000000" } },
+                        { "accountSigninToken" : { "signinUrl" : "/signin?action_handle_signin=true&authuser=0&next=https%3A%2F%2Fmusic.youtube.com%2F" } }
+                      ] } }
+                    } },
+                    { "accountItem" : {
+                      "accountName" : { "runs" : [ { "text" : "Alex Rivera Music" } ] },
+                      "channelHandle" : { "runs" : [ { "text" : "@alexriveramusic" } ] },
+                      "accountPhoto" : { "thumbnails" : [ { "url" : "https://example.invalid/brand.jpg", "width" : 88, "height" : 88 } ] },
+                      "isSelected" : false,
+                      "serviceEndpoint" : { "selectActiveIdentityEndpoint" : { "supportedTokens" : [
+                        { "pageIdToken" : { "pageId" : "100000000000000000001" } },
+                        { "accountStateToken" : { "hasChannel" : true, "isMerged" : false, "obfuscatedGaiaId" : "000000000000000000000" } },
+                        { "accountSigninToken" : { "signinUrl" : "/signin?action_handle_signin=true&authuser=0&pageid=100000000000000000001&next=https%3A%2F%2Fmusic.youtube.com%2F" } }
+                      ] } }
+                    } },
+                    { "accountItem" : {
+                      "accountName" : { "runs" : [ { "text" : "Spoofed" } ] },
+                      "serviceEndpoint" : { "selectActiveIdentityEndpoint" : { "supportedTokens" : [
+                        { "pageIdToken" : { "pageId" : "100000000000000000002" } },
+                        { "accountSigninToken" : { "signinUrl" : "https://evil.example.invalid/signin?pageid=100000000000000000002" } }
+                      ] } }
+                    } }
+                  ]
+                }
+              } ]
+            }
+          } ]
+        }
+      }
+    }
+  } ]
+}

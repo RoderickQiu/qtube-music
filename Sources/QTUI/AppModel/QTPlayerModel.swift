@@ -42,10 +42,8 @@ public final class QTPlayerModel {
         self.likedTrackIDs = likedTrackIDs
         playback = QTQueueController(engine: engine, nowPlaying: nowPlaying, store: queueStore)
         playback.isLiked = { [weak self] track in self?.likedTrackIDs.contains(track.videoId) ?? false }
-        playback.onRemoteLike = { [weak self] track, liked in
-            guard let self else { return }
-            if liked { self.likedTrackIDs.insert(track.videoId) } else { self.likedTrackIDs.remove(track.videoId) }
-        }
+        // Now Playing's like / unlike (Control Center, the Touch Bar, headphones) takes the same path as a click.
+        playback.onRemoteLike = { [weak self] track, liked in self?.setLiked(track, liked) }
         playback.onTrackChange = { [weak self] track in self?.fetchLyrics(for: track) }
     }
 
@@ -128,11 +126,19 @@ public final class QTPlayerModel {
 
     // MARK: Likes and lyrics
 
-    /// Local only: writing likes to the YouTube Music account waits for the user's go-ahead. Guest mode offers to
-    /// sign in instead (there is no account to like for).
+    /// Where likes go: `QTAccountWriter` (the account when syncing, else this Mac). nil (tests without a store): the
+    /// heart only changes here.
+    @ObservationIgnored public var likeHandler: ((QTTrack, Bool) -> Void)?
+
+    /// Likes or unlikes through `likeHandler`. Guest mode offers to sign in instead (there is no account to like for).
     public func toggleLike(_ track: QTTrack) {
-        guard QTAccountGate.allows(.like) else { return }
-        if likedTrackIDs.contains(track.videoId) { likedTrackIDs.remove(track.videoId) } else { likedTrackIDs.insert(track.videoId) }
+        setLiked(track, !isLiked(track))
+    }
+
+    public func setLiked(_ track: QTTrack, _ liked: Bool) {
+        guard QTAccountGate.allows(.like), isLiked(track) != liked else { return }
+        if let likeHandler { return likeHandler(track, liked) }
+        if liked { likedTrackIDs.insert(track.videoId) } else { likedTrackIDs.remove(track.videoId) }
     }
 
     /// ⌥↑ (+0.1, earlier) / ⌥↓ (-0.1, later).

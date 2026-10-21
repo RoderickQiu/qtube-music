@@ -32,6 +32,11 @@ public struct QTSettingsView: View {
         .onAppear {
             if let t = model.launch.string(QTDesktopLaunchKey.settingsTab).flatMap(QTSettingsTab.init(rawValue:)) { tab = t }
         }
+        .onChange(of: model.settingsTabRequest, initial: true) { _, request in
+            guard let request else { return }
+            tab = request
+            model.settingsTabRequest = nil
+        }
         .background(QTWindowAccessor { [model] window in
             window.identifier = QTWindowID.settings.identifier
             if model.launch.screen != nil {

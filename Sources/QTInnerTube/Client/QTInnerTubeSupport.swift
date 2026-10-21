@@ -113,6 +113,9 @@ public enum QTInnerTubeError: Error, Sendable, Equatable, LocalizedError {
     /// The request landed on Google's "unusual traffic" check (`www.google.com/sorry/…`, a captcha page) instead of
     /// YouTube Music. Not retried: the check doesn't clear by itself in seconds, and the app never opens or solves it.
     case botCheck
+    /// A write came back without `STATUS_SUCCEEDED` (e.g. `STATUS_FAILED`, or no status where one is required):
+    /// nothing changed in the account.
+    case writeRejected(status: String)
 
     /// Whether a response is Google's bot check rather than YouTube's answer: a redirect to `google.*/sorry/…`, or a
     /// captcha / "unusual traffic" HTML page.
@@ -140,6 +143,7 @@ public enum QTInnerTubeError: Error, Sendable, Equatable, LocalizedError {
         case .parse(let what): "Could not read \(what)"
         case .writesDisabled: "Account changes are disabled"
         case .api(let status, let message): "YouTube Music error \(status): \(message)"
+        case .writeRejected(let status): "YouTube Music didn't make the change (\(status))"
         }
     }
 
@@ -238,6 +242,10 @@ struct QTResponseCache: Sendable {
     }
 
     mutating func removeAll() { entries.removeAll() }
+
+    mutating func removeAll(where shouldRemove: (String) -> Bool) {
+        for key in entries.keys where shouldRemove(key) { entries[key] = nil }
+    }
 
     var count: Int { entries.count }
 }

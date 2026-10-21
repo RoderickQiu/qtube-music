@@ -123,6 +123,8 @@ public struct QTMainWindowView: View {
         // The app's accent: the song's colour, or the system accent (Settings › Accent colour).
         .qtArtworkTint(model.palette)
         .frame(minWidth: 960, minHeight: 600)
+        // New / Edit Playlist sheet and the Delete Playlist question (Library/QTPlaylistSheets.swift).
+        .qtPlaylistSheets()
         .onChange(of: model.sidebarSelection) { _, item in navigator.sidebarSelectionChanged(to: item) }
         .onChange(of: navigator.searchFocusRequest) { isSearchFocused = true }
         .background(QTWindowAccessor { window in
@@ -192,7 +194,8 @@ struct QTContentRouter: View {
                 QTLibraryView(collection: history, destination: d)
             }
         case .section(.playlist(let id)):
-            if let p = catalog.playlists.first(where: { $0.id == id }) {
+            // Through the store: playlists made here and renames count too.
+            if let p = QTLiveCatalogStore.shared.playlist(id) {
                 QTLibraryView(collection: .playlist(p, catalog: catalog), destination: d)
             } else {
                 QTLibraryView(collection: .liked(catalog), destination: d)

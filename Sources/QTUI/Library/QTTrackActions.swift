@@ -58,15 +58,19 @@ public enum QTTrackActions {
         model.showToast(QTLoc.tr("Added to Up Next"))
     }
 
-    /// Likes all when any is unliked, otherwise unlikes all (with Undo).
-    public static func toggleLike(_ tracks: [QTTrack], model: QTAppModel = .shared) {
+    /// Likes all when any is unliked, otherwise unlikes all (with Undo). The toast says where the like went: the
+    /// account (syncing) or this Mac (Settings › Account › Sync off).
+    public static func toggleLike(_ tracks: [QTTrack], model: QTAppModel = .shared, writer: QTAccountWriter = .shared) {
         guard !tracks.isEmpty, QTAccountGate.allows(.like, model: model) else { return }
         let player = model.player
         let like = tracks.contains { !player.isLiked($0) }
         let changed = tracks.filter { player.isLiked($0) != like }
-        for t in changed { player.toggleLike(t) }
-        model.showToast(QTLoc.tr(like ? "Added to Liked Songs" : "Removed from Liked Songs")) {
-            for t in changed where player.isLiked(t) == like { player.toggleLike(t) }
+        for t in changed { player.setLiked(t, like) }
+        let message = writer.savesToAccount
+            ? QTLoc.tr(like ? "Added to Liked Songs" : "Removed from Liked Songs")
+            : QTLoc.tr(like ? "Liked on this Mac" : "Removed from Liked Songs on this Mac", table: .live)
+        model.showToast(message) {
+            for t in changed { player.setLiked(t, !like) }
         }
     }
 
@@ -78,21 +82,48 @@ public enum QTTrackActions {
         model.showToast(QTLoc.tr("Link copied"))
     }
 
-    /// Session-only add (see `QTPlaylistEdits`); toast "Added “x” to y" with Undo.
+    /// Adds the songs not already in the playlist (`QTAccountWriter`); toast "Added “x” to y" (or "… on this Mac")
+    /// with Undo.
     public static func add(_ tracks: [QTTrack], to playlist: QTPlaylist, model: QTAppModel = .shared,
-                           edits: QTPlaylistEdits = .shared) {
+                           writer: QTAccountWriter = .shared) {
         let playable = tracks.filter(\.availability.isPlayable)
         guard !playable.isEmpty, QTAccountGate.allows(.addToPlaylist, model: model) else { return }
         let name = playlist.title.resolved
-        let added = edits.add(playable.map(\.videoId), to: playlist)
+        let added = writer.add(playable, to: playlist)
         guard !added.isEmpty else {
             model.showToast(QTLoc.tr("Already in %@", table: .main, name))
             return
         }
-        let message = added.count == 1
-            ? QTLoc.tr("Added “%@” to %@", playable.first { $0.videoId == added[0] }?.title ?? "", name)
-            : QTLoc.tr("Added %lld songs to %@", table: .main, added.count, name)
-        model.showToast(message) { edits.undoAdd(added, to: playlist.id) }
+        let message: String
+        switch (added.count == 1, writer.savesToAccount) {
+        case (true, true): message = QTLoc.tr("Added “%@” to %@", added[0].title, name)
+        case (false, true): message = QTLoc.tr("Added %lld songs to %@", table: .main, added.count, name)
+        case (true, false): message = QTLoc.tr("Added “%@” to %@ on this Mac", table: .live, added[0].title, name)
+        case (false, false): message = QTLoc.tr("Added %lld songs to %@ on this Mac", table: .live, added.count, name)
+        }
+        model.showToast(message) { writer.remove(added, from: playlist) }
+    }
+
+    /// Takes songs out of a playlist the account owns (⌫, context menu); Undo puts them back where they were.
+    public static func remove(_ tracks: [QTTrack], from playlist: QTPlaylist, model: QTAppModel = .shared,
+                              writer: QTAccountWriter = .shared) {
+        guard !tracks.isEmpty, writer.canEdit(playlist) else { return }
+        let before = writer.rows(of: playlist)
+        let ids = Set(tracks.map(\.videoId))
+        let removed = before.filter { ids.contains($0.videoId) }
+        guard !removed.isEmpty else { return }
+        writer.remove(removed, from: playlist)
+        let name = playlist.title.resolved
+        let message = removed.count == 1
+            ? QTLoc.tr("Removed “%@” from %@", table: .live, removed[0].title, name)
+            : QTLoc.tr("Removed %lld songs from %@", table: .live, removed.count, name)
+        model.showToast(message) {
+            // Back in, then each to its old place (first row first, so the later indexes hold).
+            writer.add(removed, to: playlist)
+            for (index, t) in before.enumerated() where ids.contains(t.videoId) {
+                writer.move([t], in: playlist, to: index)
+            }
+        }
     }
 
     /// Resolves dragged strings (links or ids) to catalog tracks.

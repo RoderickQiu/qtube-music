@@ -45,7 +45,7 @@ swift test  --scratch-path .build/<you> --disable-xctest
 - **Keep `--disable-xctest` for now.** Every suite uses Swift Testing, so the XCTest pass has nothing to run. A
   plain `swift test` still runs that pass first, and on this host (Xcode 27.1, macOS 27) the `QTUITests.xctest`
   runner hangs in it, blocked in a CFPreferences XPC call. Re-checked 2026-10-19.
-- **Current result:** 467 tests in 79 suites pass (after the R5 integration). They need no network and none of the git-ignored data.
+- **Current result:** 575 tests in 93 suites pass (after account writes, 2026-10-20). They need no network and none of the git-ignored data.
 - **Opt-in suites** are gated by environment variables:
   - `QT_LIVE=1`: live, anonymous InnerTube, lyrics and playback.
   - `QT_RECORD=1`: re-record the InnerTube fixtures.
@@ -96,7 +96,7 @@ All modules are SwiftPM targets. Ownership, frozen APIs, the privacy audit and t
 | Target | Role |
 |---|---|
 | `QTCore` | Models, queue, lyrics document, settings, mock catalog, `QTLoc` localization and every String Catalog (en and zh-Hans). |
-| `QTInnerTube` | YouTube Music API client (WEB_REMIX, SAPISIDHASH, cache, retries), parsers with the music-only filter, Song⇄Video counterparts. Account writes are gated off. |
+| `QTInnerTube` | YouTube Music API client (WEB_REMIX, SAPISIDHASH, cache, retries), parsers with the music-only filter, Song⇄Video counterparts; account writes (QTInnerTubeWrites.swift: sent once, never retried). |
 | `QTAuth` | Google sign-in in a throwaway WebKit store, session in the Keychain, non-persistent playback cookie jar. |
 | `QTPlayback` | Engine protocol, web engine (hidden WKWebView), video output and PiP, web-audio spectrum tap, queue controller, sole Now Playing owner. Also holds the unused native-spike code in `Native/`. |
 | `QTLyrics` | Lyrics: providers (YouTube Music, LRCLIB, AMLL; opt-in NetEase, Kugou and QQ), LRC/YRC/QRC/KRC/TTML parsers, matcher, SQLite cache, translation engines. |
@@ -152,8 +152,11 @@ None of these has been done. Each one needs the owner's yes.
 6. **Test the in-app Google login once.** Dev builds use the session imported from the browser profile. The normal
    Settings › Account › Sign In flow, which logs in through a throwaway store and saves the session to the
    Keychain, needs one real run by the owner.
-7. **Account writes.** Likes, playlist edits, adding to a playlist and saving the queue as a playlist all work in
-   the session only today. Nothing is written to YouTube Music: `setAllowsAccountWrites` is off.
+7. **Account writes: decided (on, with a Sync switch).** Signed in, likes, playlist management, subscriptions,
+   saved albums and brand-account switching change the account by default; Settings › Account › Sync off keeps
+   them on this Mac. Still open: one signed-in run against a real account. Every write path is tested only against
+   hand-built fixtures (shapes from ytmusicapi / Kaset), and the brand switch's `DATASYNC_ID` check against a fake
+   switcher.
 8. **Developer ID, notarization and a Sparkle feed.** Builds are ad-hoc signed, and Sparkle has no `SUFeedURL` or
    EdDSA key, so Check for Updates… is disabled. A Developer ID / Team ID build would also give dev builds a
    stable Keychain partition.

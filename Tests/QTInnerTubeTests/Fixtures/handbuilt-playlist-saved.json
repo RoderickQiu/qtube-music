@@ -1,0 +1,51 @@
+{
+  "responseContext" : {
+    "serviceTrackingParams" : [ { "service" : "GFEEDBACK", "params" : [ { "key" : "logged_in", "value" : "1" } ] } ]
+  },
+  "contents" : {
+    "twoColumnBrowseResultsRenderer" : {
+      "tabs" : [ {
+        "tabRenderer" : {
+          "content" : {
+            "sectionListRenderer" : {
+              "contents" : [ {
+                "musicResponsiveHeaderRenderer" : {
+                  "title" : { "runs" : [ { "text" : "Someone Else's Mix" } ] },
+                  "straplineTextOne" : { "runs" : [ { "text" : "Another Listener" } ] },
+                  "buttons" : [
+                    { "toggleButtonRenderer" : {
+                      "isToggled" : true,
+                      "defaultIcon" : { "iconType" : "LIBRARY_ADD" },
+                      "defaultServiceEndpoint" : { "likeEndpoint" : { "status" : "LIKE", "target" : { "playlistId" : "PLsaved" } } },
+                      "toggledServiceEndpoint" : { "likeEndpoint" : { "status" : "INDIFFERENT", "target" : { "playlistId" : "PLsaved" } } }
+                    } },
+                    { "musicPlayButtonRenderer" : { "playNavigationEndpoint" : { "watchPlaylistEndpoint" : { "playlistId" : "PLsaved" } } } }
+                  ]
+                }
+              } ]
+            }
+          }
+        }
+      } ],
+      "secondaryContents" : {
+        "sectionListRenderer" : {
+          "contents" : [ {
+            "musicPlaylistShelfRenderer" : {
+              "playlistId" : "PLsaved",
+              "contents" : [ {
+                "musicResponsiveListItemRenderer" : {
+                  "flexColumns" : [
+                    { "musicResponsiveListItemFlexColumnRenderer" : { "text" : { "runs" : [ { "text" : "Their Song", "navigationEndpoint" : { "watchEndpoint" : { "videoId" : "vidSaved001", "playlistId" : "PLsaved", "watchEndpointMusicSupportedConfigs" : { "watchEndpointMusicConfig" : { "musicVideoType" : "MUSIC_VIDEO_TYPE_ATV" } } } } } ] } } },
+                    { "musicResponsiveListItemFlexColumnRenderer" : { "text" : { "runs" : [ { "text" : "Artist D", "navigationEndpoint" : { "browseEndpoint" : { "browseId" : "UCartistD0000000000000000", "browseEndpointContextSupportedConfigs" : { "browseEndpointContextMusicConfig" : { "pageType" : "MUSIC_PAGE_TYPE_ARTIST" } } } } } ] } } }
+                  ],
+                  "fixedColumns" : [ { "musicResponsiveListItemFixedColumnRenderer" : { "text" : { "runs" : [ { "text" : "2:59" } ] } } } ],
+                  "playlistItemData" : { "videoId" : "vidSaved001" }
+                }
+              } ]
+            }
+          } ]
+        }
+      }
+    }
+  }
+}

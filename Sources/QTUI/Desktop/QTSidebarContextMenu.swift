@@ -3,19 +3,23 @@ import QTCore
 import SwiftUI
 
 // Owner: builder "desktop". Right-click menu of the sidebar's Liked Songs and playlist rows (spec §8: real
-// context menus, like Music's sidebar): Play, Shuffle, Play Next, Copy Link. Live playlists load their first page
-// on demand; the mock catalog plays its own lists. Read-only — nothing here writes to the account.
+// context menus, like Music's sidebar): Play, Shuffle, Play Next, Copy Link; for the account's own playlists also
+// Rename (in place), Edit Playlist… and Delete Playlist…, and Remove from Library for saved ones. Live playlists load
+// their first page on demand; the mock catalog plays its own lists. Changes go through `QTAccountWriter`.
 
 extension View {
-    /// Adds the playlist context menu to a sidebar row (only Liked Songs and playlists get one).
-    func qtSidebarContextMenu(for item: QTSidebarItem, playlist: QTPlaylist?) -> some View {
-        modifier(QTSidebarContextMenuModifier(item: item, playlist: playlist))
+    /// Adds the playlist context menu to a sidebar row (only Liked Songs and playlists get one). `onRename` starts
+    /// editing the row's name in place.
+    func qtSidebarContextMenu(for item: QTSidebarItem, playlist: QTPlaylist?,
+                              onRename: (() -> Void)? = nil) -> some View {
+        modifier(QTSidebarContextMenuModifier(item: item, playlist: playlist, onRename: onRename))
     }
 }
 
 private struct QTSidebarContextMenuModifier: ViewModifier {
     let item: QTSidebarItem
     let playlist: QTPlaylist?
+    let onRename: (() -> Void)?
 
     func body(content: Content) -> some View {
         // Guest mode has no library to play from (Liked Songs asks to sign in).
@@ -26,6 +30,21 @@ private struct QTSidebarContextMenuModifier: ViewModifier {
                 Button(QTLoc.tr("Play Next")) { target.playNext() }
                 Divider()
                 Button(QTLoc.tr("Copy Link")) { target.copyLink() }
+                if let playlist {
+                    // Playlists the library only saved (someone else's) can't be edited, only removed from it.
+                    let writer = QTAccountWriter.shared
+                    if writer.canEdit(playlist) {
+                        Divider()
+                        if let onRename { Button(QTLoc.tr("Rename", table: .main), action: onRename) }
+                        Button(QTLoc.tr("Edit Playlist…", table: .main)) { QTPlaylistActions.edit(playlist) }
+                        Button(QTLoc.tr("Delete Playlist…", table: .main)) { QTPlaylistActions.delete(playlist) }
+                    } else if playlist.isEditable == false, playlist.kind == .user {
+                        Divider()
+                        Button(QTLoc.tr("Remove from Library", table: .main)) {
+                            QTPlaylistActions.toggleSaved(id: playlist.id, title: playlist.title.resolved)
+                        }
+                    }
+                }
             }
         } else {
             content
@@ -66,7 +85,7 @@ struct QTSidebarPlaylistTarget {
         }
         let catalog = model.catalog
         if id == "LM" { return QTTrackCollection.liked(catalog).tracks }
-        guard let p = catalog.playlists.first(where: { $0.id == id }) else { return [] }
+        guard let p = store.playlist(id) else { return [] }
         return QTTrackCollection.playlist(p, catalog: catalog).tracks
     }
 

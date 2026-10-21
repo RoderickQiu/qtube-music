@@ -173,7 +173,19 @@ public enum QTInnerTubeParser {
             if case .watchPlaylist(let id, _)? = $0.navigation("playNavigationEndpoint") { id } else { nil }
         }.first ?? canonicalPlaylistId(response)
         return QTAlbumPage(album: album, playlistId: playlistId, summary: header["secondSubtitle"].text,
-                           description: header.first("description").flatMap { $0.text }, shelves: shelves)
+                           description: header.first("description").flatMap { $0.text }, shelves: shelves,
+                           isSaved: savedState(header))
+    }
+
+    /// The header's save-to-library toggle (`toggleButtonRenderer` whose action is a `likeEndpoint` on the album's or
+    /// playlist's id): `isToggled`, else read from the action, which is the opposite of the current state. nil when
+    /// there is none (signed-out pages offer sign-in instead).
+    static func savedState(_ header: QTJSON) -> Bool? {
+        for toggle in header.all("toggleButtonRenderer") {
+            guard let status = toggle[path: "defaultServiceEndpoint", "likeEndpoint", "status"].string else { continue }
+            return toggle["isToggled"].bool ?? (status == "INDIFFERENT")
+        }
+        return nil
     }
 
     /// The `musicResponsiveHeaderRenderer` (2024+ pages) or legacy detail header.
@@ -217,11 +229,23 @@ public enum QTInnerTubeParser {
         let groups = summary.groups
         let count: Int? = groups.count >= 2 ? leadingInteger(groups[groups.count - 2].text) : nil
         let id = browseId == "VLLM" ? "LM" : browseId
+        // The account's own playlists come with the editable header (ytmusicapi's `owned`), which also states who can
+        // see them; Liked Music is the account's but isn't edited as a playlist.
+        let editable = (sections + [response["header"]]).lazy
+            .compactMap { $0["musicEditablePlaylistDetailHeaderRenderer"].object.map(QTJSON.object) }.first
+        let privacy = editable?[path: "editHeader", "musicPlaylistEditHeaderRenderer", "privacy"].string
+            .flatMap(QTPlaylistPrivacy.init(rawValue:))
+        // 2024 headers nest it: `description.musicDescriptionShelfRenderer.description.runs`.
+        var node = header.first("description")
+        for _ in 0..<3 where node != nil && node?.text == nil { node = node?.first("description") }
+        let description = node?.text
         let playlist = QTPlaylist(id: id, title: .verbatim(title), kind: QTParse.playlistKind(browseId), owner: owner,
-                                  artwork: QTParse.artwork(header["thumbnail"]), tracks: tracks)
+                                  artwork: QTParse.artwork(header["thumbnail"]), tracks: tracks,
+                                  isEditable: id == "LM" ? false : editable != nil, privacy: privacy,
+                                  description: description)
         return QTPlaylistPage(playlist: playlist, summary: summary.isEmpty ? nil : summary.text,
-                              description: header.first("description").flatMap { $0.text }, totalTrackCount: count,
-                              continuation: continuation)
+                              description: description, totalTrackCount: count,
+                              continuation: continuation, isSaved: editable == nil ? savedState(header) : nil)
     }
 
     /// The next page of a playlist / album / library song list.
@@ -267,6 +291,9 @@ public enum QTInnerTubeParser {
                                                  artwork: QTParse.artwork(header["thumbnail"])))
         page.audience = header["monthlyListenerCount"].text
         page.description = header["description"].text
+        let subscribe = header[path: "subscriptionButton", "subscribeButtonRenderer"]
+        page.channelId = subscribe["channelId"].string
+        page.isSubscribed = page.channelId == nil ? nil : subscribe["subscribed"].bool
         var albumShelves = 0
         for (index, section) in QTShelfParser.sections(response).enumerated() {
             switch section.rendererKey {

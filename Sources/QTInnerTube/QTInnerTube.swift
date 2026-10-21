@@ -58,4 +58,10 @@ public enum QTInnerTube {
     public static let musicVideoTypeKey = "musicVideoType"
     /// Browse id of Liked Music.
     public static let likedSongsBrowseId = "VLLM"
+
+    /// Raw playlist id (`PL…`, `OLAK…`) for a browse id (`VLPL…`).
+    public static func rawPlaylistId(_ id: String) -> String { QTParse.rawPlaylistId(id) }
+
+    /// Browse id (`VL…`) for a raw playlist id.
+    public static func playlistBrowseId(_ id: String) -> String { QTParse.playlistBrowseId(id) }
 }

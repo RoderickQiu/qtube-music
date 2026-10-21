@@ -1,0 +1,11 @@
+{
+  "responseContext" : {
+    "serviceTrackingParams" : [ { "service" : "GFEEDBACK", "params" : [ { "key" : "logged_in", "value" : "1" } ] } ]
+  },
+  "status" : "STATUS_SUCCEEDED",
+  "playlistEditResults" : [
+    { "playlistEditVideoAddedResultData" : { "videoId" : "vidNew001", "setVideoId" : "SETNEW001" } },
+    { "playlistEditVideoAddedResultData" : { "videoId" : "vidNew002", "setVideoId" : "SETNEW002" } }
+  ],
+  "actions" : [ { "addToToastAction" : { "item" : { "notificationActionRenderer" : { "responseText" : { "runs" : [ { "text" : "Saved to Road Trip" } ] } } } } } ]
+}

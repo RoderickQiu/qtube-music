@@ -13,6 +13,8 @@ public struct QTTrackCollection: Identifiable, Sendable {
     public var tracks: [QTTrack]
     /// Playlist id for drop targets / remove; nil for derived collections.
     public var playlistID: String?
+    /// What Add to Library saves: an album's `OLAK…` playlist, or someone else's playlist. nil = nothing to save.
+    public var libraryID: String?
 
     public init(id: String, kind: Kind, title: String, artwork: [QTArtworkImage] = [], tracks: [QTTrack], playlistID: String? = nil) {
         self.id = id
@@ -77,8 +79,11 @@ public struct QTTrackCollection: Identifiable, Sendable {
 
     @MainActor
     public static func playlist(_ p: QTPlaylist, catalog: QTMockCatalog, edits: QTPlaylistEdits = .shared) -> QTTrackCollection {
-        QTTrackCollection(id: "playlist:\(p.id)", kind: .playlist, title: p.title.resolved, artwork: p.artwork,
-                          tracks: edits.tracks(for: p, catalog: catalog), playlistID: p.id)
+        var c = QTTrackCollection(id: "playlist:\(p.id)", kind: .playlist, title: p.title.resolved, artwork: p.artwork,
+                                  tracks: edits.tracks(for: p, catalog: catalog), playlistID: p.id)
+        // Someone else's playlist can be saved to the library; the account's own (or one made here) is already there.
+        if p.isEditable == false, p.kind == .user { c.libraryID = p.id }
+        return c
     }
 
     public static func songs(_ catalog: QTMockCatalog) -> QTTrackCollection {
@@ -131,40 +136,5 @@ public struct QTTrackCollection: Identifiable, Sendable {
     public static func search(_ query: String, catalog: QTMockCatalog) -> QTTrackCollection {
         let tracks = catalog.tracks.filter { QTTextFolding.matches(query: query, in: $0.qtSearchText) }
         return QTTrackCollection(id: "search", kind: .search, title: query, tracks: tracks)
-    }
-}
-
-/// Session-only playlist edits from drag-to-playlist / context menus. Nothing is written to the user's
-/// YouTube Music account (ask-before item) — the M3 data layer replaces this with real edits.
-@MainActor
-@Observable
-public final class QTPlaylistEdits {
-    public static let shared = QTPlaylistEdits()
-
-    /// Playlist id → tracks appended this session (in order).
-    public private(set) var added: [String: [String]] = [:]
-
-    public init() {}
-
-    public func tracks(for playlist: QTPlaylist, catalog: QTMockCatalog) -> [QTTrack] {
-        let base = playlist.tracks ?? []
-        let extra = (added[playlist.id] ?? []).compactMap { catalog.track(id: $0) }
-        return base + extra
-    }
-
-    /// Appends tracks not already in the playlist; returns the ids actually added (for Undo).
-    @discardableResult
-    public func add(_ trackIDs: [String], to playlist: QTPlaylist) -> [String] {
-        let existing = Set((playlist.tracks ?? []).map(\.videoId) + (added[playlist.id] ?? []))
-        var seen = existing
-        let fresh = trackIDs.filter { seen.insert($0).inserted }
-        guard !fresh.isEmpty else { return [] }
-        added[playlist.id, default: []].append(contentsOf: fresh)
-        return fresh
-    }
-
-    public func undoAdd(_ trackIDs: [String], to playlistID: String) {
-        let drop = Set(trackIDs)
-        added[playlistID]?.removeAll { drop.contains($0) }
     }
 }

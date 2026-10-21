@@ -50,8 +50,8 @@ public enum QTRequestIdentity: Sendable, Hashable {
 /// YouTube Music InnerTube client (WEB_REMIX). One per app; safe to share across tasks.
 ///
 /// Anonymous by default. With a `QTInnerTubeCredentialsProvider` (QTAuth) requests carry the session cookies and a
-/// SAPISIDHASH. Account writes (likes, playlist edits) are implemented but refused unless `allowsAccountWrites` is
-/// turned on — writing to the user's account needs the user's go-ahead.
+/// SAPISIDHASH. Account writes (likes, playlist edits, subscriptions) are refused unless `allowsAccountWrites` is on:
+/// the app turns it on only while signed in with Settings › Account › Sync on (`QTAccountWriter`).
 public actor QTInnerTubeClient {
     public private(set) var configuration: QTInnerTubeConfiguration
     public private(set) var allowsAccountWrites = false
@@ -118,7 +118,7 @@ public actor QTInnerTubeClient {
         cache.removeAll()
     }
 
-    /// Enables like/playlist-edit endpoints. Off by default; only turn on with the user's consent.
+    /// Enables the write endpoints (likes, playlists, subscriptions). Off by default; on only while syncing.
     public func setAllowsAccountWrites(_ allowed: Bool) {
         allowsAccountWrites = allowed
     }
@@ -290,6 +290,9 @@ public actor QTInnerTubeClient {
     }
 
     private func perform(_ request: URLRequest, authenticated: Bool, endpoint: String) async throws -> QTJSON {
+        // Writes are never retried: a `playlist/create` or an add that timed out may still have landed, and sending
+        // it again would make a second playlist or a duplicate row.
+        let retry = Self.writeEndpoints.contains(endpoint) ? QTRetryPolicy.none : retry
         var attempt = 0
         while true {
             attempt += 1
@@ -640,26 +643,13 @@ public actor QTInnerTubeClient {
         return lost
     }
 
-    // MARK: Writes (gated: never exercised against a live account without the user's consent)
-
-    public enum QTLikeStatus: String, Sendable { case like = "like/like", dislike = "like/dislike", none = "like/removelike" }
-
-    public func rate(videoId: String, _ status: QTLikeStatus) async throws {
-        _ = try await send(status.rawValue, body: ["target": ["videoId": .string(videoId)]], requiresAuth: true)
-    }
-
-    public func addToPlaylist(_ playlistId: String, videoIds: [String]) async throws {
-        let actions: [QTJSON] = videoIds.map { ["action": "ACTION_ADD_VIDEO", "addedVideoId": .string($0)] }
-        _ = try await send("browse/edit_playlist", body: ["playlistId": .string(QTParse.rawPlaylistId(playlistId)),
-                                                          "actions": .array(actions)], requiresAuth: true)
-    }
-
-    /// `setVideoId` is the per-row `playlistSetVideoId`.
-    public func removeFromPlaylist(_ playlistId: String, items: [(videoId: String, setVideoId: String)]) async throws {
-        let actions: [QTJSON] = items.map {
-            ["action": "ACTION_REMOVE_VIDEO", "removedVideoId": .string($0.videoId), "setVideoId": .string($0.setVideoId)]
+    /// Drops cached answers whose key mentions any of `needles` (browse ids, playlist ids) and every cached
+    /// continuation page (they can't be tied to their list). Writes call it so the next read sees the change.
+    func invalidateCache(mentioning needles: [String]) {
+        cache.removeAll { key in
+            key.contains("\"continuation\"") || needles.contains { !$0.isEmpty && key.contains($0) }
         }
-        _ = try await send("browse/edit_playlist", body: ["playlistId": .string(QTParse.rawPlaylistId(playlistId)),
-                                                          "actions": .array(actions)], requiresAuth: true)
     }
+
+    // Writes (likes, playlists, subscriptions, saved albums, accounts) are in QTInnerTubeWrites.swift.
 }

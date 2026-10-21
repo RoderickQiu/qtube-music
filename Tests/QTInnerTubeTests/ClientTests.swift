@@ -270,7 +270,7 @@ actor FakeCredentials: QTInnerTubeCredentialsProvider {
         let r = try #require(t.recorded.last)
         #expect(r.url?.path.hasSuffix("/like/like") == true)
         #expect(r.jsonBody[path: "target", "videoId"].string == "AeXLsAPORb4")
-        t.enqueue("browse/edit_playlist", json: [:])
+        t.enqueue("browse/edit_playlist", json: ["status": "STATUS_SUCCEEDED"])
         try await client.removeFromPlaylist("VLPLx", items: [(videoId: "v1", setVideoId: "s1")])
         let edit = try #require(t.recorded.last?.jsonBody)
         #expect(edit["playlistId"].string == "PLx")

@@ -1,0 +1,31 @@
+{
+  "responseContext" : {
+    "serviceTrackingParams" : [ { "service" : "GFEEDBACK", "params" : [ { "key" : "logged_in", "value" : "1" } ] } ]
+  },
+  "contents" : [ {
+    "addToPlaylistRenderer" : {
+      "playlists" : [
+        { "playlistAddToOptionRenderer" : {
+          "playlistId" : "PLowned",
+          "title" : { "simpleText" : "Road Trip" },
+          "privacy" : "UNLISTED",
+          "containsSelectedVideos" : "ALL",
+          "privacyIcon" : { "iconType" : "PRIVACY_UNLISTED" }
+        } },
+        { "playlistAddToOptionRenderer" : {
+          "playlistId" : "PLsecond",
+          "title" : { "simpleText" : "Focus" },
+          "privacy" : "PRIVATE",
+          "containsSelectedVideos" : "NONE",
+          "privacyIcon" : { "iconType" : "PRIVACY_PRIVATE" }
+        } },
+        { "playlistAddToOptionRenderer" : {
+          "playlistId" : "PLowned",
+          "title" : { "simpleText" : "Road Trip (repeat)" },
+          "containsSelectedVideos" : "NONE"
+        } }
+      ],
+      "actions" : [ { "addToPlaylistCreateRenderer" : { "serviceEndpoint" : { "createPlaylistServiceEndpoint" : { "videoIds" : [ "vidOwned001" ] } } } } ]
+    }
+  } ]
+}

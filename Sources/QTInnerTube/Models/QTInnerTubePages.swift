@@ -101,14 +101,18 @@ public struct QTAlbumPage: Sendable, Hashable {
     public var description: String?
     /// "More from …" / "Other versions" shelves.
     public var shelves: [QTShelf]
+    /// The album is saved in the signed-in library (its header's save toggle); nil when the page doesn't say
+    /// (signed out).
+    public var isSaved: Bool?
 
     public init(album: QTAlbum, playlistId: String? = nil, summary: String? = nil, description: String? = nil,
-                shelves: [QTShelf] = []) {
+                shelves: [QTShelf] = [], isSaved: Bool? = nil) {
         self.album = album
         self.playlistId = playlistId
         self.summary = summary
         self.description = description
         self.shelves = shelves
+        self.isSaved = isSaved
     }
 }
 
@@ -121,14 +125,18 @@ public struct QTPlaylistPage: Sendable, Hashable {
     /// Total number of tracks if YouTube Music states it (the first page holds at most ~100).
     public var totalTrackCount: Int?
     public var continuation: QTContinuation?
+    /// Someone else's playlist saved in the signed-in library (the header's save toggle); nil when the page doesn't
+    /// say (signed out, or the account's own playlist).
+    public var isSaved: Bool?
 
     public init(playlist: QTPlaylist, summary: String? = nil, description: String? = nil, totalTrackCount: Int? = nil,
-                continuation: QTContinuation? = nil) {
+                continuation: QTContinuation? = nil, isSaved: Bool? = nil) {
         self.playlist = playlist
         self.summary = summary
         self.description = description
         self.totalTrackCount = totalTrackCount
         self.continuation = continuation
+        self.isSaved = isSaved
     }
 }
 
@@ -163,6 +171,10 @@ public struct QTArtistPage: Sendable, Hashable {
     public var relatedArtists: [QTArtist]
     /// Every carousel in server order (live performances, featured on…), music only.
     public var shelves: [QTShelf]
+    /// The channel Subscribe acts on (`subscribeButtonRenderer.channelId`) and whether the account subscribes; nil
+    /// when the page has no subscribe button (or doesn't say, signed out).
+    public var channelId: String?
+    public var isSubscribed: Bool?
 
     public init(artist: QTArtist, audience: String? = nil, description: String? = nil, songs: [QTTrack] = [],
                 songsPlaylistId: String? = nil, albums: [QTAlbum] = [], singles: [QTAlbum] = [],

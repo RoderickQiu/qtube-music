@@ -256,6 +256,7 @@ struct QTLibraryActions: View {
             .qtGlassButton(.primary)
             .help(QTLoc.tr("Play"))
             .accessibilityIdentifier("qt.library.play")
+            .disabled(playable.isEmpty)
 
             Button {
                 QTTrackActions.shuffle(rows, source: collection.queueSource)
@@ -265,11 +266,32 @@ struct QTLibraryActions: View {
             .qtGlassButton(.secondary)
             .help(QTLoc.tr("Shuffle"))
             .accessibilityIdentifier("qt.library.shuffle")
+            .disabled(playable.isEmpty)
+
+            if let libraryID = Self.libraryID(collection) {
+                // Music's "+ Add": saves the album (or someone else's playlist) to the library; a checkmark once in.
+                let saved = QTAccountWriter.shared.isSaved(libraryID) == true
+                let label = QTLoc.tr(saved ? "Remove from Library" : "Add to Library", table: .main)
+                Button {
+                    QTPlaylistActions.toggleSaved(id: libraryID, title: collection.title)
+                } label: {
+                    Label {
+                        Text(label)
+                    } icon: {
+                        Image(systemName: saved ? "checkmark" : "plus").frame(width: 20, height: 20)
+                            .contentTransition(.symbolEffect(.replace))
+                    }
+                }
+                .qtGlassButton(.secondary, iconOnly: true)
+                .help(label)
+                .accessibilityLabel(label)
+                .accessibilityIdentifier("qt.library.save")
+            }
 
             // A real button that pops a native NSMenu under itself: a SwiftUI Menu restyled as a glass button
             // drew fine but had no Accessibility element, so VoiceOver / Voice Control couldn't reach these items.
             Button {
-                anchor.popUp(Self.moreMenu(playable))
+                anchor.popUp(Self.moreMenu(playable, collection: collection))
             } label: {
                 Label {
                     Text(QTLoc.tr("More"))
@@ -286,17 +308,46 @@ struct QTLibraryActions: View {
             .accessibilityIdentifier("qt.library.more")
         }
         .controlSize(.large)
-        .disabled(playable.isEmpty)
     }
 
     @State private var anchor = QTMenuAnchor()
 
-    static func moreMenu(_ playable: [QTTrack]) -> NSMenu {
+    /// Add to Library applies to albums and other people's playlists, signed in (or the demo library).
+    static func libraryID(_ collection: QTTrackCollection) -> String? {
+        let store = QTLiveCatalogStore.shared
+        guard store.hasLibrary || store.mode == .mock, let id = collection.libraryID else { return nil }
+        return id
+    }
+
+    /// The playlist a page shows when the account owns it (Edit / Delete).
+    static func editablePlaylist(_ collection: QTTrackCollection) -> QTPlaylist? {
+        guard collection.kind == .playlist, let id = collection.playlistID,
+              let p = QTLiveCatalogStore.shared.playlist(id), QTAccountWriter.shared.canEdit(p) else { return nil }
+        return p
+    }
+
+    static func moreMenu(_ playable: [QTTrack], collection: QTTrackCollection? = nil) -> NSMenu {
         let menu = NSMenu()
         menu.addItem(QTClosureMenuItem(QTLoc.tr("Play Next")) { QTTrackActions.playNext(playable) })
         menu.addItem(QTClosureMenuItem(QTLoc.tr("Add to Queue")) { QTTrackActions.addToQueue(playable) })
+        if let collection, !QTLiveCatalogStore.shared.isGuest {
+            let add = NSMenuItem(title: QTLoc.tr("Add to Playlist"), action: nil, keyEquivalent: "")
+            add.submenu = QTAddToPlaylistMenu.make(for: playable, excluding: collection.playlistID)
+            menu.addItem(add)
+            if let id = libraryID(collection) {
+                let saved = QTAccountWriter.shared.isSaved(id) == true
+                menu.addItem(QTClosureMenuItem(QTLoc.tr(saved ? "Remove from Library" : "Add to Library", table: .main)) {
+                    QTPlaylistActions.toggleSaved(id: id, title: collection.title)
+                })
+            }
+        }
         menu.addItem(.separator())
         menu.addItem(QTClosureMenuItem(QTLoc.tr("Copy Link")) { QTTrackActions.copyLinks(playable) })
+        if let collection, let p = editablePlaylist(collection) {
+            menu.addItem(.separator())
+            menu.addItem(QTClosureMenuItem(QTLoc.tr("Edit Playlist…", table: .main)) { QTPlaylistActions.edit(p) })
+            menu.addItem(QTClosureMenuItem(QTLoc.tr("Delete Playlist…", table: .main)) { QTPlaylistActions.delete(p) })
+        }
         return menu
     }
 }

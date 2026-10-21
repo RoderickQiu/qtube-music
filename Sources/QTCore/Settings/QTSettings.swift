@@ -191,6 +191,9 @@ public struct QTSettings: Codable, Sendable, Hashable {
     public var miniPlayer = QTMiniPlayerPrefs()
     /// Premium-engine features (greyed out for free accounts).
     public var playbackEffects = QTPlaybackEffectsPrefs()
+    /// Settings › Account › "Sync likes and playlists to YouTube Music" (on by default): likes, playlist edits,
+    /// subscriptions and saved albums change the signed-in account. Off: they stay on this Mac.
+    public var syncsToYouTubeMusic = true
 
     public init() {}
 
@@ -213,6 +216,7 @@ public struct QTSettings: Codable, Sendable, Hashable {
         menuBarScrollsTitle = (try? c.decodeIfPresent(Bool.self, forKey: .menuBarScrollsTitle)) ?? d.menuBarScrollsTitle
         miniPlayer = (try? c.decodeIfPresent(QTMiniPlayerPrefs.self, forKey: .miniPlayer)) ?? d.miniPlayer
         playbackEffects = (try? c.decodeIfPresent(QTPlaybackEffectsPrefs.self, forKey: .playbackEffects)) ?? d.playbackEffects
+        syncsToYouTubeMusic = (try? c.decodeIfPresent(Bool.self, forKey: .syncsToYouTubeMusic)) ?? d.syncsToYouTubeMusic
     }
 }
 
