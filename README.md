@@ -79,8 +79,17 @@ macOS may ask once whether QTube Music can use its Keychain item. Click **Always
 
 ## Sign-in and privacy
 
-- **Signing in** happens in a Google sign-in window inside the app. QTube Music keeps your YouTube Music session in
-  your **Keychain**. It never writes your password or cookies anywhere else.
+- **Signing in** happens in a Google sign-in window inside the app: a private page, deleted afterwards, with the
+  address and a lock above it (click the lock for Google's certificate; a page that isn't Google's gets a warning).
+  QTube Music keeps only Google's sign-in cookies, in your **Keychain**. It never sees or stores your password, and
+  never writes the cookies anywhere else.
+- **Passkeys and security keys** only work in apps Apple approves as web browsers, so the sign-in window hides them
+  and Google offers your password with a phone prompt, a code or "Try another way" instead. If your account has only
+  passkeys or uses Advanced Protection, use **Settings › Account › Import Session**: sign in to YouTube Music in
+  Firefox (in a profile you won't use for YouTube afterwards) or export a `cookies.txt` from a private window and close
+  it, then import. Only the Google sign-in cookies are taken. Chrome and Safari can't be imported.
+- **Signing out** removes the session from your Keychain and also ends it at Google, so it leaves your account's
+  device list. Settings › Account links to that list (**Your Devices…**).
 - **What goes where.** Browsing and playback talk to YouTube Music, as the web player does, so your plays show up in
   your YouTube Music history. Searches are always sent signed out, so they don't land in your search history.
   Lyrics come from LRCLIB, the AMLL TTML DB on GitHub, YouTube Music, and NetEase, Kugou and QQ Music only if you

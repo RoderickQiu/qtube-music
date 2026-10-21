@@ -45,7 +45,7 @@ swift test  --scratch-path .build/<you> --disable-xctest
 - **Keep `--disable-xctest` for now.** Every suite uses Swift Testing, so the XCTest pass has nothing to run. A
   plain `swift test` still runs that pass first, and on this host (Xcode 27.1, macOS 27) the `QTUITests.xctest`
   runner hangs in it, blocked in a CFPreferences XPC call. Re-checked 2026-10-19.
-- **Current result:** 467 tests in 79 suites pass (after the R5 integration). They need no network and none of the git-ignored data.
+- **Current result:** 566 tests in 93 suites pass (after the sign-in trust / session import work). They need no network and none of the git-ignored data.
 - **Opt-in suites** are gated by environment variables:
   - `QT_LIVE=1`: live, anonymous InnerTube, lyrics and playback.
   - `QT_RECORD=1`: re-record the InnerTube fixtures.
@@ -78,7 +78,7 @@ Launch arguments apply to one session only and are never saved. Pass them as
 | Script | What it does |
 |---|---|
 | `Scripts/build-app.sh` | Builds, bundles and ad-hoc signs the app (`QT_VARIANT`, `QT_CONFIG`, `QT_SCRATCH`, `--print-path`). |
-| `Scripts/shoot.sh <name> [--window main\|mini\|desktopLyrics\|menuBarPopover\|settings]… [args]` | Launches in the background on the test display (`$QT_SCREEN`; otherwise U270CA if connected, else the built-in display). Waits until the app is ready, captures each window into the main checkout's `screenshots/` and quits. It retakes captures that are thumbnails or caught mid-animation, and gives focus back if the app took it. Uses `-qt.catalog mock` unless you pass `-qt.catalog`. Malformed launch arguments (a key without a value, a stray word) stop it at once; a one-string `"-qt.surface stage -qt.paused YES"` is split. |
+| `Scripts/shoot.sh <name> [--window main\|mini\|desktopLyrics\|menuBarPopover\|settings\|signIn\|signInHelp]… [args]` | Launches in the background on the test display (`$QT_SCREEN`; otherwise U270CA if connected, else the built-in display). Waits until the app is ready, captures each window into the main checkout's `screenshots/` and quits. It retakes captures that are thumbnails or caught mid-animation, and gives focus back if the app took it. Uses `-qt.catalog mock` unless you pass `-qt.catalog`. Malformed launch arguments (a key without a value, a stray word) stop it at once; a one-string `"-qt.surface stage -qt.paused YES"` is split. |
 | `Scripts/shoot-region.sh` | Screen-region capture for windows that aren't plain rectangles (mini player, unlocked desktop lyrics), kept inside the test display. Same argument checks and demo-catalog default as `shoot.sh`. |
 | `Scripts/contact-sheet.sh <name> [--title T] [--columns N] <img> <caption>…` | Makes one captioned PNG in `screenshots/`. |
 | `Scripts/perf-cpu.py <label> [--seconds 30] [--trace …] [args]` | Measures app and WebContent CPU over a fixed window. Appends a line to `.build/perf-cpu.jsonl`; a run where the app wasn't playing or used another engine than asked is marked `"valid": false` and exits 1. Method and results are in [docs/perf.md](perf.md). |
@@ -97,7 +97,7 @@ All modules are SwiftPM targets. Ownership, frozen APIs, the privacy audit and t
 |---|---|
 | `QTCore` | Models, queue, lyrics document, settings, mock catalog, `QTLoc` localization and every String Catalog (en and zh-Hans). |
 | `QTInnerTube` | YouTube Music API client (WEB_REMIX, SAPISIDHASH, cache, retries), parsers with the music-only filter, Song⇄Video counterparts. Account writes are gated off. |
-| `QTAuth` | Google sign-in in a throwaway WebKit store, session in the Keychain, non-persistent playback cookie jar. |
+| `QTAuth` | Google sign-in in a throwaway WebKit store (WebAuthn hidden, address strip), session in the Keychain, non-persistent playback cookie jar, sign-out at Google, session import from Firefox / cookies.txt. |
 | `QTPlayback` | Engine protocol, web engine (hidden WKWebView), video output and PiP, web-audio spectrum tap, queue controller, sole Now Playing owner. Also holds the unused native-spike code in `Native/`. |
 | `QTLyrics` | Lyrics: providers (YouTube Music, LRCLIB, AMLL; opt-in NetEase, Kugou and QQ), LRC/YRC/QRC/KRC/TTML parsers, matcher, SQLite cache, translation engines. |
 | `QTIntegrations` | Last.fm and Discord Rich Presence, both off by default. |

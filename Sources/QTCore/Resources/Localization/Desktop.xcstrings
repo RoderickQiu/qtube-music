@@ -1,6 +1,16 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "%@ (Default)" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@（默认）"
+          }
+        }
+      }
+    },
     "%lld pt" : {
       "localizations" : {
         "zh-Hans" : {
@@ -57,6 +67,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "请先在 last.fm 上允许访问"
+          }
+        }
+      }
+    },
+    "Anyone with this file can use your Google account. QTube Music keeps its own copy in your Keychain." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "任何拿到此文件的人都能使用你的 Google 账户。QTube Music 已在你的钥匙串中保存了自己的副本。"
           }
         }
       }
@@ -151,6 +171,16 @@
         }
       }
     },
+    "Choose Folder…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选取文件夹…"
+          }
+        }
+      }
+    },
     "Close Mini Player" : {
       "localizations" : {
         "zh-Hans" : {
@@ -207,6 +237,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "未能连接 Last.fm"
+          }
+        }
+      }
+    },
+    "Couldn’t read Firefox’s cookies. Quit Firefox and try again." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法读取 Firefox 的 Cookie。请退出 Firefox 后重试。"
+          }
+        }
+      }
+    },
+    "Couldn’t read this file." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法读取此文件。"
+          }
+        }
+      }
+    },
+    "Couldn’t save the session in your Keychain." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法将会话保存到你的钥匙串。"
           }
         }
       }
@@ -291,12 +351,32 @@
         }
       }
     },
+    "Firefox: sign in to music.youtube.com in a profile you won’t use for YouTube afterwards, quit Firefox, then import." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Firefox：在一个之后不再用来访问 YouTube 的配置文件中登录 music.youtube.com，退出 Firefox，然后导入。"
+          }
+        }
+      }
+    },
     "Font" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "字体"
+          }
+        }
+      }
+    },
+    "For accounts that can’t sign in here, such as passkey-only or Advanced Protection accounts." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "适用于无法在这里登录的账户，例如只有通行密钥或启用了高级保护的账户。"
           }
         }
       }
@@ -341,12 +421,62 @@
         }
       }
     },
+    "Import Session" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "导入会话"
+          }
+        }
+      }
+    },
+    "Import cookies.txt…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "导入 cookies.txt…"
+          }
+        }
+      }
+    },
+    "Import from Firefox…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "从 Firefox 导入…"
+          }
+        }
+      }
+    },
+    "Import from which Firefox profile?" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "要从哪个 Firefox 配置文件导入？"
+          }
+        }
+      }
+    },
     "Integrations" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "集成"
+          }
+        }
+      }
+    },
+    "Keep" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保留"
           }
         }
       }
@@ -471,6 +601,26 @@
         }
       }
     },
+    "Move the cookies file to the Trash?" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将 Cookie 文件移到废纸篓？"
+          }
+        }
+      }
+    },
+    "Move to Trash" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "移到废纸篓"
+          }
+        }
+      }
+    },
     "Native engine" : {
       "localizations" : {
         "zh-Hans" : {
@@ -487,6 +637,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "需要登录 YouTube Music Premium 账户。"
+          }
+        }
+      }
+    },
+    "No YouTube Music sign-in found in this Firefox profile." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此 Firefox 配置文件中没有 YouTube Music 的登录。"
+          }
+        }
+      }
+    },
+    "No YouTube Music sign-in found in this file." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此文件中没有 YouTube Music 的登录。"
           }
         }
       }
@@ -527,6 +697,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "一行"
+          }
+        }
+      }
+    },
+    "Only Google’s sign-in cookies are kept, in your Keychain. Signing out in QTube Music also signs that browser session out." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "只保留 Google 的登录 Cookie，存放在你的钥匙串中。在 QTube Music 中退出登录，也会让那个浏览器会话退出登录。"
           }
         }
       }
@@ -931,6 +1111,16 @@
         }
       }
     },
+    "Signing out also ends this session at Google." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "退出登录时也会在 Google 端结束此会话。"
+          }
+        }
+      }
+    },
     "Size" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1001,12 +1191,42 @@
         }
       }
     },
+    "This Firefox stores cookies in a way QTube Music can’t read. Use a cookies.txt file instead." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这个版本的 Firefox 存储 Cookie 的方式 QTube Music 无法读取，请改用 cookies.txt 文件。"
+          }
+        }
+      }
+    },
     "This Mac doesn’t support Apple Intelligence" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "这台 Mac 不支持 Apple 智能"
+          }
+        }
+      }
+    },
+    "This file is too large to be a cookies file." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此文件太大，不是 Cookie 文件。"
+          }
+        }
+      }
+    },
+    "This folder isn’t a Firefox profile. Choose the folder that holds cookies.sqlite." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此文件夹不是 Firefox 配置文件。请选取包含 cookies.sqlite 的文件夹。"
           }
         }
       }
@@ -1161,12 +1381,32 @@
         }
       }
     },
+    "YouTube Music says this session has ended. Sign in again in the browser, then import again." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "YouTube Music 表示此会话已结束。请在浏览器中重新登录，然后再导入一次。"
+          }
+        }
+      }
+    },
     "YouTube’s player doesn’t support these. Turn on the native engine to use them." : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "YouTube 播放器不支持这些功能。打开原生引擎即可使用。"
+          }
+        }
+      }
+    },
+    "Your Devices…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的设备…"
           }
         }
       }
@@ -1187,6 +1427,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "你的资料库和喜欢的音乐会保留在 YouTube Music 账户中。"
+          }
+        }
+      }
+    },
+    "cookies.txt: sign in in a private window, export cookies.txt with a cookies extension, close the window, then import the file." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cookies.txt：在隐私窗口中登录，用 Cookie 扩展导出 cookies.txt，关闭该窗口，然后导入该文件。"
+          }
+        }
+      }
+    },
+    "macOS didn’t let QTube Music read Firefox’s data. Try again and choose the profile folder yourself." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS 不允许 QTube Music 读取 Firefox 的数据。请重试，并自行选取配置文件所在的文件夹。"
           }
         }
       }

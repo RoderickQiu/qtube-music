@@ -7,6 +7,8 @@ import SwiftUI
 // Owner: builder "desktop". Settings › Account: who is signed in to YouTube Music, sign in / sign out, and the
 // playback engine. Reads `QTAuthController.state` (`QTAuthState`) from `model.authController`, which
 // `QTLiveCatalogStore` (data-live) sets at launch and restores from the Keychain. Signing out asks first, the way System Settings does.
+// Signed out, a collapsed "Import Session" disclosure at the bottom takes a session from Firefox or a cookies.txt file
+// (`QTSessionImportSection`): the way in for accounts that can't finish Google's sign-in in an app.
 
 /// What the Account tab shows: the controller's state, or (DEBUG screenshots) a preview state.
 struct QTAccountSnapshot: Equatable {
@@ -17,6 +19,11 @@ struct QTAccountSnapshot: Equatable {
         if let n = account?.name, !n.isEmpty { return n }
         if case .signedIn(let n, _) = state, !n.isEmpty { return n }
         return nil
+    }
+
+    var isSignedIn: Bool {
+        if case .signedIn = state { return true }
+        return false
     }
 
     var isPremium: Bool {
@@ -43,8 +50,12 @@ struct QTAccountSnapshot: Equatable {
 struct QTAccountSettings: View {
     @Environment(QTAppModel.self) private var model
     @State private var confirmSignOut = false
+    /// A cookies.txt that was just imported: offered for the Trash (it signs anyone in as the user).
+    @State private var importedFile: URL?
 
     static let previewKey = "qt.desktop.accountPreview"
+    /// Google's list of devices signed in to the account.
+    static let deviceActivityURL = URL(string: "https://myaccount.google.com/device-activity")!
 
     private var snapshot: QTAccountSnapshot {
         #if DEBUG
@@ -74,6 +85,17 @@ struct QTAccountSettings: View {
                 .padding(.vertical, 4)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("qt.settings.account.identity")
+            } footer: {
+                if snap.state != .signedOut, snap.state != .signingIn {
+                    HStack(spacing: 4) {
+                        Text(QTLoc.tr("Signing out also ends this session at Google.", table: .desktop))
+                            .foregroundStyle(.secondary)
+                        Link(QTLoc.tr("Your Devices…", table: .desktop), destination: Self.deviceActivityURL)
+                            .accessibilityIdentifier("qt.settings.account.devices")
+                    }
+                    .font(.callout)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
             Section {
                 #if DEBUG
@@ -87,8 +109,23 @@ struct QTAccountSettings: View {
                 }
                 #endif
             }
+            // Also while signing in: an import shows `.signingIn` while YouTube checks it, and its error must stay.
+            if !snap.isSignedIn {
+                QTSessionImportSection(auth: model.authController, importedFile: $importedFile)
+            }
         }
         .formStyle(.grouped)
+        // Here, not in the import section: a successful import signs in, and the section goes.
+        .alert(QTLoc.tr("Move the cookies file to the Trash?", table: .desktop),
+               isPresented: Binding(get: { importedFile != nil }, set: { if !$0 { importedFile = nil } })) {
+            Button(QTLoc.tr("Move to Trash", table: .desktop), role: .destructive) {
+                if let url = importedFile { NSWorkspace.shared.recycle([url]) }
+                importedFile = nil
+            }
+            Button(QTLoc.tr("Keep", table: .desktop), role: .cancel) { importedFile = nil }
+        } message: {
+            Text(QTLoc.tr("Anyone with this file can use your Google account. QTube Music keeps its own copy in your Keychain.", table: .desktop))
+        }
         .confirmationDialog(QTLoc.tr("Sign out of YouTube Music?", table: .desktop), isPresented: $confirmSignOut) {
             Button(QTLoc.tr("Sign Out", table: .desktop), role: .destructive) {
                 // Through the live store (it also clears the library pages and continues in guest mode).

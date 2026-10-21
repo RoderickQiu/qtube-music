@@ -6,8 +6,8 @@ import WebKit
 
 // QTAuth — Google sign-in for YouTube Music. See docs/architecture.md › QTAuth.
 //
-// - `QTAuthController` (@MainActor, @Observable): state for the UI, sign-in window, sign-out, session restore,
-//   session-loss handling, DEBUG-only session import.
+// - `QTAuthController` (@MainActor, @Observable): state for the UI, sign-in window, sign-out (also at Google), session
+//   restore, session-loss handling, session import (Firefox / cookies.txt; CDP JSON in DEBUG only).
 // - `QTSessionStore` (actor): Keychain persistence + `QTInnerTubeCredentialsProvider` for `QTInnerTubeClient`.
 // - Cookies live in the Keychain (service `com.roderickqiu.qtube`) and, in memory only, in the non-persistent WebKit
 //   jar `QTWebKitCookieStore.session` that the web playback engine plays in. Never in a persistent WebKit store (WebKit
@@ -39,6 +39,11 @@ public final class QTAuthController {
     @ObservationIgnored private var foldTask: Task<Void, Never>?
     /// How long cookie changes in the web jar settle before they're folded into the Keychain session.
     @ObservationIgnored var foldDelay: Duration = .seconds(2)
+    /// Ends the session at Google on sign-out (`QTGoogleSignOut`), given the session's cookies; nil signs out of the
+    /// app only. Set for the app's WebKit jar in release builds; tests and in-memory jars get nil. DEBUG builds leave
+    /// it off unless `-qt.auth.revoke YES`: the shared dev session is the owner's browser login, and revoking it would
+    /// sign that browser out.
+    @ObservationIgnored var revokeAtGoogle: (@MainActor ([QTCookie]) -> Void)?
 
     /// - Parameters:
     ///   - client: gets this controller's session store as its credentials provider.
@@ -48,8 +53,19 @@ public final class QTAuthController {
         self.sessionStore = sessionStore
         self.cookieStore = cookieStore ?? QTWebKitCookieStore.session
         self.client = client
+        if self.cookieStore is QTWebKitCookieStore, Self.revokesAtGoogle {
+            revokeAtGoogle = { QTGoogleSignOut.revoke($0) }
+        }
         observeSessionEvents()
         self.cookieStore.onChange = { [weak self] in self?.webCookiesChanged() }
+    }
+
+    private static var revokesAtGoogle: Bool {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: "qt.auth.revoke")
+        #else
+        true
+        #endif
     }
 
     /// The WebKit data store signed-in playback uses (the session jar), nil when the jar isn't WebKit's (tests).
@@ -122,6 +138,27 @@ public final class QTAuthController {
         controller.present(over: parent, quietly: isEphemeral)
     }
 
+    #if DEBUG
+    /// DEBUG screenshots (`-qt.auth.signInPreview`): the sign-in window's own chrome around a local placeholder page,
+    /// showing `address` in the strip. No network, no Google; the window is never a real sign-in.
+    public func showSignInPreview(address: QTSignInAddress, showsHelp: Bool = false, over parent: NSWindow?) {
+        guard signInWindow == nil else { return }
+        let controller = QTSignInWindowController(dataStore: .nonPersistent(), cookieStore: QTMemoryWebCookieStore(),
+                                                  hl: "en", previewAddress: address) { [weak self] _ in
+            self?.signInWindow = nil
+        }
+        signInWindow = controller
+        controller.present(over: parent, quietly: true)
+        guard showsHelp else { return }
+        Task { @MainActor [weak controller] in
+            for await _ in NotificationCenter.default.notifications(named: QTSignInWindowController.didShowQuietly) {
+                controller?.showHelpForScreenshot()
+                break
+            }
+        }
+    }
+    #endif
+
     /// Posted when an ephemeral (screenshot) sign-in window has loaded Google's page and appeared.
     public static let ephemeralSignInDidShow = QTSignInWindowController.didShowQuietly
 
@@ -155,26 +192,42 @@ public final class QTAuthController {
     /// Reads the account name/photo (read-only `account/account_menu`) and Premium + region from the signed-in web
     /// client's `ytcfg` (`IS_SUBSCRIBER`, `INNERTUBE_CONTEXT_GL`). The client's `gl` follows the account region.
     public func refreshAccount() async {
-        guard let client, isSignedIn else { return }
+        guard client != nil, isSignedIn else { return }
+        let facts = await fetchAccountFacts()
+        guard isSignedIn else { return }
+        await apply(facts)
+    }
+
+    /// The two read-only account requests, side by side; nil for whichever failed.
+    private func fetchAccountFacts() async -> (info: QTAccountInfo?, context: QTAccountContext?) {
+        guard let client else { return (nil, nil) }
         async let infoResult = try? client.account()
         async let contextResult = try? client.accountContext()
-        let (fetched, context) = await (infoResult, contextResult)
-        guard isSignedIn else { return }
-        if let context {
+        return await (infoResult, contextResult)
+    }
+
+    private func apply(_ facts: (info: QTAccountInfo?, context: QTAccountContext?)) async {
+        if let context = facts.context {
             accountContext = context
-            if let gl = context.gl { await client.setRegion(gl: gl) }
+            if let gl = context.gl { await client?.setRegion(gl: gl) }
         }
-        guard var info = fetched ?? account else { return }
-        if let premium = context?.isSubscriber { info.isPremium = premium }
+        guard var info = facts.info ?? account else { return }
+        if let premium = facts.context?.isSubscriber { info.isPremium = premium }
         account = info
         try? await sessionStore.setAccount(info)
         state = .signedIn(accountName: info.name, isPremium: info.isPremium ?? false)
     }
 
-    /// Signs out: Keychain item, WebKit Google/YouTube cookies and the response cache are all cleared.
+    /// Signs out: Keychain item, WebKit Google/YouTube cookies and the response cache are all cleared, and the session
+    /// is ended at Google too (`revokeAtGoogle`), so it leaves the account's device list instead of lingering there.
     public func signOut() async {
         signInWindow?.close()
         foldTask?.cancel()
+        if let revokeAtGoogle, let saved = await sessionStore.current {
+            // The jar's rotated cookies are the newest; the Keychain's fill in the rest.
+            let cookies = QTAuthSession.filtered(saved.cookies + (await cookieStore.allCookies()))
+            revokeAtGoogle(cookies)
+        }
         try? await sessionStore.clear()
         await cookieStore.removeGoogleCookies()
         await client?.clearCache()
@@ -197,6 +250,8 @@ public final class QTAuthController {
     private func handle(_ event: QTSessionEvent) {
         switch event {
         case .expired:
+            // Nothing to expire when signed out (an import that YouTube refused has already rolled back).
+            guard state != .signedOut else { return }
             state = .sessionExpired
             Task { await client?.clearCache() }
         case .signedOut:
@@ -248,22 +303,48 @@ public final class QTAuthController {
         await sessionStore.merge(web.cookies)
     }
 
-    // MARK: Debug import
+    // MARK: Session import
 
-    #if DEBUG
-    /// DEBUG ONLY. Imports a session from cookies exported from a signed-in browser profile (HANDOFF §8): keeps
-    /// only the Google/YouTube auth cookies, writes them to the Keychain and to WebKit, and signs in.
-    /// Callers must delete any temporary cookie copy right after this returns.
+    /// Imports a session the user brought from their own browser (Settings › Account › Import Session: a Firefox
+    /// profile or a cookies.txt file) — the way in for passkey-only and Advanced Protection accounts, which can't
+    /// finish Google's sign-in inside an app. Keeps only the allow-listed Google/YouTube auth cookies and needs a
+    /// complete login (`.incompleteSession` otherwise). While it's checked the state is `.signingIn`: it's saved to
+    /// the Keychain and the account is read as after a sign-in. When YouTube answers that read signed out, the login
+    /// behind the cookies is gone: nothing is kept (signed out) and it throws `.sessionRejected`. Network errors keep
+    /// the session, as at launch. Then the session jar gets the cookies and the state is `.signedIn`.
+    /// Callers delete any temporary cookie copy right after this returns.
     public func importSession(cookies: [QTCookie], authUser: Int = 0, brandAccountId: String? = nil) async throws {
         let session = QTAuthSession(cookies: QTAuthSession.filtered(cookies), authUser: authUser,
                                     brandAccountId: brandAccountId)
         guard session.isComplete else { throw QTAuthError.incompleteSession }
-        try await sessionStore.save(session)
-        await seedWebCookies(session.cookies)
+        let previous = state
+        state = .signingIn
+        do {
+            try await sessionStore.save(session)
+        } catch {
+            state = previous
+            throw error
+        }
         await client?.setCredentialsProvider(sessionStore)
+        let facts = await fetchAccountFacts()
+        if await sessionStore.expired {
+            // Local only: there's no live session left to end at Google. The Keychain item was replaced, so this
+            // is signed out whatever came before.
+            try? await sessionStore.clear()
+            await client?.clearCache()
+            account = nil
+            accountContext = nil
+            state = .signedOut
+            lastError = .sessionRejected
+            throw QTAuthError.sessionRejected
+        }
+        await seedWebCookies(session.cookies)
+        account = nil
         state = .signedIn(accountName: "", isPremium: false)
+        await apply(facts)
     }
 
+    #if DEBUG
     /// DEBUG ONLY. Same as `importSession(cookies:)` for the JSON that Chrome DevTools Protocol's
     /// `Network.getCookies` / `Storage.getCookies` return (`{"cookies": [...]}` or a bare array).
     public func importSession(cdpCookiesJSON data: Data, authUser: Int = 0, brandAccountId: String? = nil) async throws {
