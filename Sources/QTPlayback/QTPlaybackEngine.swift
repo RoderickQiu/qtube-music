@@ -199,6 +199,9 @@ public protocol QTPlaybackEngine: AnyObject {
     /// The Mac woke after sleeping `sleep` seconds (the queue paused it on the way down). Engines check their
     /// output and drop state that went stale. Default: nothing.
     func systemDidWake(after sleep: TimeInterval)
+    /// The current item won't start: it sat paused at its start though asked to play, and Play didn't move it. The
+    /// queue's next load of it starts afresh (the web engine on a new player page). Default: nothing.
+    func startNextLoadAfresh()
 }
 
 public extension QTPlaybackEngine {
@@ -217,6 +220,8 @@ public extension QTPlaybackEngine {
     var isPausedByListener: Bool { false }
 
     func systemDidWake(after sleep: TimeInterval) {}
+
+    func startNextLoadAfresh() {}
 
     /// The web engine behind this engine: itself, or the one the native engine wraps (videos, the video surface).
     var webEngine: QTWebPlaybackEngine? {

@@ -163,6 +163,46 @@ import Testing
         rig.teardown()
     }
 
+    /// Live soak 2026-10-21: after a natural end the next track came up paused at 0 and the first Play didn't move it;
+    /// the watch took that for a second interruption and stopped. A track that never started is starting, not
+    /// interrupted: Play again, then a fresh load at its start — and the Play that started it isn't the mid-song resume.
+    @Test func aNewTrackThatWontStartIsPlayedAgainThenLoadedAfresh() async {
+        let rig = ChaosRig()
+        rig.engine.loadFaults = [.ok, .refusesStart]
+        await rig.controller.play([PB.track("a", duration: 30), PB.track("b"), PB.track("c")])
+        let plays = rig.engine.plays
+        await rig.run(33)   // "a" ends at 30 s; "b" comes up paused at its start
+        #expect(rig.nowID == "b" && rig.engine.state.status == .paused && rig.notices.isEmpty)
+        #expect(rig.engine.plays > plays, "Play again first")
+        #expect(rig.engine.afreshLoads.isEmpty)
+        await rig.run(10)
+        #expect(rig.engine.afreshLoads.map(\.track.videoId) == ["b"] && rig.engine.afreshLoads.first?.startTime == 0)
+        #expect(rig.engine.state.status == .playing && rig.controller.wantsPlayback && rig.notices.isEmpty)
+        // A page pausing mid-song later is still undone once, silently.
+        await rig.run(5)
+        rig.engine.pauseByItself()
+        await rig.run(3)
+        #expect(rig.engine.state.status == .playing && rig.notices.isEmpty)
+        rig.teardown()
+    }
+
+    @Test func aTrackThatWontStartEvenAfreshIsReportedOnceAndResumeTriesAgain() async {
+        let rig = ChaosRig()
+        rig.engine.loadFaults = [.ok, .refusesStart, .refusesStart]
+        await rig.controller.play([PB.track("a", duration: 20), PB.track("b"), PB.track("c")])
+        await rig.run(60)
+        #expect(rig.notices == [.interrupted], "said once")
+        #expect(rig.engine.afreshLoads.count == 1, "one fresh load, not a loop")
+        #expect(rig.nowID == "b" && rig.engine.state.status == .paused && !rig.controller.wantsPlayback)
+        await rig.run(60)
+        #expect(rig.notices.count == 1 && rig.engine.afreshLoads.count == 1)
+        // Resume: the steps start over; the next fresh load plays.
+        rig.controller.play()
+        await rig.run(15)
+        #expect(rig.engine.afreshLoads.count == 2 && rig.engine.state.status == .playing && rig.notices.count == 1)
+        rig.teardown()
+    }
+
     @Test func remoteAndPictureInPicturePausesAreTheListeners() async {
         let rig = ChaosRig()
         await rig.controller.play(PB.tracks(3))

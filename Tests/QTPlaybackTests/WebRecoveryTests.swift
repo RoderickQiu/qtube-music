@@ -78,6 +78,97 @@ import WebKit
         try await pages.until { !pages.calls(on: .main, "freeze").isEmpty }
     }
 
+    // MARK: The queue over the web engine at a track change (live soak 2026-10-21)
+
+    static let nextID = QTModeSwitchBehaviourTests.nextID
+
+    /// A queue on the fake pages whose watch runs on a clock the test moves (from now: the engine's timeline is real).
+    func queue(on pages: QTFakePlayerPages, clock: ManualClock) -> (QTQueueController, Notices) {
+        clock.now = ProcessInfo.processInfo.systemUptime
+        let queue = QTQueueController(engine: pages.engine, uptime: { clock.now }, supervision: nil)
+        let notices = Notices()
+        queue.onNotice = { notices.list.append($0) }
+        return (queue, notices)
+    }
+
+    final class Notices { var list: [QTPlaybackNotice] = [] }
+
+    /// `seconds` of the watch's clock, one at a time, letting the engine and the fake page answer in between.
+    func tick(_ queue: QTQueueController, _ clock: ManualClock, _ seconds: Int) async throws {
+        for _ in 0..<seconds {
+            clock.now += 1
+            queue.superviseTick()
+            try await Task.sleep(for: .milliseconds(40))
+        }
+    }
+
+    /// Plays the song from near its end, then lets it end naturally (the bridge's `ended`).
+    func playSongToItsEnd(_ queue: QTQueueController, _ pages: QTFakePlayerPages, _ clock: ManualClock,
+                          offlineOnTheWay: Bool = false) async throws {
+        await queue.play([QTModeSwitchBehaviourTests.song, QTModeSwitchBehaviourTests.next], startTime: 150)
+        try await pages.until { pages.engine.state.status == .playing }
+        if offlineOnTheWay {
+            // The live soak's `offline` / `online` debug commands: only the engine hears them, the page plays on.
+            pages.engine.networkChanged(available: false)
+            try await tick(queue, clock, 25)
+            pages.engine.networkChanged(available: true)
+            try await tick(queue, clock, 5)
+            #expect(pages.engine.state.status == .playing && pages.mainLoads.isEmpty && pages.navigations.count == 1,
+                    "nothing reloads while the item plays")
+        }
+        pages.engine.receive(["type": "ended", "gen": pages.engine.generation])
+        try await pages.until { queue.nowPlayingTrack?.videoId == Self.nextID && pages.mainLoads.count == 1 }
+        try await pages.until { pages.engine.state.status != .loading }
+    }
+
+    @Test func offlineThenOnlineThenANaturalEndPlaysTheNextTrack() async throws {
+        let pages = QTFakePlayerPages()
+        let clock = ManualClock()
+        let (queue, notices) = queue(on: pages, clock: clock)
+        try await playSongToItsEnd(queue, pages, clock, offlineOnTheWay: true)
+        try await tick(queue, clock, 10)
+        #expect(pages.engine.state.status == .playing && pages.engine.state.item?.track.videoId == Self.nextID)
+        #expect(pages.mainLoads.map(\.autoplay) == [true] && pages.engine.intendsPlayback)
+        #expect(queue.wantsPlayback && notices.list.isEmpty)
+    }
+
+    @Test func aNewTrackThePageWontStartIsPlayedAgainThenGetsAFreshPage() async throws {
+        let pages = QTFakePlayerPages()
+        let clock = ManualClock()
+        let (queue, notices) = queue(on: pages, clock: clock)
+        pages.refusesToStart = .inPage
+        // The live sequence: offline, online, the song ends; the next track comes up paused at 0 and Play doesn't move it.
+        try await playSongToItsEnd(queue, pages, clock, offlineOnTheWay: true)
+        #expect(pages.engine.state.status == .paused && pages.engine.state.timeline.currentTime == 0)
+        try await tick(queue, clock, 3)
+        try await pages.until { pages.calls(on: .main, "play").count == 1 }   // Play again first
+        #expect(notices.list.isEmpty, "a track that never started isn't an interruption")
+        try await tick(queue, clock, 8)
+        try await pages.until { pages.navigations.count == 2 && pages.engine.state.status == .playing }
+        let url = try #require(pages.navigations.last?.absoluteString)
+        #expect(url.contains("v=\(Self.nextID)") && !url.contains("t="), "a fresh page at the start: \(url)")
+        try await tick(queue, clock, 10)
+        #expect(pages.engine.state.status == .playing && queue.wantsPlayback && notices.list.isEmpty)
+        #expect(pages.navigations.count == 2)
+    }
+
+    @Test func aTrackNoPageWillStartIsReportedOnceAfterAFreshPage() async throws {
+        let pages = QTFakePlayerPages()
+        let clock = ManualClock()
+        let (queue, notices) = queue(on: pages, clock: clock)
+        await queue.play([QTModeSwitchBehaviourTests.song, QTModeSwitchBehaviourTests.next], startTime: 150)
+        try await pages.until { pages.engine.state.status == .playing }
+        pages.refusesToStart = .everywhere
+        pages.engine.receive(["type": "ended", "gen": pages.engine.generation])
+        try await pages.until { queue.nowPlayingTrack?.videoId == Self.nextID && pages.mainLoads.count == 1 }
+        for _ in 0..<40 where notices.list.isEmpty { try await tick(queue, clock, 1) }
+        #expect(notices.list == [.interrupted], "said once, after a fresh page didn't start it either")
+        #expect(pages.navigations.count == 2, "one fresh page, not a loop")
+        #expect(!queue.wantsPlayback && pages.engine.state.status == .paused)
+        try await tick(queue, clock, 20)
+        #expect(notices.list.count == 1 && pages.navigations.count == 2)
+    }
+
     @Test func pausingWhileLoadingShowsPausedAtOnce() async throws {
         let pages = QTFakePlayerPages()
         let loading = Task { try await pages.engine.load(QTPlaybackItem(track: QTModeSwitchBehaviourTests.song, startTime: 12), autoplay: true) }

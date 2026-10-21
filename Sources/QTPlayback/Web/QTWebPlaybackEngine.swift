@@ -24,7 +24,8 @@ import WebKit
 ///   is retried once on a fresh page.
 /// - **Crashes:** a WebContent process that dies (`webContentProcessDidTerminate`), a page that no longer takes
 ///   commands, or a page left over from a long sleep is replaced by a fresh one at the same position, playing or
-///   paused as before.
+///   paused as before. A page that won't start a track (paused at its start, Play ignored) gets a fresh one when the
+///   queue asks (`startNextLoadAfresh`).
 /// - **Power:** lowest video quality while no video is shown, and the page's timers are frozen a few seconds into
 ///   a pause the app asked for (`Configuration.freezeAfterPause`), so a paused engine costs next to nothing. A pause
 ///   the page made itself is never frozen: its "Still listening?" prompt has to stay answerable
@@ -573,6 +574,13 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         playIntentBeforeReady = nil
         // The page thawed itself to play; a pause may freeze it again later (the bridge thaws on the next Play).
         if playing { cancelFreeze() }
+    }
+
+    /// The page won't start the current item (YouTube's player sat paused at a new track's start and Play didn't move
+    /// it): the queue's next load of it navigates a fresh page, whose watch page autoplays from the bootstrap.
+    public func startNextLoadAfresh() {
+        guard webView != nil else { return }
+        needsFreshPage = true
     }
 
     /// After a long sleep the page's player state is stale (tokens, stream URLs): the next play reloads it fresh.

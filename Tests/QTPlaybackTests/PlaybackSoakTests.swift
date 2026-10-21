@@ -5,7 +5,7 @@ import Testing
 
 /// A seeded random soak of the queue on a `ChaosEngine` (docs/prelaunch-implementation.md §3): 1,000 steps of listener
 /// actions (speed changes from the menu and from remotes among them), virtual time and faults — failed, hung and offline
-/// loads, pauses the page makes, stalls, crashes, missed ends, stale items, gapless moves, radio that fails or hangs,
+/// loads, tracks the page won't start, pauses the page makes, stalls, crashes, missed ends, stale items, gapless moves, radio that fails or hangs,
 /// sleep — with the invariants checked after every step and every virtual second:
 /// 1. Listening, something to play and online: the engine is playing or loading within 60 s, or the listener was told.
 /// 2. No load in flight: the queue's current item is the engine's (within a few seconds of grace).
@@ -217,7 +217,7 @@ private final class Soak {
         case .online: e.isNetworkAvailable = true
         case .loadFault:
             let faults: [ChaosEngine.LoadFault] = [.fail(.unavailable(.removed)), .fail(.network("timeout")), .hang,
-                                                   .delay(Double(1 + roll(10))), .fail(.engine("decoder")), .ok]
+                                                   .delay(Double(1 + roll(10))), .fail(.engine("decoder")), .ok, .refusesStart]
             e.loadFaults.append(faults[roll(faults.count)])
         case .radioMode:
             let modes: [ChaosRig.Radio] = [.answers, .answers, .fails, .hangs, .empty]

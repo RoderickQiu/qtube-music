@@ -288,6 +288,11 @@ public final class QTNativePlaybackEngine: QTPlaybackEngine {
         }
     }
 
+    /// A page that won't start the item: the web engine's next load gets a fresh one (native loads start afresh anyway).
+    public func startNextLoadAfresh() {
+        web.startNextLoadAfresh()
+    }
+
     /// The queue's next item (nil: nothing follows in order). Prefetched, and joined gaplessly or crossfaded into.
     public func prepareNext(_ item: QTPlaybackItem?) {
         guard item != nextItem else { return }

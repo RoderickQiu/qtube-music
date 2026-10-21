@@ -132,6 +132,9 @@ final class ChaosEngine: QTPlaybackEngine {
         case hang
         /// Answers after this many seconds (online).
         case delay(TimeInterval)
+        /// Answers paused at its start though asked to play, and Play doesn't move it (YouTube's page on a new track);
+        /// the next load is fine unless another fault says otherwise.
+        case refusesStart
     }
 
     let clock: ManualClock
@@ -151,6 +154,11 @@ final class ChaosEngine: QTPlaybackEngine {
     private(set) var pauses = 0
     private(set) var wakes: [TimeInterval] = []
     private(set) var prepared: QTPlaybackItem?
+    /// The current item is one it won't start (`LoadFault.refusesStart`).
+    private(set) var isRefusingStart = false
+    /// Loads the queue asked to start afresh (`startNextLoadAfresh` before them).
+    private(set) var afreshLoads: [QTPlaybackItem] = []
+    private var nextLoadAfresh = false
     /// The next end happens without a word (state changes, nothing is published).
     var missesNextEnd = false
     private var continuations: [UUID: AsyncStream<QTPlaybackState>.Continuation] = [:]
@@ -174,8 +182,12 @@ final class ChaosEngine: QTPlaybackEngine {
         cancelPending()
         stalledSince = nil
         loads.append(item)
+        if nextLoadAfresh { afreshLoads.append(item) }
+        nextLoadAfresh = false
         var fault = failing[item.track.videoId].map { LoadFault.fail($0) } ?? (loadFaults.isEmpty ? nil : loadFaults.removeFirst())
         if fault == .ok { fault = nil }
+        isRefusingStart = fault == .refusesStart
+        if isRefusingStart { fault = nil }
         let duration = item.track.duration
         state = QTPlaybackState(item: item, status: .loading,
                                 timeline: QTPlaybackTimeline(time: item.startTime, rate: 0, anchorUptime: clock.now, duration: duration),
@@ -203,10 +215,11 @@ final class ChaosEngine: QTPlaybackEngine {
     }
 
     private func start(_ item: QTPlaybackItem, autoplay: Bool) {
+        let plays = autoplay && !isRefusingStart
         state.item = item
-        state.status = autoplay ? .playing : .paused
+        state.status = plays ? .playing : .paused
         state.isBuffering = false
-        state.timeline = QTPlaybackTimeline(time: min(item.startTime, item.track.duration), rate: autoplay ? rate : 0,
+        state.timeline = QTPlaybackTimeline(time: min(item.startTime, item.track.duration), rate: plays ? rate : 0,
                                             anchorUptime: clock.now, duration: item.track.duration)
         publish()
     }
@@ -239,6 +252,8 @@ final class ChaosEngine: QTPlaybackEngine {
             }
             return
         }
+        // Taken, but a track the page won't start stays paused at its start.
+        if isRefusingStart, state.status == .paused { return }
         let t = state.status == .ended ? 0 : position
         state.status = .playing
         state.timeline = QTPlaybackTimeline(time: t, rate: stalledSince == nil ? rate : 0, anchorUptime: clock.now, duration: state.duration)
@@ -291,6 +306,8 @@ final class ChaosEngine: QTPlaybackEngine {
     func prepareNext(_ item: QTPlaybackItem?) { prepared = item }
 
     func systemDidWake(after sleep: TimeInterval) { wakes.append(sleep) }
+
+    func startNextLoadAfresh() { nextLoadAfresh = true }
 
     /// Moves the clock-driven parts on: delayed loads answer, stalls fail after 20 s, items end.
     func tick() {
