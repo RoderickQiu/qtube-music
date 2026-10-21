@@ -7,6 +7,14 @@ public sources. No requests went to YouTube or Google. Line numbers are as of co
 
 > **Out of scope:** installing (notarization, Homebrew cask, auto-update). The owner has set it aside for now.
 
+> **Status (2026-10-21): all of §1–§9 is built and merged on `main`.** The owner approved account writes (sync on by
+> default when signed in; off in DEBUG and scripted runs) and said to treat this report as guidance, so the builds
+> deviate where that gave a better experience. Each feature's commit says how, and `docs/architecture.md` describes
+> the result. Two code reviews of the merged work found 46 defects; all were fixed. A hands-on check of the menus,
+> sheets and shortcut recorder found 4 more (fixed). 810 offline tests pass. Live soak: SOAKRESULT
+> Still open: the owner's one-time real sign-in test (§4 checklist), a signed-in fixture capture to confirm the
+> hand-built response shapes (§1, §2, §5), and installing.
+
 Every item below can be built. None needs a new dependency. Two need a decision from the owner (§9). In total it's
 roughly **35–39 working days**. Most of the risk is in playback reliability (§3) and account writes (§1), and
 those are also what users complain about most.

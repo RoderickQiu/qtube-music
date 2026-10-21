@@ -248,6 +248,12 @@ final class QTFakePlayerPages {
     var onCall: ((Page, String, [Any]) -> Void)?
     /// Commands the main page doesn't take (a dead page answers nothing).
     var refuses: Set<String> = []
+    /// Where the main page won't start a track it is asked to play: it comes up paused at its start and Play doesn't
+    /// move it (YouTube's page on a new track, live soak 2026-10-21). `.inPage`: in-page loads only, a fresh page plays.
+    enum StartRefusal { case never, inPage, everywhere }
+    var refusesToStart = StartRefusal.never
+    /// The main page's current track is one it won't start.
+    private var isRefusingStart = false
     private(set) var log: [Call] = []
     /// In-page loads (`__qtBridge.load`) on the main page.
     private(set) var mainLoads: [Load] = []
@@ -310,11 +316,13 @@ final class QTFakePlayerPages {
         case .main:
             navigations.append(url)
             let gen = engine.generation
+            isRefusingStart = refusesToStart == .everywhere
+            let plays = !isRefusingStart
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(20))
                 self.engine.receive(["type": "ready"])
-                self.main.set(time: start, playing: true)
-                self.engine.receive(self.sample(gen: gen, videoID: videoID, time: start, paused: false))
+                self.main.set(time: start, playing: plays)
+                self.engine.receive(self.sample(gen: gen, videoID: videoID, time: start, paused: !plays))
             }
         case .standby:
             standbyURLs.append(url)
@@ -351,15 +359,23 @@ final class QTFakePlayerPages {
             let autoplay = args[2] as? Bool ?? true
             let gen = args[3] as? Int ?? engine.generation
             mainLoads.append(Load(videoID: videoID, start: start, autoplay: autoplay))
+            isRefusingStart = refusesToStart != .never
+            let plays = autoplay && !isRefusingStart
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(20))
-                self.main.set(time: start, playing: autoplay)
-                self.engine.receive(self.sample(gen: gen, videoID: videoID, time: start, paused: !autoplay))
+                self.main.set(time: start, playing: plays)
+                self.engine.receive(self.sample(gen: gen, videoID: videoID, time: start, paused: !plays))
             }
             return true
         case (.main, "sample"):
             return ["t": main.now, "rs": 4, "paused": !main.playing] as [String: Any]
         case (.main, "play"):
+            // Taken, but a track the page won't start stays where it is: paused at its start.
+            if isRefusingStart {
+                let gen = engine.generation, videoID = engine.requestedVideoID ?? "", time = main.now
+                Task { @MainActor in self.engine.receive(self.sample(gen: gen, videoID: videoID, time: time, paused: true)) }
+                return true
+            }
             main.set(playing: true)
             return true
         case (.main, "pause"):

@@ -8,7 +8,9 @@ import QTCore
 // pending — nothing runs while idle) and reconciles:
 // - a pause nobody asked for (YouTube's "Still listening?", WebKit) is undone once after a short grace; a second one
 //   soon after stops fighting and says so once. A pause (or Play) from the Picture in Picture window is the
-//   listener's own: the queue's intent follows it.
+//   listener's own: the queue's intent follows it. A track that hasn't started since it loaded (the page came up
+//   paused at its start) isn't interrupted, it is starting: Play again, then the same item on a fresh page, Play
+//   once more there — and only then stop and say so.
 // - the engine playing another item than the queue's current one (a stale gapless chain), or none, for 2 s reloads
 //   the queue's track (or moves on, when the old one had ended);
 // - an end or failure the queue missed (it came while a load was in flight) is acted on after 3 s;
@@ -68,6 +70,11 @@ struct QTPlaybackWatch {
     var pausedSince: TimeInterval?
     /// When an unrequested pause was last undone.
     var lastAutoResume: TimeInterval?
+    /// The newest load's content has played; until then a pause is the page not starting the track.
+    var hasStarted = false
+    /// Steps taken to get the current item started (`coaxStart`), and the item they were for.
+    var startAttempts = 0
+    var startItem: UUID?
     /// The engine's item isn't the queue's current one (or it has none), since.
     var mismatchSince: TimeInterval?
     /// Ended or failed, with the listener waiting and nothing moving on, since.
@@ -98,6 +105,7 @@ struct QTPlaybackWatch {
         pausedSince = nil
         lastAutoResume = nil
         stuckSince = nil
+        startAttempts = 0
     }
 
     mutating func listenerPaused() {
@@ -111,6 +119,12 @@ struct QTPlaybackWatch {
     mutating func loadDidStart(_ id: UUID) {
         pausedSince = nil
         mismatchSince = nil
+        hasStarted = false
+        // A reload of the same item (the fresh page `coaxStart` asked for) goes on from the step it got to.
+        if startItem != id {
+            startItem = id
+            startAttempts = 0
+        }
         stuckSince = nil
         loadOnlineSeconds = 0
         abandonedLoad = false
@@ -136,7 +150,13 @@ struct QTPlaybackWatch {
             networkTroubleSince = nil
             networkRetries = 0
             pausedSince = nil
-            if let current, s.item?.queueID == current { abandonedLoad = false }
+            if let current, s.item?.queueID == current {
+                abandonedLoad = false
+                if s.ad == nil {
+                    hasStarted = true
+                    startAttempts = 0
+                }
+            }
         }
         if let current, s.item?.queueID == current, s.status == .playing || s.status == .paused || s.status == .ended {
             handledFailureToken = nil
@@ -152,6 +172,9 @@ extension QTQueueController {
     static let pauseGrace: TimeInterval = 1.5
     /// A second unrequested pause within this long of undoing one stops the fighting.
     static let autoResumeWindow: TimeInterval = 60
+    /// After a Play (or a fresh page) for a track that hasn't started, how long it may stay paused before the next step:
+    /// a slow start takes a while to answer.
+    static let startPatience: TimeInterval = 6
     /// How long the queue and the engine may disagree about the current item, or sit ended / failed unattended.
     static let mismatchGrace: TimeInterval = 2
     static let stuckGrace: TimeInterval = 3
@@ -300,6 +323,10 @@ extension QTQueueController {
         }
         let since = watch.pausedSince ?? now
         watch.pausedSince = since
+        guard watch.hasStarted else {
+            coaxStart(current, pausedFor: now - since)
+            return
+        }
         guard now - since >= Self.pauseGrace else { return }
         watch.pausedSince = nil
         if let last = watch.lastAutoResume, now - last < Self.autoResumeWindow {
@@ -309,6 +336,34 @@ extension QTQueueController {
         } else {
             watch.lastAutoResume = now
             engine.play()
+        }
+    }
+
+    /// Paused before the track ever started (YouTube's page sometimes brings a new track up paused at its start and
+    /// ignores the first Play): not an interruption, so it never uses up the one silent resume. Play again after the
+    /// grace; still paused a while later, the same item on a fresh page at its position (the watch page's own
+    /// autoplay); Play once more there; only then stop and say so. Each step waits for the page's answer: the grace
+    /// right after a load, `startPatience` after a Play.
+    private func coaxStart(_ current: QTQueueItem, pausedFor paused: TimeInterval) {
+        let step = watch.startAttempts
+        guard paused >= (step.isMultiple(of: 2) ? Self.pauseGrace : Self.startPatience) else { return }
+        watch.pausedSince = nil
+        watch.startAttempts += 1
+        switch step {
+        case 0, 2:
+            engine.play()
+        case 1:
+            let position = resumePosition(for: current)
+            let pauses = pauseSerial
+            Task {
+                // Paused or moved on meanwhile: nothing to start (the listener's Play begins the steps again).
+                guard self.pauseSerial == pauses, self.queue.nowPlaying?.id == current.id else { return }
+                self.engine.startNextLoadAfresh()
+                await self.loadCurrent(startTime: position, autoplay: true, mode: self.mode)
+            }
+        default:
+            pause()
+            notify(.interrupted)
         }
     }
 

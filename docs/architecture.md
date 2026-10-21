@@ -124,7 +124,11 @@ Everything is wired (integration of M1 polish + M2–M4):
   one toast; the engine resumes the item when the network returns (only while it is still wanted).
 - **Reliability (pre-launch §3, `QTQueueController+Reliability`):** the queue reconciles the listener's intent
   (`wantsPlayback`) with the engine once a second while it matters (`superviseTick`; no timer while idle). Silent
-  where it can be: a pause nobody asked for ("Still listening?", WebKit) is undone once after 1.5 s; the engine on
+  where it can be: a pause nobody asked for ("Still listening?", WebKit) is undone once after 1.5 s; a track that
+  hasn't started since it loaded and sits paused (YouTube's page sometimes brings a new track up paused at 0 and
+  ignores a Play) is starting, not interrupted — Play again after 1.5 s, then the same item on a fresh page at its
+  position (`startNextLoadAfresh`; the watch page's own autoplay) after 6 s more, Play once more there, and only then
+  *Playback was interrupted* (`coaxStart`; it never uses up the one silent resume); the engine on
   another item than the queue's (or none) for 2 s reloads the queue's track at its position (or moves on when that
   had ended); an end/failure that went unheard is acted on after 3 s; network errors (`QTPlaybackError.isNetwork`)
   retry the same track — when the network is back, or after 3 s / 10 s online — and never count towards the skip
@@ -154,7 +158,8 @@ Everything is wired (integration of M1 polish + M2–M4):
   progress watchdog (6 s) restarts the graph once, then falls back; a failed graph restart falls back; only refusals
   (403/410/401, solver, bot check, SABR) switch native off for the session — 5xx/429 send just that item to the web
   engine. Tests: `PlaybackReliabilityTests`, `PlaybackSoakTests` (seeded 1,000-step chaos soak on `ChaosEngine`),
-  `WebRecoveryTests`, `QTBridgeKeepAliveTests`, `ListenerIntentTests`, `QTBridgePictureInPictureTests`; the soak also
+  `WebRecoveryTests` (also the live soak's offline → online → natural end, and a new track the page won't start, on
+  fake pages), `QTBridgeKeepAliveTests`, `ListenerIntentTests`, `QTBridgePictureInPictureTests`; the soak also
   checks that nothing plays after a pause until the listener asks; live: `Scripts/playback-soak.py`.
 - **Playback speed (pre-launch §9):** one setting for everything that plays (`QTPlaybackEffectsPrefs.playbackRate`,
   `QTPlaybackSpeed`: 0.5–2× in quarter steps, the rates YouTube's player offers). `QTQueueController.rate` /
