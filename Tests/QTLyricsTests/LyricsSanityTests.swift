@@ -55,6 +55,19 @@ struct QTTwinLyricsProvider: QTLyricsSourceProvider {
     }
 }
 
+/// Another source with the twins' words (one entry).
+struct QTTwinWordsElsewhereProvider: QTLyricsSourceProvider {
+    let source = QTLyricsSource(id: "elsewhere", name: "Elsewhere")
+
+    func search(_ query: QTLyricsQuery) async throws -> [QTLyricsCandidate] {
+        [QTLyricsCandidate(source: source, remoteID: "x", title: query.title, artists: query.artists, duration: query.duration)]
+    }
+
+    func lyrics(for candidate: QTLyricsCandidate) async throws -> QTParsedLyrics? {
+        try await QTTwinLyricsProvider().lyrics(for: QTLyricsCandidate(source: .lrclib, remoteID: "a", title: "", artists: []))
+    }
+}
+
 @Suite struct QTLyricsSanityTests {
     /// Lines every 6 s from 2 s (the last one ends near 50 s of a 60 s track).
     static func parsed(_ texts: [String], wordSynced: Bool = false) -> QTParsedLyrics {
@@ -173,6 +186,20 @@ struct QTTwinLyricsProvider: QTLyricsSourceProvider {
         let undone = await resolver.undoReject(versionID: first, wasPinned: false, for: q)
         #expect(undone.chosenID == first || undone.chosenID == twin)
         #expect(!undone.versions.contains { $0.isReported == true })
+    }
+
+    /// A report covers the words of that source only: a report may be about one source's timing or translation,
+    /// so another source with the same words stays eligible.
+    @Test func reportedWordsStayEligibleFromAnotherSource() async throws {
+        let resolver = QTLyricsResolver(providers: [QTTwinLyricsProvider(), QTTwinWordsElsewhereProvider()],
+                                        cache: try QTLyricsCache(url: nil))
+        let q = Self.query("vidE", "Twin Elsewhere")
+        let first = await resolver.resolve(q)
+        let lrclibTwin = try #require(first.versions.first { $0.id == "lrclib:a" || $0.id == "lrclib:b" }?.id)
+        let r = await resolver.reject(versionID: lrclibTwin, for: q)
+        #expect(r.versions.contains { $0.id == "elsewhere:x" && $0.isReported != true })
+        #expect(r.versions.contains { ($0.id == "lrclib:a" || $0.id == "lrclib:b") && $0.isReported == true && $0.id != lrclibTwin })
+        #expect(r.chosenID != "lrclib:a" && r.chosenID != "lrclib:b")
     }
 
     /// Finding 10: Undo on the "Reported" toast restores the version, and the pin the report dropped.

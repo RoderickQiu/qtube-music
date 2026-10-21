@@ -264,8 +264,8 @@ public actor QTLyricsResolver: QTLyricsProviding {
                        configuration: QTLyricsResolverConfiguration? = nil) async -> QTLyricsResolution {
         await cache?.addRejection(versionID, for: query.videoId)
         // The same words from another entry of a source (sources list a song more than once) are just as wrong.
-        if let text = await textFingerprint(of: versionID, videoId: query.videoId) {
-            await cache?.addRejection(Self.rejectedTextPrefix + text, for: query.videoId)
+        if let text = await reportedTextKey(of: versionID, videoId: query.videoId) {
+            await cache?.addRejection(text, for: query.videoId)
         }
         if await cache?.pinnedVersionID(for: query.videoId) == versionID {
             await cache?.setPinnedVersionID(nil, for: query.videoId)
@@ -300,14 +300,20 @@ public actor QTLyricsResolver: QTLyricsProviding {
 
     // MARK: Internals
 
-    /// A reported text is stored next to the reported version ids, as `text:<fingerprint>`.
+    /// Reported words are stored next to the reported version ids, as `text:<source id>:<fingerprint>`: only that
+    /// source's other entries with those words are covered (a report may be about one source's timing or
+    /// translation, so the same words from another source stay eligible).
     static let rejectedTextPrefix = "text:"
+
+    static func reportedTextKey(source: String, fingerprint: String) -> String {
+        rejectedTextPrefix + source + ":" + fingerprint
+    }
 
     /// Takes back the report of a version's words. A reported version isn't fetched again, so its words are often
     /// unknown by then: the track's reported words all go (the reported version ids themselves stay).
     private func takeBackReportedText(of versionID: String, videoId: String) async {
-        if let text = await textFingerprint(of: versionID, videoId: videoId) {
-            await cache?.removeRejection(Self.rejectedTextPrefix + text, for: videoId)
+        if let text = await reportedTextKey(of: versionID, videoId: videoId) {
+            await cache?.removeRejection(text, for: videoId)
             return
         }
         for id in await cache?.rejectedVersionIDs(for: videoId) ?? [] where id.hasPrefix(Self.rejectedTextPrefix) {
@@ -316,8 +322,10 @@ public actor QTLyricsResolver: QTLyricsProviding {
     }
 
     /// The fingerprint of a version's words, from the last lookup's versions (nil when it wasn't fetched).
-    private func textFingerprint(of versionID: String, videoId: String) async -> String? {
-        await cache?.entry(for: videoId)?.versions.first { $0.id == versionID }?.textFingerprint
+    private func reportedTextKey(of versionID: String, videoId: String) async -> String? {
+        guard let v = await cache?.entry(for: videoId)?.versions.first(where: { $0.id == versionID }),
+              let fingerprint = v.textFingerprint else { return nil }
+        return Self.reportedTextKey(source: v.source.id, fingerprint: fingerprint)
     }
 
     private func sourcesKey(_ config: QTLyricsResolverConfiguration) -> String {
@@ -437,11 +445,12 @@ public actor QTLyricsResolver: QTLyricsProviding {
             ranked[i].score.sanityPenalty = QTLyricsSanity.penalty(for: ranked[i].score.flags)
         }
         ranked = ranked.filter { !shared.contains($0.candidate.id) } + ranked.filter { shared.contains($0.candidate.id) }
-        // Words the user reported for this track, fetched again under another entry id: never picked automatically,
-        // and listed as reported (picking one takes the report back).
-        let rejectedTexts = Set(rejected.filter { $0.hasPrefix(Self.rejectedTextPrefix) }.map { String($0.dropFirst(Self.rejectedTextPrefix.count)) })
+        // Words the user reported for this track, fetched again from the same source under another entry id: never
+        // picked automatically, and listed as reported (picking one takes the report back).
         let reportedText = Set(ranked.filter { e in
-            e.candidate.id != pinned && QTLyricsSanity.fingerprint(e.parsed).map(rejectedTexts.contains) == true
+            e.candidate.id != pinned && QTLyricsSanity.fingerprint(e.parsed).map {
+                rejected.contains(Self.reportedTextKey(source: e.candidate.source.id, fingerprint: $0))
+            } == true
         }.map(\.candidate.id))
         let chosen = ranked.first { $0.candidate.id == pinned }
             ?? ranked.first { !shared.contains($0.candidate.id) && !reportedText.contains($0.candidate.id) }

@@ -130,7 +130,7 @@ struct QTRenditionStubProvider: QTLyricsSourceProvider {
         #expect(store.reportWrong(id) == "lrclib:mv1")
         await waitUntil { store.selected[id] == "lrclib:mv2" }
         #expect(session.renditionTiming == .own)
-        // The reported version, and its words (`text:<fingerprint>`, so another entry with them is blocked too).
+        // The reported version, and its words (`text:<source>:<fingerprint>`, so that source's other entry with them is blocked too).
         let rejected = await cache.rejectedVersionIDs(for: "mvVideoId01~338s")
         #expect(rejected.filter { !$0.hasPrefix("text:") } == ["lrclib:mv1"])
         #expect(rejected.contains { $0.hasPrefix("text:") })
