@@ -14,7 +14,8 @@ public struct QTNowPlayingSnapshot: Equatable, Sendable {
     public var duration: TimeInterval
     /// Seconds at the moment the snapshot was taken.
     public var elapsed: TimeInterval
-    /// 1 while audibly playing, 0 when paused, loading or buffering.
+    /// The playback speed while audibly playing (1 at normal speed and during ads), 0 when paused, loading or
+    /// buffering. The system moves the elapsed time on at this rate.
     public var rate: Double
     public var isAd: Bool
     public var isVideo: Bool
@@ -35,7 +36,9 @@ public struct QTNowPlayingSnapshot: Equatable, Sendable {
         artworkURL = (isVideo ? track.videoArtwork : track.artwork).best(forPixelWidth: 600)?.url
             ?? track.artwork.best(forPixelWidth: 600)?.url
         let playing = state.status == .playing && !state.isBuffering
-        rate = playing ? 1 : 0
+        // The engine's timeline runs at the speed while content plays (and stands still when it does); an ad's
+        // countdown always at 1×.
+        rate = playing ? (state.ad == nil ? state.timeline.rate : 1) : 0
         if let ad = state.ad {
             isAd = true
             artist = adLabel
@@ -99,6 +102,8 @@ public enum QTRemoteCommand: Sendable, Hashable {
     case like(Bool)
     case setShuffle(Bool)
     case setRepeat(QTRepeatMode)
+    /// Playback speed (`changePlaybackRateCommand`; 0.5–2).
+    case setRate(Double)
 }
 
 /// Where Now Playing info goes. `MPNowPlayingInfoCenter.default()` in the app; a recorder in tests.
@@ -238,9 +243,13 @@ public final class QTNowPlayingController {
                 }
             }
         }
+        on(cc.changePlaybackRateCommand) { event in
+            (event as? MPChangePlaybackRateCommandEvent).map { .setRate(Double($0.playbackRate)) }
+        }
+        cc.changePlaybackRateCommand.supportedPlaybackRates = QTPlaybackSpeed.choices.map { NSNumber(value: $0) }
         cc.likeCommand.localizedTitle = QTLoc.tr("Like")
         for unsupported in [cc.skipForwardCommand, cc.skipBackwardCommand, cc.seekForwardCommand, cc.seekBackwardCommand,
-                            cc.dislikeCommand, cc.bookmarkCommand, cc.changePlaybackRateCommand, cc.ratingCommand] {
+                            cc.dislikeCommand, cc.bookmarkCommand, cc.ratingCommand] {
             unsupported.isEnabled = false
         }
     }

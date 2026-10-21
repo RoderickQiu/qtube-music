@@ -209,6 +209,9 @@ final class QTPlaybackDebugHooks {
             "isPlaying": state.isPlaying,
             "isBuffering": player.isBuffering,
             "time": state.timeline.currentTime,
+            // The speed setting and the clock's actual rate (0 while paused / buffering / an ad).
+            "speed": player.rate,
+            "rate": state.timeline.rate,
             "duration": state.duration,
             "mode": player.mode.rawValue,
             "surface": model.surface.rawValue,

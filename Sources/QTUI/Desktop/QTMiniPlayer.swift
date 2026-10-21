@@ -415,6 +415,9 @@ struct QTMiniPlayerMenu: View {
         if let track = player.nowPlaying {
             Button(QTLoc.tr(player.isLiked(track) ? "Remove from Liked Songs" : "Like")) { player.toggleLike(track) }
         }
+        Menu(QTLoc.tr("Playback Speed", table: .player)) {
+            QTPlaybackSpeedMenuContent(player: player, includesSteps: false)
+        }
         Divider()
         Picker(QTLoc.tr("Size", table: .desktop), selection: Binding(get: { prefs.mode }, set: { v in model.settings.update { $0.miniPlayer.mode = v } })) {
             Text(QTLoc.tr("Compact", table: .desktop)).tag(QTMiniPlayerMode.compact)

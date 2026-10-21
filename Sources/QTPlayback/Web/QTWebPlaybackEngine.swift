@@ -35,6 +35,9 @@ import WebKit
 /// - **Visualizer data (web-audio):** `audio` (`QTWebAudioTap`) decodes the audio the page appends to its
 ///   MediaSource and returns spectra, pulled only while a visualizer shows. Nothing is routed: media element,
 ///   volume, ads and Now Playing are untouched. EQ/crossfade can't be done in the page (`docs/web-audio.md`).
+/// - **Speed:** `setRate` → `QTWebPlaybackBridgeScript.rate` (YouTube's `setPlaybackRate` plus the media element's own
+///   rate, pitch kept), re-asserted whenever the page resets it and held at 1× while an ad plays; the timeline moves
+///   at the rate each sample reports.
 @MainActor
 public final class QTWebPlaybackEngine: QTPlaybackEngine {
     public struct Configuration: Sendable {
@@ -82,6 +85,9 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
     /// Video, AirPlay and visualizer data (the page's spectrum tap, `audio`); gapless/crossfade/EQ stay native-only.
     public var capabilities: QTPlaybackCapabilities { .web }
     public internal(set) var state = QTPlaybackState(volume: 1)
+    /// Playback speed asked of every page (`QTWebPlaybackBridgeScript.rate`; ads stay at 1×). The timeline follows the
+    /// rate the page reports.
+    public private(set) var rate: Double = 1
 
     public let configuration: Configuration
     /// Where the page's cookies live. Always non-persistent: the app passes QTAuth's session jar
@@ -383,7 +389,7 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         let upper = state.duration > 0 ? max(0, state.duration - 0.5) : time
         let t = min(max(0, time), upper)
         if state.status == .ended { state.status = .paused }
-        state.timeline = QTPlaybackTimeline(time: t, rate: state.status == .playing ? 1 : 0, duration: state.timeline.duration)
+        state.timeline = QTPlaybackTimeline(time: t, rate: state.status == .playing ? rate : 0, duration: state.timeline.duration)
         publish()
         cancelFreeze()  // the seek command thaws the page
         Task { await command("seek", t) }
@@ -400,6 +406,21 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         state.isMuted = muted
         publish()
         Task { await command("volume", state.volume, state.isMuted) }
+    }
+
+    /// The page plays at `rate` from now on (a fresh page from its first frame: the bootstrap carries it). The timeline
+    /// moves at it at once; the page's next sample confirms it.
+    public func setRate(_ rate: Double) {
+        let r = QTPlaybackSpeed.normalized(rate)
+        guard r != self.rate else { return }
+        self.rate = r
+        audio.rate = r
+        if state.status == .playing, state.ad == nil, state.timeline.rate > 0 {
+            state.timeline = QTPlaybackTimeline(time: state.timeline.currentTime, rate: r, duration: state.timeline.duration)
+            publish()
+        }
+        // Never thaws a frozen page: the rate is a property, applied whenever the media next plays.
+        Task { await command("rate", r) }
     }
 
     public func skipAd() {
@@ -624,6 +645,7 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         if configuration.isSilent { sources.append(QTWebPlaybackBridgeScript.silence) }
         sources.append(QTWebPlaybackBridgeScript.videoSurface)
         sources.append(QTWebPlaybackBridgeScript.keepAlive)
+        sources.append(QTWebPlaybackBridgeScript.rate)
         sources.append(QTWebAudioScript.parsers)
         sources.append(QTWebAudioScript.tap)
         sources.append(QTWebPlaybackBridgeScript.bridge)
@@ -641,7 +663,7 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
                                                             volume: state.volume, muted: state.isMuted,
                                                             silent: configuration.isSilent,
                                                             lowQuality: configuration.prefersLowVideoQuality,
-                                                            present: video.isPresenting, quality: video.quality)
+                                                            present: video.isPresenting, quality: video.quality, rate: rate)
         let view: WKWebView
         if let existing = webView {
             installScripts(on: existing.configuration.userContentController, bootstrap: bootstrap)
@@ -780,7 +802,8 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
                 state.status = s.paused ? .paused : .playing
             }
             state.isBuffering = s.isBuffering
-            let rate: Double = (state.status == .playing && !s.isBuffering) ? 1 : 0
+            // The speed the page's media actually runs at (the rate script re-asserts the asked one).
+            let rate: Double = (state.status == .playing && !s.isBuffering) ? (s.rate > 0 ? s.rate : self.rate) : 0
             // A cued video reports 0 until it plays; show the position it will start from (restored queue).
             let time = s.playerState == 5 ? (state.item?.startTime ?? s.time) : s.time
             state.timeline = QTPlaybackTimeline(time: time, rate: rate, anchorUptime: now, duration: duration > 0 ? duration : .infinity)
@@ -965,7 +988,7 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         }
         // During an ad the page's clock may be the ad's: resume the content where it was (or where it starts).
         let position = state.ad != nil ? (lastContentTime ?? item.startTime) : lastProgress.time
-        switch Self.stallAction(position: position, duration: state.duration, didRetry: didRetryStall) {
+        switch Self.stallAction(position: position, duration: state.duration, didRetry: didRetryStall, rate: rate) {
         case .finish:
             // Stuck in the last seconds: a reload there would never be armed to end (and YouTube would pick its own
             // next). The track is as good as over.
@@ -989,8 +1012,9 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
     enum StallAction: Equatable { case reload, finish, fail }
 
     /// What a stall at `position` does: the last seconds of an item finish it; otherwise one reload there, then fail.
-    static func stallAction(position: TimeInterval, duration: TimeInterval, didRetry: Bool) -> StallAction {
-        if duration > 0, position >= duration - 3 { return .finish }
+    /// "The last seconds" are seconds of listening, so media time scales with the playback speed.
+    static func stallAction(position: TimeInterval, duration: TimeInterval, didRetry: Bool, rate: Double = 1) -> StallAction {
+        if duration > 0, position >= duration - 3 * rate { return .finish }
         return didRetry ? .fail : .reload
     }
 
@@ -1146,6 +1170,8 @@ struct QTWebPlaybackSample: Equatable {
     var playerState: Int
     var isBuffering: Bool
     var ad: Ad?
+    /// The media's playback rate (1 during ads; 0 = not reported).
+    var rate: Double
     /// Decoded size and readiness of the page's video element (0 until a frame exists).
     var videoWidth: Double
     var videoHeight: Double
@@ -1164,6 +1190,7 @@ struct QTWebPlaybackSample: Equatable {
         paused = dict["paused"] as? Bool ?? true
         playerState = dict["ps"] as? Int ?? -1
         isBuffering = dict["buffering"] as? Bool ?? false
+        rate = (dict["rate"] as? NSNumber)?.doubleValue ?? 0
         videoWidth = (dict["vw"] as? Double) ?? 0
         videoHeight = (dict["vh"] as? Double) ?? 0
         readyState = (dict["rs"] as? Int) ?? 0

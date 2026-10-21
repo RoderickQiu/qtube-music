@@ -5,7 +5,8 @@ import SwiftUI
 // Owner: builder "desktop". The full menu bar (draft §8, HANDOFF §5 keyboard map):
 //   QTube Music (system + Check for Updates… from the app target) · File (Close Window ⌘W) · Edit (+ Search Music ⌘K, Filter ⌘F) · View (panel ⌥⌘N,
 //   sections ⌘1–8 in sidebar order, Back ⌘[ / Forward ⌘] through QTNavigator, system sidebar / full screen) · Controls (Space, ⌘←/→, ⌘L, shuffle, repeat, ⌘↑/↓ volume,
-//   ⇧⌘V, ⇧⌘P, ⇧⌘F, ⇧⌘M, ⇧⌘L, ⌥↑/↓, Lyrics Source ›) · Window (system + "QTube Music" ⌘0) · Help (Keyboard Shortcuts ⌘/).
+//   Playback Speed › ⌥⌘. / ⌥⌘, / ⌥⌘0, ⇧⌘V, ⇧⌘P, ⇧⌘F, ⇧⌘M, ⇧⌘L, ⌥↑/↓, Lyrics Source ›) · Window (system + "QTube Music" ⌘0) ·
+//   Help (Keyboard Shortcuts ⌘/).
 // Esc closes the Stage / its drawer inside the Stage view (`.cancelAction`), not as a menu item, so popovers and
 // sheets keep their own Esc. Text-editing collisions (Space, ⌘←…) are routed to the text field (QTKeyRouting).
 
@@ -105,6 +106,11 @@ public struct QTCommands: Commands {
                 .keyboardShortcut(.upArrow, modifiers: .command)
             Button(QTLoc.tr("Volume Down", table: .desktop)) { player.setVolume(max(0, player.state.volume - 0.1)) }
                 .keyboardShortcut(.downArrow, modifiers: .command)
+            // A setting for everything that plays, so it stays available with nothing playing (and through ads,
+            // which play at 1× regardless).
+            Menu(QTLoc.tr("Playback Speed", table: .player)) {
+                QTPlaybackSpeedMenuContent(player: player, showsShortcuts: true)
+            }
             Divider()
             Button(QTLoc.tr("Song ⇄ Music Video")) { model.isVideoMode.toggle() }
                 .keyboardShortcut("v", modifiers: [.command, .shift])
@@ -264,6 +270,9 @@ public struct QTKeyboardShortcutsView: View {
                 Row(title: QTLoc.tr("Like"), keys: "⌘L"),
                 Row(title: QTLoc.tr("Volume Up", table: .desktop), keys: "⌘↑"),
                 Row(title: QTLoc.tr("Volume Down", table: .desktop), keys: "⌘↓"),
+                Row(title: QTLoc.tr("Speed Up", table: .player), keys: "⌥⌘."),
+                Row(title: QTLoc.tr("Slow Down", table: .player), keys: "⌥⌘,"),
+                Row(title: QTLoc.tr("Normal Speed", table: .player), keys: "⌥⌘0"),
                 Row(title: QTLoc.tr("Song ⇄ Music Video"), keys: "⇧⌘V"),
                 Row(title: QTLoc.tr("Lyrics Earlier"), keys: "⌥↑"),
                 Row(title: QTLoc.tr("Lyrics Later"), keys: "⌥↓"),

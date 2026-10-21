@@ -95,7 +95,7 @@ public enum QTPlaybackStatus: Sendable, Hashable {
 public struct QTPlaybackTimeline: Sendable, Hashable {
     /// Position (seconds) at `anchorUptime`.
     public var time: TimeInterval
-    /// 1 while playing, 0 while paused/buffering/ad.
+    /// Media seconds per second: the playback speed while playing (1 at normal speed), 0 while paused/buffering/ad.
     public var rate: Double
     /// `ProcessInfo.systemUptime` when `time` was sampled.
     public var anchorUptime: TimeInterval
@@ -175,6 +175,10 @@ public protocol QTPlaybackEngine: AnyObject {
     func seek(to time: TimeInterval)
     func setVolume(_ volume: Double)
     func setMuted(_ muted: Bool)
+    /// Playback speed (`QTPlaybackSpeed`, 1 = normal), pitch kept. Holds across loads until changed; the engine's
+    /// `timeline.rate` is this while content plays. Ads always play at 1×.
+    var rate: Double { get }
+    func setRate(_ rate: Double)
     /// Skips the current ad if YouTube allows it; no-op otherwise.
     func skipAd()
     func stop()

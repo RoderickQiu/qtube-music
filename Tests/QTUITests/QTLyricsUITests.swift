@@ -185,6 +185,20 @@ import Testing
         let stalled = QTLyricsClock(timeline: tl, offset: 0, stalled: true)
         #expect(stalled.rate == 0)
     }
+
+    /// Playback speed: the engine's timeline runs at 1.5×, so a word 3 s of song away lights 2 s from now, and the
+    /// karaoke animations run at 1.5× (`speed` = the clock's rate).
+    @Test func lyricsFollowThePlaybackSpeed() {
+        let tl = QTPlaybackTimeline(time: 40, rate: 1.5, anchorUptime: ProcessInfo.processInfo.systemUptime, duration: 300)
+        let clock = QTLyricsClock(timeline: tl, offset: 0, stalled: false)
+        #expect(clock.rate == 1.5)
+        let now = clock.now()
+        #expect(abs(clock.mediaTime(forLyric: now.lyric + 3, at: now) - (now.media + 2)) < 0.0001)
+        let half = QTLyricsClock(timeline: QTPlaybackTimeline(time: 40, rate: 0.5, anchorUptime: tl.anchorUptime, duration: 300),
+                                 offset: 0, stalled: false)
+        let n = half.now()
+        #expect(abs(half.mediaTime(forLyric: n.lyric + 1, at: n) - (n.media + 2)) < 0.0001)
+    }
 }
 
 @Suite @MainActor struct QTLyricsTranslationTests {

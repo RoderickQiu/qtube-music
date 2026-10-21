@@ -23,6 +23,8 @@ struct QTIntegrationsSnapshot: Equatable {
     var elapsed: TimeInterval = 0
     /// Media seconds per second (`QTPlaybackTimeline.rate`): 0 while buffering, 2 at 2× speed. Listens count media time.
     var rate: Double = 1
+    /// The playback speed setting (1 = normal), buffering or not: Discord's progress bar runs in wall-clock time.
+    var speed: Double = 1
     /// Real, audible playback of the user's library (see `QTIntegrationsCoordinator.reportsPlays`).
     var reportsPlays = true
     var isAppActive = false
@@ -96,7 +98,7 @@ public final class QTIntegrationsCoordinator {
         let snapshot = QTIntegrationsSnapshot(
             track: player.nowPlaying, playSerial: player.playback.playSerial, isPlaying: player.isPlaying,
             isAd: player.ad != nil, elapsed: player.timeline.currentTime, // seeks re-anchor the Discord timestamps
-            rate: player.timeline.rate,
+            rate: player.timeline.rate, speed: player.rate,
             reportsPlays: Self.reportsPlays(setup: QTPlaybackServices.shared.setup, engine: player.engine,
                                             catalogMode: model.liveCatalog?.mode),
             isAppActive: NSApp?.isActive ?? false)
@@ -122,7 +124,7 @@ public final class QTIntegrationsCoordinator {
                          enabled: settings.lastFM.isEnabled || settings.listenBrainz.isEnabled)
         updateNotifications(shown: s.isAd ? nil : song, playing: playing, enabled: settings.notifiesTrackChanges,
                             appActive: s.isAppActive)
-        updateDiscord(settings.discord, track: s.isAd ? nil : song, playing: playing, elapsed: s.elapsed)
+        updateDiscord(settings.discord, track: s.isAd ? nil : song, playing: playing, elapsed: s.elapsed, speed: s.speed)
     }
 
     // MARK: Scrobbling (Last.fm, ListenBrainz)
@@ -264,12 +266,16 @@ public final class QTIntegrationsCoordinator {
 
     // MARK: Discord
 
-    private func updateDiscord(_ prefs: QTDiscordPrefs, track: QTTrack?, playing: Bool, elapsed: TimeInterval) {
+    private func updateDiscord(_ prefs: QTDiscordPrefs, track: QTTrack?, playing: Bool, elapsed: TimeInterval,
+                               speed: Double = 1) {
         let active = prefs.isEnabled && prefs.hasValidClientID
         // Paused or stopped clears the presence (like other players), so a stale song never lingers.
         let shown = active && playing ? track : nil
-        let start = Int(Date().timeIntervalSince1970 - elapsed)
-        let signature = active ? "\(prefs.clientID)|\(shown?.videoId ?? "-")|\(start / 2)|\(prefs.showsArtwork)" : nil
+        // Discord draws elapsed / remaining from wall-clock start and end: at 1.5× the song takes ⅔ of its length.
+        let speed = speed > 0 ? speed : 1
+        let wallElapsed = elapsed / speed
+        let start = Int(Date().timeIntervalSince1970 - wallElapsed)
+        let signature = active ? "\(prefs.clientID)|\(shown?.videoId ?? "-")|\(start / 2)|\(speed)|\(prefs.showsArtwork)" : nil
         guard signature != lastDiscordSignature else { return }
         let wasActive = lastDiscordSignature != nil
         lastDiscordSignature = signature
@@ -281,8 +287,8 @@ public final class QTIntegrationsCoordinator {
         let payload = shown.map { t in
             QTDiscordTrack(title: t.title, artist: t.artistLine, album: t.album?.title,
                            artworkURL: t.artwork.max { ($0.width ?? 0) < ($1.width ?? 0) }?.url,
-                           link: URL(string: QTTrackActions.link(for: t)), duration: t.duration,
-                           elapsed: elapsed, isPlaying: true)
+                           link: URL(string: QTTrackActions.link(for: t)), duration: t.duration / speed,
+                           elapsed: wallElapsed, isPlaying: true)
         }
         let clientID = prefs.clientID, artwork = prefs.showsArtwork
         let button = QTLoc.tr("Open in YouTube Music", table: .desktop)

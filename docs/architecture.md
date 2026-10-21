@@ -144,6 +144,25 @@ Everything is wired (integration of M1 polish + M2–M4):
   (403/410/401, solver, bot check, SABR) switch native off for the session — 5xx/429 send just that item to the web
   engine. Tests: `PlaybackReliabilityTests`, `PlaybackSoakTests` (seeded 1,000-step chaos soak on `ChaosEngine`),
   `WebRecoveryTests`, `QTBridgeKeepAliveTests`; live: `Scripts/playback-soak.py`.
+- **Playback speed (pre-launch §9):** one setting for everything that plays (`QTPlaybackEffectsPrefs.playbackRate`,
+  `QTPlaybackSpeed`: 0.5–2× in quarter steps, the rates YouTube's player offers). `QTQueueController.rate` /
+  `setRate` (`onRateChange` → `QTPlaybackServices` saves it) sets `QTPlaybackEngine.setRate` before every load and on
+  an engine swap, so Song⇄Video, uploads, videos, reloads and fallbacks keep it. Every engine's `timeline.rate` is the
+  speed while content plays (0 otherwise), so lyrics, scrubbers and listens (media time) follow. Web engine:
+  `QTWebPlaybackBridgeScript.rate` (own script; YouTube's `setPlaybackRate` + `video.playbackRate`, `preservesPitch`)
+  re-asserts it on `ratechange` / `loadedmetadata` (capped per second), holds **ads at 1×**, and samples report the
+  media's rate; the bridge's end window widens with the speed; seamless Song⇄Video line-up converts media ↔ wall time
+  (`standbyStart`, `lineUpWait`); the spectrum tap steps `frameStep × rate`. Native engine: `AVAudioUnitTimePitch`
+  between the deck mixer and the EQ, **out of the chain at exactly 1×** (bit-exact; a merely bypassed unit rounds by
+  an ulp), so crossing 1× restarts the graph at the position (a moment's gap; speeds off 1× change seamlessly);
+  positions stay in source frames; the crossfade wait and the Song→Video handover (`handOverStart`, `lineUp`) divide by
+  the rate; gapless is unchanged. The reliability watch is wall-clock throughout; its one media threshold (a stale next
+  in the last seconds) and the web stall's "last 3 s" scale with the rate. Now Playing: `PlaybackRate` = the speed
+  while playing (1 during ads), `DefaultPlaybackRate` 1, `changePlaybackRateCommand` (0.5–2) → `QTRemoteCommand.setRate`.
+  Discord's timestamps are wall-clock (elapsed and length ÷ speed). UI (`PlayerBar/QTPlaybackSpeedControls.swift`):
+  Controls › Playback Speed (choices + Speed Up ⌥⌘. / Slow Down ⌥⌘, ; Normal ⌥⌘0), the mini player's menu, and a
+  "1.5×" button in the player bar and the Stage's bottom bar only while the speed isn't normal. `-qt.playback.rate`
+  overrides it for a session. Tests: `PlaybackSpeedTests`, `NativeTimePitchTests`, `QTBridgeRateTests`, the soak.
 - **Buffering:** `QTPlayerModel.isBuffering` → `qtBufferingIndicator` (Shared/) swaps the play glyph for a system
   spinner after 0.45 s.
 - **Ads (web engine):** the bridge counts an ad as this load's once the page has left the previous item, and never
@@ -831,7 +850,7 @@ Builders add their own as `qt.<area>.<name>` (e.g. `qt.stage.chrome hidden`, `qt
 | lyrics-live | `qt.lyrics.unofficial all\|none\|netease,kugou,qq` (session-only Settings override) · `qt.lyrics.engine live\|mock` (default live) · `qt.lyrics.cache memory\|<path>` (fresh lookup; default Application Support/<bundle id>/Lyrics.sqlite) · `qt.lyrics.offline YES` (every source unreachable → fallback path) |
 | data-live | `qt.account.sync YES\|NO` (session-only Settings › Account › Sync override) · `qt.live.open album:<id\|title>` · `artist:<id\|name>` · `playlist:<id>` (once the library has loaded) · `qt.live.state skeleton\|offline\|unavailable\|expired\|botCheck` (pins every live page's state) · `qt.live.loadDelay <s>` (DEBUG: Home and mood feeds arrive that much later — loading and transition shots) · `qt.live.signedOut YES` (guest mode, no Keychain read) · DEBUG `qt.auth.store memory` (the session lives in memory: a guest run never reads, and a sign-out never clears, the shared dev session) · DEBUG `qt.live.fixtures YES` (YouTube Music answered offline from `Tests/QTInnerTubeTests/Fixtures`, artwork offline — guest screenshots with no network) · with `qt.live.signedOut`, `qt.live.signIn YES` (Google sign-in window in a throwaway WebKit store; a login there is never kept) · DEBUG `qt.auth.signInPreview google|other|insecure[,help]` (the sign-in window's chrome around a local placeholder page — never Google, no network; `,help` opens the ? popover; capture with `shoot.sh --window signIn --window signInHelp`) · DEBUG `qt.auth.revoke YES` (sign-out also ends the session at Google, as release builds do) |
 | stage-video | DEBUG `qt.video.debugVisibleHost YES` (orders the web engine's host window onto U270CA, alpha 1 — page diagnostics only) |
-| playback | `qt.engine auto\|simulated\|web` · `qt.webaudio.tap NO` (web engine without the spectrum tap: A/B CPU) · `qt.playback.silent` · `qt.playback.persist` · `qt.playback.nowPlaying` · `qt.playback.anonymous` · `qt.playback.readyWhen playing\|ad\|buffering\|failed\|toast` (+ `qt.playback.readyTimeout <s>`, default 120) · `qt.playback.loadDelay <s>` (slow-network look) · DEBUG: `qt.playback.statusFile <path>` (JSON status twice a second: engine, queue, Now Playing, the player page's `LOGGED_IN`/`IS_SUBSCRIBER`, main window, catalog mode) and distributed-notification commands (`QTPlaybackDebugHooks`, incl. `window:close` / `window:reopen` without activation, `albumEnd:<browse id>`) · DEBUG: `qt.playback.notice interrupted\|autoplay\|network` (that notice's toast, for screenshots) |
+| playback | `qt.engine auto\|simulated\|web` · `qt.webaudio.tap NO` (web engine without the spectrum tap: A/B CPU) · `qt.playback.silent` · `qt.playback.persist` · `qt.playback.nowPlaying` · `qt.playback.anonymous` · `qt.playback.readyWhen playing\|ad\|buffering\|failed\|toast` (+ `qt.playback.readyTimeout <s>`, default 120) · `qt.playback.loadDelay <s>` (slow-network look) · `qt.playback.rate 0.5…2` (session speed; the player bar's "1.5×" button for screenshots) · DEBUG: `qt.playback.statusFile <path>` (JSON status twice a second: engine, queue, Now Playing, the player page's `LOGGED_IN`/`IS_SUBSCRIBER`, main window, catalog mode) and distributed-notification commands (`QTPlaybackDebugHooks`, incl. `window:close` / `window:reopen` without activation, `albumEnd:<browse id>`) · DEBUG: `qt.playback.notice interrupted\|autoplay\|network` (that notice's toast, for screenshots) |
 
 Env-gated test suites: `QT_LIVE=1` (live anonymous InnerTube / lyrics / playback), `QT_RECORD=1` (re-record
 InnerTube fixtures), `QT_DUMP=1` (print parser output), `QT_KEYCHAIN_TEST=1` (Keychain round trip).

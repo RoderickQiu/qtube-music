@@ -103,6 +103,8 @@ final class FailingEngine: QTPlaybackEngine {
     func seek(to time: TimeInterval) {}
     func setVolume(_ volume: Double) {}
     func setMuted(_ muted: Bool) {}
+    private(set) var rate: Double = 1
+    func setRate(_ rate: Double) { self.rate = rate }
     func skipAd() {}
     func stop() {}
 }
@@ -202,7 +204,7 @@ final class ChaosEngine: QTPlaybackEngine {
         state.item = item
         state.status = autoplay ? .playing : .paused
         state.isBuffering = false
-        state.timeline = QTPlaybackTimeline(time: min(item.startTime, item.track.duration), rate: autoplay ? 1 : 0,
+        state.timeline = QTPlaybackTimeline(time: min(item.startTime, item.track.duration), rate: autoplay ? rate : 0,
                                             anchorUptime: clock.now, duration: item.track.duration)
         publish()
     }
@@ -237,7 +239,7 @@ final class ChaosEngine: QTPlaybackEngine {
         }
         let t = state.status == .ended ? 0 : position
         state.status = .playing
-        state.timeline = QTPlaybackTimeline(time: t, rate: stalledSince == nil ? 1 : 0, anchorUptime: clock.now, duration: state.duration)
+        state.timeline = QTPlaybackTimeline(time: t, rate: stalledSince == nil ? rate : 0, anchorUptime: clock.now, duration: state.duration)
         publish()
     }
 
@@ -255,8 +257,20 @@ final class ChaosEngine: QTPlaybackEngine {
         guard state.item != nil, pending == nil else { return }
         let t = min(max(0, time), max(0, state.duration - 0.5))
         if state.status == .ended { state.status = .paused }
-        state.timeline = QTPlaybackTimeline(time: t, rate: state.status == .playing && stalledSince == nil ? 1 : 0,
+        state.timeline = QTPlaybackTimeline(time: t, rate: state.status == .playing && stalledSince == nil ? rate : 0,
                                             anchorUptime: clock.now, duration: state.duration)
+        publish()
+    }
+
+    /// Plays at this speed from now on (the clock re-anchors where it is).
+    private(set) var rate: Double = 1
+    private(set) var rateChanges = 0
+    func setRate(_ rate: Double) {
+        guard rate != self.rate else { return }
+        self.rate = rate
+        rateChanges += 1
+        guard state.timeline.rate > 0 else { return }
+        state.timeline = QTPlaybackTimeline(time: position, rate: rate, anchorUptime: clock.now, duration: state.duration)
         publish()
     }
 
@@ -322,7 +336,7 @@ final class ChaosEngine: QTPlaybackEngine {
         stale.queueID = UUID()
         stale.track.videoId = "stale-\(stale.track.videoId)"
         state.item = stale
-        state.timeline = QTPlaybackTimeline(time: 0, rate: state.status == .playing ? 1 : 0, anchorUptime: clock.now, duration: state.duration)
+        state.timeline = QTPlaybackTimeline(time: 0, rate: state.status == .playing ? rate : 0, anchorUptime: clock.now, duration: state.duration)
         publish()
     }
 
@@ -332,7 +346,7 @@ final class ChaosEngine: QTPlaybackEngine {
         prepared = nil
         state.item = next
         state.duration = next.track.duration
-        state.timeline = QTPlaybackTimeline(time: 0, rate: 1, anchorUptime: clock.now, duration: next.track.duration)
+        state.timeline = QTPlaybackTimeline(time: 0, rate: rate, anchorUptime: clock.now, duration: next.track.duration)
         publish()
     }
 

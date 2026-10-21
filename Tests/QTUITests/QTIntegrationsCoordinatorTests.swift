@@ -62,6 +62,8 @@ final class QTUIStubEngine: QTPlaybackEngine {
     func seek(to time: TimeInterval) {}
     func setVolume(_ volume: Double) {}
     func setMuted(_ muted: Bool) {}
+    var rate: Double = 1
+    func setRate(_ rate: Double) { self.rate = rate }
     func skipAd() {}
     func stop() {}
 }

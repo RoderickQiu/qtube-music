@@ -4,15 +4,16 @@ import Testing
 @testable import QTPlayback
 
 /// A seeded random soak of the queue on a `ChaosEngine` (docs/prelaunch-implementation.md §3): 1,000 steps of listener
-/// actions, virtual time and faults — failed, hung and offline loads, pauses the page makes, stalls, crashes, missed
-/// ends, stale items, gapless moves, radio that fails or hangs, sleep — with the invariants checked after every step
-/// and every virtual second:
+/// actions (speed changes from the menu and from remotes among them), virtual time and faults — failed, hung and offline
+/// loads, pauses the page makes, stalls, crashes, missed ends, stale items, gapless moves, radio that fails or hangs,
+/// sleep — with the invariants checked after every step and every virtual second:
 /// 1. Listening, something to play and online: the engine is playing or loading within 60 s, or the listener was told.
 /// 2. No load in flight: the queue's current item is the engine's (within a few seconds of grace).
 /// 3. No queue id appears twice (Now Playing, Up Next, Autoplay).
 /// 4. Now Playing shows the queue's current track, playing exactly when the engine plays.
 /// 5. The sleep assertion is held exactly while something plays.
 /// 6. No load stays in flight (or the engine loading) for more than 2 min online.
+/// 7. The engine plays at the listener's speed, its clock moves at it while playing, and Now Playing says so.
 /// Deterministic: the seed picks every step; nothing sleeps in real time.
 @MainActor
 @Suite struct PlaybackSoakTests {
@@ -24,6 +25,7 @@ import Testing
         // The soak did exercise the queue: tracks played, faults landed, recoveries happened.
         #expect(soak.rig.controller.playSerial > 50, "seed \(seed): only \(soak.rig.controller.playSerial) listens")
         #expect(soak.faults > 100)
+        #expect(soak.rig.engine.rateChanges > 10, "seed \(seed): the speed changed along the way")
         soak.rig.teardown()
     }
 }
@@ -39,6 +41,7 @@ private final class Soak {
     private var listeningIdleSince: TimeInterval?
     private var mismatchSince: TimeInterval?
     private var nowPlayingMismatchSince: TimeInterval?
+    private var nowPlayingRateSince: TimeInterval?
     private var loadWatch: (token: Int, online: TimeInterval)?
     private var engineLoadingOnline: TimeInterval = 0
     private var engineLoadingToken = 0
@@ -65,7 +68,7 @@ private final class Soak {
     private enum Step: CaseIterable {
         // The listener
         case playList, next, previous, pause, play, remotePause, remotePlay, seek, seekNearEnd, jump, addToQueue,
-             playNext, remove, clearUpNext, shuffle, cycleRepeat, setMode, toggleAutoplay, clearAll
+             playNext, remove, clearUpNext, shuffle, cycleRepeat, setMode, toggleAutoplay, clearAll, setRate, remoteRate
         // Time
         case wait, longWait
         // Faults
@@ -87,6 +90,8 @@ private final class Soak {
             case .remove: 2
             case .clearUpNext, .shuffle, .cycleRepeat, .setMode, .toggleAutoplay: 1
             case .clearAll: 1
+            case .setRate: 3
+            case .remoteRate: 1
             case .wait: 22
             case .longWait: 4
             case .pageCausesPause: 4
@@ -169,6 +174,8 @@ private final class Soak {
             c.clearAll()
             await rig.settle()
             Task { await c.play(self.newTracks(3 + roll(6))) }
+        case .setRate: c.setRate(QTPlaybackSpeed.choices[roll(QTPlaybackSpeed.choices.count)])
+        case .remoteRate: c.handleRemote(.setRate(0.5 + Double(roll(16)) / 10))
         case .wait: await advance(1 + roll(20))
         case .longWait: await advance(60 + roll(120))
         case .pageCausesPause: e.pauseByItself()
@@ -259,6 +266,21 @@ private final class Soak {
             let since = nowPlayingMismatchSince ?? now
             nowPlayingMismatchSince = since
             if now - since > 8 { fail("Now Playing shows \(snapshot?.videoID ?? "-") \(String(describing: snapshot?.playbackState)), queue \(current?.track.videoId ?? "-") engine \(describe(s))") }
+        }
+
+        // 7. The listener's speed: on the engine at once, its clock at it while content plays, Now Playing soon after.
+        if e.rate != c.rate { fail("engine at \(e.rate)×, the listener's speed is \(c.rate)×") }
+        // (A clock that stands still while "playing" is a stall: the watch's business, not the speed's.)
+        if s.status == .playing, !s.isBuffering, s.timeline.rate > 0, s.timeline.rate != c.rate {
+            fail("the engine's clock runs at \(s.timeline.rate)× while playing at \(c.rate)×")
+        }
+        if let snap = snapshot, snap.playbackState == .playing, s.status == .playing, !s.isBuffering, s.timeline.rate > 0,
+           snap.videoID == current?.track.videoId, snap.rate != c.rate {
+            let since = nowPlayingRateSince ?? now
+            nowPlayingRateSince = since
+            if now - since > 8 { fail("Now Playing says \(snap.rate)×, playing at \(c.rate)×") }
+        } else {
+            nowPlayingRateSince = nil
         }
 
         // 6. No load or engine stays loading for more than 2 min online.

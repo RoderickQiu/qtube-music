@@ -491,6 +491,10 @@ public struct QTStageView: View {
 
     private var sideControls: some View {
         HStack(spacing: 8) {
+            // The speed, only while it isn't normal; a click offers the choices (same as the player bar).
+            if !QTPlaybackSpeed.isNormal(player.rate) {
+                QTPlaybackSpeedButton(overArt: true, identifier: "qt.stage.speed")
+            }
             if let track = player.nowPlaying {
                 let liked = player.isLiked(track)
                 // Same words as the player bar, menus and Dock: the action it will take.

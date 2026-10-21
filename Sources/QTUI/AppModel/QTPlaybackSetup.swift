@@ -23,6 +23,8 @@ import WebKit
 //   -qt.playback.native YES|NO         session override of Settings › Premium engine › Native engine (opt-in). The
 //                                      native engine itself comes in once the account is known to be Premium and
 //                                      signed in (QTNativeEngineCoordinator); real data only.
+//   -qt.playback.rate 0.5…2            session override of the playback speed (Controls › Playback Speed), e.g. 1.5
+//                                      for the player bar's speed button in screenshots
 
 /// Where the tracks being played come from.
 public enum QTPlaybackDataSource: String, Sendable, Hashable {
@@ -141,6 +143,9 @@ public final class QTPlaybackServices {
         let playback = model.player.playback
         playback.onFailure = { [weak self] event in self?.report(event) }
         playback.onNotice = { [weak self] notice in self?.report(notice) }
+        // The saved speed (or `-qt.playback.rate`); every change — menus, shortcuts, a remote — is saved again.
+        playback.setRate(model.settings.settings.playbackEffects.playbackRate)
+        playback.onRateChange = { [weak model] rate in model?.settings.update { $0.playbackEffects.playbackRate = rate } }
         hookEngine(playback.engine)
         terminationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main

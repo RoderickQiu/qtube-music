@@ -71,6 +71,9 @@ public final class QTQueueController {
     public var repeatMode: QTRepeatMode = .off {
         didSet { if repeatMode != oldValue { scheduleSave(); publishNowPlaying() } }
     }
+    /// Playback speed (`QTPlaybackSpeed`, 1 = normal): the listener's setting, not the queue's. Every engine plays at
+    /// it — set again before each load and on an engine swap, so a fresh page or a fallback engine never drops it.
+    public private(set) var rate: Double = QTPlaybackSpeed.normal
     public private(set) var isFetchingAutoplay = false
     /// Bumped whenever a new *listen* of the current item begins: a new current item (play, next, autoplay, jump,
     /// previous), Repeat One wrapping to the start, Previous restarting the track. Not bumped by Song⇄Video switches,
@@ -100,6 +103,8 @@ public final class QTQueueController {
     /// Playback stopped for a reason other than one track failing, and the listener should know (`QTPlaybackNotice`).
     /// The app shows one toast, with the notice's action.
     @ObservationIgnored public var onNotice: (@MainActor (QTPlaybackNotice) -> Void)?
+    /// The speed changed (menus, shortcuts, a remote command): the app saves it.
+    @ObservationIgnored public var onRateChange: (@MainActor (Double) -> Void)?
     /// The process's single Now Playing owner (nil: none). Attached later when the app switches to real data.
     @ObservationIgnored public private(set) var nowPlaying: QTNowPlayingController?
 
@@ -235,6 +240,17 @@ public final class QTQueueController {
     public func setVolume(_ volume: Double) { engine.setVolume(volume) }
     public func setMuted(_ muted: Bool) { engine.setMuted(muted) }
     public func skipAd() { engine.skipAd() }
+
+    /// Playback speed for everything that plays from now on (normalized to `QTPlaybackSpeed`). Song⇄Video, the next
+    /// track, a reload and an engine swap all keep it.
+    public func setRate(_ newRate: Double) {
+        let r = QTPlaybackSpeed.normalized(newRate)
+        guard r != rate else { return }
+        rate = r
+        engine.setRate(r)
+        publishNowPlaying()
+        onRateChange?(r)
+    }
 
     /// Next (button, menu, media key). Moves on even under Repeat One.
     public func next() async {
@@ -396,6 +412,7 @@ public final class QTQueueController {
         engine.stop()
         engine.prepareNext(nil)
         engine = newEngine
+        newEngine.setRate(rate)
         preparedNext = nil
         watch.engineDidChange()
         observe(newEngine)
@@ -624,6 +641,8 @@ public final class QTQueueController {
         superviseSoon()
         announceTrackChange()
         scheduleSave()
+        // Every load at the listener's speed (an engine that was swapped, crashed or fell back included).
+        engine.setRate(rate)
         do {
             try await engine.load(QTPlaybackItem(track: track, mode: mode, startTime: startTime, queueID: item.id), autoplay: autoplay)
             guard token == loadToken else { return }
@@ -932,6 +951,7 @@ public final class QTQueueController {
             publishNowPlaying()
         case .setShuffle(let on): setShuffle(on)
         case .setRepeat(let m): repeatMode = m
+        case .setRate(let r): setRate(r)
         }
         return true
     }

@@ -300,6 +300,8 @@ final class AdvancingEngine: QTPlaybackEngine {
     func seek(to time: TimeInterval) {}
     func setVolume(_ volume: Double) {}
     func setMuted(_ muted: Bool) {}
+    private(set) var rate: Double = 1
+    func setRate(_ rate: Double) { self.rate = rate }
     func skipAd() {}
     func stop() { state = QTPlaybackState() }
 }

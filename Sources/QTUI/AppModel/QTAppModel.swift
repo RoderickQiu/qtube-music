@@ -87,6 +87,7 @@ public final class QTAppModel {
             if let v = launch.stageBackground { s.stageBackground = v }
             if let v = launch.translation { s.lyricsTranslation = v }
             if let v = launch.bool("qt.playback.native") { s.playbackEffects.nativeEngine = v }
+            if let v = launch.double("qt.playback.rate") { s.playbackEffects.playbackRate = QTPlaybackSpeed.normalized(v) }
             if let v = launch.bool("qt.account.sync") { s.syncsToYouTubeMusic = v }
             if let v = QTLyricsSession.unofficialSources(argument: launch.string("qt.lyrics.unofficial")) {
                 s.unofficialLyricsSources = v

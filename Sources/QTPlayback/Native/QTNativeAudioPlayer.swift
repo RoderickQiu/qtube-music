@@ -6,8 +6,12 @@ import os
 // Native engine — the audio graph and its two decks.
 //
 //   deck A (AVAudioPlayerNode) ─┐
-//                               ├─ mixer ─ 10-band EQ ─ main mixer (volume) ─ output
-//   deck B (AVAudioPlayerNode) ─┘            └ tap → vDSP FFT → visualizer bands (only while someone asks)
+//                               ├─ mixer ─ time pitch ─ 10-band EQ ─ main mixer (volume) ─ output
+//   deck B (AVAudioPlayerNode) ─┘                           └ tap → vDSP FFT → visualizer bands (only while asked)
+//
+// The time pitch is the playback speed (pitch kept). At exactly 1× it isn't in the chain at all (mixer → EQ), so normal
+// speed is bit-exact — a bypassed time pitch still rounds by an ulp. The decks upstream render source frames however fast
+// it pulls them, so positions stay in source frames and gapless chains are untouched.
 //
 // A deck plays a chain of segments (one segment = one track from some frame on). It decodes ~1 s ahead in 8,192-frame
 // buffers on the player's serial queue and refills as the node consumes them, so memory holds compressed tracks plus
@@ -229,6 +233,7 @@ final class QTNativeAudioPlayer {
     let engine = AVAudioEngine()
     let format = QTNativeMemoryAudioFile.processingFormat(sampleRate: QTNativeAudioPlayer.sampleRate)
     private let mixer = AVAudioMixerNode()
+    private let timePitch = AVAudioUnitTimePitch()
     private let eq = AVAudioUnitEQ(numberOfBands: 10)
     let queue = DispatchQueue(label: "com.roderickqiu.qtube.native-audio", qos: .userInitiated)
     let deckA: QTNativeDeck
@@ -265,9 +270,11 @@ final class QTNativeAudioPlayer {
             band.gain = 0
             band.bypass = false
         }
+        Self.configure(timePitch, rate: 1)
         engine.attach(deckA.node)
         engine.attach(deckB.node)
         engine.attach(mixer)
+        engine.attach(timePitch)
         engine.attach(eq)
         for deck in [deckA, deckB] {
             deck.onPlayedOut = { [weak self] deck, token in
@@ -294,7 +301,7 @@ final class QTNativeAudioPlayer {
         guard !isConnected else { return }
         engine.connect(deckA.node, to: mixer, fromBus: 0, toBus: 0, format: format)
         engine.connect(deckB.node, to: mixer, fromBus: 0, toBus: 1, format: format)
-        engine.connect(mixer, to: eq, format: format)
+        Self.connectSpeedStage(in: engine, from: mixer, through: timePitch, to: eq, format: format, rate: rate)
         engine.connect(eq, to: engine.mainMixerNode, format: format)
         engine.mainMixerNode.outputVolume = outputVolume
         engine.prepare()
@@ -437,6 +444,40 @@ final class QTNativeAudioPlayer {
         queue.sync { outgoing.clear() }
         outgoing.node.volume = 0
         if keepIncoming { active.node.volume = 1 }
+    }
+
+    // MARK: Speed
+
+    /// Playback speed (source seconds per second), pitch kept. Positions are unaffected: they count source frames.
+    private(set) var rate: Double = 1
+
+    /// From one off-normal speed to another the time pitch just changes (seamless). To or from 1× it joins or leaves
+    /// the chain, which restarts the graph where the track is (a moment's gap, like an output change). Throws when the
+    /// graph won't start again (the engine falls back).
+    func setRate(_ newRate: Double) throws {
+        let old = rate
+        rate = newRate
+        Self.configure(timePitch, rate: newRate)
+        guard (old == 1) != (newRate == 1), isConnected else { return }
+        try restartGraph()
+    }
+
+    /// Speed on a time pitch unit (bypassed at 1×, when it is also out of the chain).
+    nonisolated static func configure(_ unit: AVAudioUnitTimePitch, rate: Double) {
+        unit.rate = Float(rate)
+        unit.pitch = 0
+        unit.bypass = rate == 1
+    }
+
+    /// The deck mixer to the EQ: directly at 1× (bit-exact), else through the time pitch.
+    nonisolated static func connectSpeedStage(in engine: AVAudioEngine, from mixer: AVAudioNode, through timePitch: AVAudioUnitTimePitch,
+                                              to next: AVAudioNode, format: AVAudioFormat, rate: Double) {
+        if rate == 1 {
+            engine.connect(mixer, to: next, format: format)
+        } else {
+            engine.connect(mixer, to: timePitch, format: format)
+            engine.connect(timePitch, to: next, format: format)
+        }
     }
 
     // MARK: EQ and spectrum
