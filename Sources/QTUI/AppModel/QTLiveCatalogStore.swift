@@ -235,9 +235,9 @@ public final class QTLiveCatalogStore {
         }
         mode = .restoring
         model.catalog = Self.emptyCatalog
-        // Changes kept on this Mac survive relaunches — but never from scripted (screenshot / test) runs.
+        // Changes kept on this Mac survive relaunches — but never from DEBUG or scripted (screenshot / test) runs.
         // They're filed per Google account, which isn't known until the session is read (`enterLive`).
-        if persistsLocalChanges, model.launch.readyFile == nil {
+        if persistsLocalChanges, Self.savesLocalChanges(model.launch) {
             writer.edits.storageURL = QTPlaylistEdits.defaultStorageURL()
             writer.edits.use(profile: nil, reload: true)
         }
@@ -362,16 +362,23 @@ public final class QTLiveCatalogStore {
         await writer.reconcileLocalChanges()
     }
 
-    /// This Mac's changes are filed per Google account (a hashed key, never the account id) and brand account; nil
-    /// until the account is known (changes made meanwhile move over once it is).
-    static func localProfile(accountKey: String?, brand: String?) -> String? {
-        guard let accountKey else { return nil }
+    /// Whether this launch keeps this Mac's changes between launches: only when Sync follows the user's setting
+    /// (`QTAccountWriter.launchSyncOverride` nil: a release build launched normally). DEBUG builds and scripted runs
+    /// keep them in memory, so they never reach the release app's file (DEBUG builds without `QT_VARIANT` share its
+    /// bundle id) and never come back there as changes to upload.
+    static func savesLocalChanges(_ launch: QTLaunchOptions, isDebugBuild: Bool = QTBuild.allowsDemoData) -> Bool {
+        QTAccountWriter.launchSyncOverride(launch, isDebugBuild: isDebugBuild) == nil
+    }
+
+    /// This Mac's changes are filed per Google account (a hashed key, never the account id) and brand account. Until
+    /// the account is known they go to the provisional profile, which joins the account's once it is.
+    static func localProfile(accountKey: String?, brand: String?) -> String {
+        guard let accountKey else { return QTPlaylistEdits.provisionalProfile(brand: brand) }
         return brand.map { "\(accountKey)/\($0)" } ?? accountKey
     }
 
     private func useLocalProfile() {
-        // The first account signed in after profiles became per account takes over the older "main" ones.
-        if let key = auth.accountKey { writer.edits.migrateLegacyProfiles(to: key) }
+        // Profiles from before they were per account, and the provisional one, join the first account known.
         writer.edits.use(profile: Self.localProfile(accountKey: auth.accountKey, brand: auth.brandAccountId))
     }
 

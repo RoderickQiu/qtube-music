@@ -97,14 +97,26 @@ public enum QTScripting {
         case nothingPlaying
         /// Nothing changed: guest mode (no account to like for; the app shows its sign-in toast).
         case signInRequired
+        /// Nothing changed: the app is moving to another account or brand account (no change starts meanwhile).
+        case switchingAccounts
+        /// Nothing changed, for another reason.
+        case notLiked
     }
 
     /// Likes the current track the way Controls › Like does: in the YouTube Music account when Sync is on, else on
     /// this Mac.
     @MainActor public static func likeCurrentTrack() -> LikeResult {
         guard let track = player.nowPlaying, player.ad == nil else { return .nothingPlaying }
+        return like(track, player: player, store: .shared)
+    }
+
+    /// Likes `track` and says why when the like was refused.
+    @MainActor static func like(_ track: QTTrack, player: QTPlayerModel, store: QTLiveCatalogStore) -> LikeResult {
         if !player.isLiked(track) { player.toggleLike(track) }
-        return player.isLiked(track) ? .liked(track.title) : .signInRequired
+        if player.isLiked(track) { return .liked(track.title) }
+        if store.isGuest { return .signInRequired }
+        if store.switchingIdentity != nil { return .switchingAccounts }
+        return .notLiked
     }
 
     /// Liked Songs + the library's playlists, as (id, title) for the Shortcuts playlist picker.

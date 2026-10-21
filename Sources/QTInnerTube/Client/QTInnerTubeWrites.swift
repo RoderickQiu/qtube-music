@@ -105,10 +105,16 @@ extension QTInnerTubeClient {
     }
 
     /// Appends songs; returns each new row's entry id. Without `dedupeOption` YouTube refuses songs that are already
-    /// in the playlist, so a song is never added twice.
+    /// in the playlist, so a song is never added twice — unless `allowingDuplicates` (Undo of removing one copy of a
+    /// song the playlist holds twice): then `DEDUPE_OPTION_SKIP` skips that check (ytmusicapi's `duplicates=True`).
     @discardableResult
-    public func addToPlaylist(_ playlistId: String, videoIds: [String]) async throws -> [QTPlaylistAddResult] {
-        let actions: [QTJSON] = videoIds.map { ["action": "ACTION_ADD_VIDEO", "addedVideoId": .string($0)] }
+    public func addToPlaylist(_ playlistId: String, videoIds: [String],
+                              allowingDuplicates: Bool = false) async throws -> [QTPlaylistAddResult] {
+        let actions: [QTJSON] = videoIds.map {
+            var action: [String: QTJSON] = ["action": "ACTION_ADD_VIDEO", "addedVideoId": .string($0)]
+            if allowingDuplicates { action["dedupeOption"] = "DEDUPE_OPTION_SKIP" }
+            return .object(action)
+        }
         let json = try await editPlaylist(playlistId, actions: actions)
         return QTWriteParser.addResults(json)
     }

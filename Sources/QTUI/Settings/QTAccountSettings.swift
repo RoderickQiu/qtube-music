@@ -176,12 +176,16 @@ struct QTAccountSettings: View {
         }
         .task {
             #if DEBUG
-            // `-qt.account.localChangesAlert YES`: the Sync question over this pane (screenshots; nothing changes).
-            if model.launch.bool("qt.account.localChangesAlert") == true {
+            // `-qt.account.localChangesAlert YES`: the Sync question over this pane (screenshots; nothing changes);
+            // `launch`: the one asked at launch with Sync already on.
+            let alert = model.launch.string("qt.account.localChangesAlert")
+            if alert == "launch" || model.launch.bool("qt.account.localChangesAlert") == true {
                 let hold = QTReadiness.shared.hold("account.localChangesAlert")
                 try? await Task.sleep(for: .milliseconds(600))
                 let window = NSApp.windows.first { $0.identifier == QTWindowID.settings.identifier && $0.isVisible }
-                Task { @MainActor in _ = await QTLocalChangesAlert.ask(count: 3, turningOn: true, over: window) }
+                Task { @MainActor in
+                    _ = await QTLocalChangesAlert.ask(count: 3, turningOn: alert != "launch", over: window)
+                }
                 try? await Task.sleep(for: .milliseconds(700))
                 QTReadiness.shared.release(hold)
             }
@@ -328,21 +332,23 @@ struct QTAccountAvatar: View {
 }
 
 /// The question when Sync turns on (or is on) while this Mac keeps changes of its own: a sheet on the window it came
-/// from (Settings, or the main window for the Account menu), like Music's "Turn on Sync Library?".
+/// from (Settings, or the main window for the Account menu), like Music's "Turn on Sync Library?". The third button
+/// (Esc) never decides anything: Cancel leaves Sync off; Not Now, at launch with Sync already on, keeps the changes
+/// here and asks again at the next launch (turning Sync off to keep them for good is Settings' job).
 @MainActor
 enum QTLocalChangesAlert {
     static func ask(count: Int, turningOn: Bool, over window: NSWindow? = nil) async -> QTLocalChangesChoice {
         let alert = NSAlert()
         alert.messageText = QTLoc.tr("Upload the changes on this Mac?", table: .desktop)
-        alert.informativeText = QTLoc.tr("%lld changes to likes and playlists were made while Sync was off. Upload them to your YouTube Music account, or discard them.", table: .desktop, count)
+        alert.informativeText = turningOn
+            ? QTLoc.tr("%lld changes to likes and playlists were made while Sync was off. Upload them to your YouTube Music account, or discard them.", table: .desktop, count)
+            : QTLoc.tr("%lld changes to likes and playlists are only on this Mac. Upload them to your YouTube Music account, or discard them. To keep them on this Mac only, turn off Sync in Settings › Account.", table: .desktop, count)
         alert.addButton(withTitle: QTLoc.tr("Upload Changes", table: .desktop))
         let discard = alert.addButton(withTitle: QTLoc.tr("Discard Changes", table: .desktop))
         discard.hasDestructiveAction = true
-        // "Cancel" leaves Sync off; when it's already on (another identity's changes, a launch override), the way to
-        // keep the changes here is to turn it off.
-        let keep = alert.addButton(withTitle: turningOn ? QTLoc.tr("Cancel", table: .desktop)
-                                                        : QTLoc.tr("Turn Off Sync", table: .desktop))
-        keep.keyEquivalent = "\u{1b}"
+        let later = alert.addButton(withTitle: turningOn ? QTLoc.tr("Cancel", table: .desktop)
+                                                         : QTLoc.tr("Not Now", table: .desktop))
+        later.keyEquivalent = "\u{1b}"
         let host = window ?? NSApp.keyWindow ?? NSApp.windows.first { $0.identifier == QTWindowID.main.identifier }
         let response: NSApplication.ModalResponse
         if let host, host.attachedSheet == nil {

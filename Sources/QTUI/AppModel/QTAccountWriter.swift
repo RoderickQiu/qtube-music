@@ -23,9 +23,11 @@ import QTInnerTube
 // Edits to a playlist still being created (`pending:` placeholder) are kept on the placeholder and follow as edits
 // of the real playlist once YouTube has made it.
 
-/// What to do with changes kept on this Mac when Sync turns on.
+/// What to do with changes kept on this Mac when Sync turns on (or is on).
 public enum QTLocalChangesChoice: Sendable, Equatable {
-    case upload, discard, cancel
+    case upload, discard
+    /// Cancel / Not Now / Esc: nothing changes (Sync stays as it was; the question comes again next time).
+    case cancel
 }
 
 /// The job a write runs in (its session generation), so a write queued before `reset()` never goes out after it.
@@ -50,6 +52,8 @@ public final class QTAccountWriter {
     @ObservationIgnored private var confirmedLikes: [String: (liked: Bool, at: Date)] = [:]
     @ObservationIgnored private var chain: Task<Void, Never>?
     @ObservationIgnored private var queuedLikes: Set<String> = []
+    /// Songs whose queued like write is an upload of this Mac's like (`uploadLike`).
+    @ObservationIgnored private var forcedLikes: Set<String> = []
     /// Changes the bot check turned away, redone by Try Again.
     @ObservationIgnored private var pausedRetries: [@MainActor () -> Void] = []
     @ObservationIgnored private(set) var writesInFlight = 0
@@ -140,14 +144,15 @@ public final class QTAccountWriter {
         }
     }
 
-    /// Signed in with Sync on while this identity still has changes kept here (another identity's, `-qt.account.sync`,
-    /// a build before the question existed): the same question; Turn Off Sync keeps them on this Mac.
+    /// Signed in with Sync on while this identity still has changes kept here (another identity's, an upload that
+    /// didn't finish, a build before the question existed): the same question. Not Now (Esc) changes nothing and
+    /// saves no choice: the changes stay here and the question comes again at the next launch.
     func reconcileLocalChanges() async {
         guard syncsToAccount, edits.hasLocalChanges, let choice = await ask(turningOn: false) else { return }
         switch choice {
         case .upload: uploadLocalChanges()
         case .discard: discardLocalChanges()
-        case .cancel: model?.settings.update { $0.syncsToYouTubeMusic = false }
+        case .cancel: break
         }
     }
 
@@ -158,66 +163,125 @@ public final class QTAccountWriter {
         return await askAboutLocalChanges(edits.localChangeCount, turningOn)
     }
 
-    /// This Mac's changes go to the account, each as the write it would have been with Sync on; they stay on screen
-    /// throughout (local → pending → the account).
+    /// This Mac's changes go to the account, each as the write it would have been with Sync on. Each stays here (on
+    /// screen and saved) until its write has landed, so a failed write, a bot check or a quit loses none of them: the
+    /// toast's Try Again, or the question at the next launch, sends what is left. A playlist is read again inside its
+    /// queued job before its edits are worked out, so a playlist not opened this session gets the whole reorder,
+    /// and songs already in it aren't added twice.
     func uploadLocalChanges() {
         guard syncsToAccount, let model else { return }
-        let (changes, flags, made) = edits.takeLocal()
-        func track(_ id: String) -> QTTrack {
-            edits.track(id, catalog: model.catalog) ?? QTTrack(videoId: id, title: id, artists: [], duration: 0)
-        }
-        for (id, c) in changes {
-            if id == QTPlaylistEdits.likedID {
-                for (ids, liked) in [(c.added, true), (Array(c.removed), false)] {
-                    for v in ids where accountLikes.contains(v) != liked {
-                        edits.setLike(.pending, v, liked)
-                        sendLike(track(v))
-                    }
+        for (id, c) in edits.local {
+            // Details of a playlist made here go with the playlist (`uploadCreated`).
+            if id.hasPrefix("local:") { continue }
+            guard id == QTPlaylistEdits.likedID else {
+                uploadPlaylist(id)
+                continue
+            }
+            // Sent whatever the app knows of the account's likes (Liked Songs may not have loaded, or stop short
+            // of the song): liking or unliking twice changes nothing.
+            for (ids, liked) in [(c.added, true), (Array(c.removed), false)] {
+                for v in ids {
+                    uploadLike(edits.track(v, catalog: model.catalog)
+                               ?? QTTrack(videoId: v, title: v, artists: [], duration: 0), liked)
                 }
-                continue
-            }
-            let playlist = store?.playlist(id)
-            let name = c.title ?? playlist?.title.resolved ?? ""
-            if c.isDeleted {
-                sendDelete(id, name: name)
-                continue
-            }
-            if c.title != nil || c.description != nil || c.privacy != nil {
-                sendDetails(id, title: c.title, description: c.description, privacy: c.privacy, name: name)
-            }
-            let rows = playlist?.tracks ?? []
-            var removals = rows.filter { c.removes($0) }
-            removals += c.removed.filter { v in !rows.contains { $0.videoId == v } }.map(track)
-            removals += c.removedEntries.filter { s, _ in !rows.contains { $0.setVideoId == s } }.map { s, v in
-                var t = track(v)
-                t.setVideoId = s
-                return t
-            }
-            if !removals.isEmpty { sendRemove(removals, from: id, name: name) }
-            let present = Set(rows.map(\.videoId))
-            let adds = c.added.filter { !present.contains($0) }.map(track)
-            if !adds.isEmpty { sendAdd(adds, to: id, name: name) }
-            if let order = c.order {
-                sendOrder(QTPlaylistEdits.sorted(rows.filter { !c.removes($0) } + adds, by: order), moved: nil, in: id,
-                          name: name)
             }
         }
-        for (key, value) in flags {
+        for (key, value) in edits.localFlags {
             if key.hasPrefix("saved:") {
                 let id = String(key.dropFirst("saved:".count))
-                if store?.savedStates[id] != value { setSaved(value, playlistID: id, title: id) }
+                if store?.savedStates[id] == value { edits.setFlag(.local, key, nil) } else {
+                    setSaved(value, playlistID: id, title: id)
+                }
             } else if key.hasPrefix("subscribed:") {
                 let id = String(key.dropFirst("subscribed:".count))
-                if store?.subscriptions[id] != value { setSubscribed(value, channelID: id, name: id) }
+                if store?.subscriptions[id] == value { edits.setFlag(.local, key, nil) } else {
+                    setSubscribed(value, channelID: id, name: id)
+                }
             }
         }
-        for p in made {
-            guard let placeholder = create(title: p.title.resolved, description: p.description ?? "",
-                                           privacy: p.privacy ?? .private, tracks: p.tracks ?? [], opens: false)
-            else { continue }
-            QTNavigator.shared.replacePlaylist(p.id, with: placeholder.id)
-        }
+        for p in edits.created where p.id.hasPrefix("local:") { uploadCreated(p.id) }
         publishLikes()
+    }
+
+    /// A like or unlike kept here, sent even when the account seems to agree already.
+    private func uploadLike(_ track: QTTrack, _ liked: Bool) {
+        forcedLikes.insert(track.videoId)
+        edits.setLike(.pending, track.videoId, liked)
+        sendLike(track)
+    }
+
+    /// One playlist's changes kept here, as one queued job: the playlist is read first (every page), then its
+    /// details, removals, adds and order go out, in that order, stopping at the first that fails (Try Again redoes
+    /// what is left).
+    private func uploadPlaylist(_ id: String) {
+        enqueue { [self] in
+            guard let c = edits.local[id], !c.isEmpty else { return }
+            let name = c.title ?? store?.playlist(id)?.title.resolved
+                ?? model?.catalog.playlists.first { $0.id == id }?.title.resolved ?? ""
+            let retry: @MainActor () -> Void = { [weak self] in self?.uploadPlaylist(id) }
+            if c.isDeleted {
+                showDelete(id)
+                await writeDelete(id, name: name, retry: retry)
+                return
+            }
+            if c.title != nil || c.description != nil || c.privacy != nil {
+                showDetails(id, title: c.title, description: c.description, privacy: c.privacy)
+                guard await writeDetails(id, title: c.title, description: c.description, privacy: c.privacy,
+                                         name: name, retry: retry) else { return }
+            }
+            guard c.order != nil || !c.added.isEmpty || !c.removed.isEmpty || !c.removedEntries.isEmpty else { return }
+            if isPaused { return fail(QTInnerTubeError.botCheck, "", retry: retry) }
+            await store?.loadPlaylist(id, force: true)
+            guard isCurrentJob else { return }
+            guard store?.playlistPhase(id) == .loaded, let rows = store?.playlist(id)?.tracks else {
+                // A bot check pauses the upload as it would a write; an expired session has its own toast.
+                let error: QTInnerTubeError = switch store?.playlistPhase(id) {
+                case .failed(.botCheck)?: .botCheck
+                case .failed(.sessionExpired)?: .sessionExpired
+                default: .parse("playlist")
+                }
+                return fail(error, QTLoc.tr("Couldn’t save changes to “%@”", table: .live, name), retry: retry)
+            }
+            // Rows the playlist no longer has and songs it already holds need no write.
+            let present = Set(rows.map(\.videoId))
+            let entries = Set(rows.compactMap(\.setVideoId))
+            edits.clearLocal(id) { l in
+                l.removed = l.removed.filter(present.contains)
+                l.removedEntries = l.removedEntries.filter { entries.contains($0.key) }
+                l.added.removeAll(where: present.contains)
+            }
+            guard let c = edits.local[id] else { return }
+            let removals = rows.filter { c.removes($0) }
+            if !removals.isEmpty {
+                showRemove(removals, from: id)
+                guard await writeRemove(removals, from: id, name: name, retry: retry) else { return }
+            }
+            if let model, !c.added.isEmpty {
+                let adds = c.added.map {
+                    edits.track($0, catalog: model.catalog) ?? QTTrack(videoId: $0, title: $0, artists: [], duration: 0)
+                }
+                showAdd(adds, to: id)
+                guard await writeAdd(adds, to: id, name: name, retry: retry) else { return }
+            }
+            guard let order = edits.local[id]?.order else { return }
+            let now = store?.playlist(id)?.tracks ?? []
+            let wanted = QTPlaylistEdits.sorted(now, by: order)
+            guard wanted.map(Self.rowKey) != now.map(Self.rowKey) else {
+                edits.clearLocal(id) { $0.order = nil }
+                return
+            }
+            showOrder(wanted, in: id)
+            await writeOrder(wanted, moved: nil, in: id, name: name, retry: retry)
+        }
+    }
+
+    /// A playlist made on this Mac, made in the account as it is when its turn comes; it stays here until YouTube
+    /// has made it (then changes made to it meanwhile follow, as for a placeholder).
+    private func uploadCreated(_ id: String) {
+        enqueue { [self] in
+            guard let p = edits.createdPlaylist(id) else { return }
+            await writeCreate(p, opens: false)
+        }
     }
 
     func discardLocalChanges() {
@@ -256,14 +320,16 @@ public final class QTAccountWriter {
     }
 
     /// One queued write per song: it reads the wanted state when its turn comes, so toggles made meanwhile collapse
-    /// into it (or into nothing when they cancel out).
+    /// into it (or into nothing when they cancel out). An upload's like (`forcedLikes`) goes out even when the account
+    /// seems to agree already: what the app knows of the account's likes may be incomplete.
     private func sendLike(_ track: QTTrack) {
         let id = track.videoId
         guard queuedLikes.insert(id).inserted else { return }
         enqueue { [self] in
             queuedLikes.remove(id)
+            let uploading = forcedLikes.remove(id) != nil
             guard let want = edits.pendingLike(id) else { return }
-            if want == accountLikes.contains(id) {
+            if want == accountLikes.contains(id), !uploading {
                 edits.clearLike(.pending, id)
                 publishLikes()
                 return
@@ -272,11 +338,15 @@ public final class QTAccountWriter {
                 try await send { try await $0.rate(videoId: id, want ? .like : .none) }
                 confirmLike(track, want)
                 if edits.pendingLike(id) == want { edits.clearLike(.pending, id) }
+                // The account has it now: a like kept on this Mac for the song is done with.
+                if edits.local[QTPlaylistEdits.likedID] != nil { edits.clearLike(.local, id) }
             } catch {
                 guard isCurrentJob else { return }
                 if edits.pendingLike(id) == want { edits.clearLike(.pending, id) }
                 fail(error, QTLoc.tr(want ? "Couldn’t like “%@”" : "Couldn’t remove “%@” from Liked Songs", table: .live,
-                                     track.title)) { [weak self] in self?.setLiked([track], want) }
+                                     track.title)) { [weak self] in
+                    if uploading { self?.uploadLike(track, want) } else { self?.setLiked([track], want) }
+                }
             }
             publishLikes()
         }
@@ -322,17 +392,18 @@ public final class QTAccountWriter {
 
     @ObservationIgnored private var likedFromRows: Set<String> = []
 
-    /// Rows that state whether the account likes them (`likeStatus`), e.g. songs past Liked Songs' paging limit.
+    /// Rows that state whether the account likes them (`likeStatus`), e.g. songs past Liked Songs' paging limit. A
+    /// "not liked" row never takes a like away: the page may be a cached one from before the like (Liked Songs and
+    /// confirmed writes say what the account likes). It only stops the row's earlier LIKE from counting at the next
+    /// Liked Songs load.
     func noteLikeStatus(_ tracks: [QTTrack]) {
         let liked = tracks.filter { $0.likeStatus == .like }.map(\.videoId)
         let notLiked = Set(tracks.filter { $0.likeStatus == .indifferent || $0.likeStatus == .dislike }.map(\.videoId))
         likedFromRows.subtract(notLiked)
         likedFromRows.formUnion(liked)
         let fresh = liked.filter { !accountLikes.contains($0) && confirmedLikes[$0]?.liked != false }
-        let gone = notLiked.filter { accountLikes.contains($0) && confirmedLikes[$0]?.liked != true }
-        guard !fresh.isEmpty || !gone.isEmpty else { return }
+        guard !fresh.isEmpty else { return }
         accountLikes.formUnion(fresh)
-        accountLikes.subtract(gone)
         publishLikes()
     }
 
@@ -375,60 +446,109 @@ public final class QTAccountWriter {
     }
 
     /// Adds the songs not already in the playlist; returns them (empty when all were already there). `restoring`
-    /// (Undo of a removal) puts back rows that can't play here too.
+    /// (Undo of a removal) puts back rows, by entry id: also rows that can't play here, and one copy of a song the
+    /// playlist still holds once. A row hidden only on this Mac comes back as it was (returned with its entry id);
+    /// the others come back as new rows (returned without one).
     @discardableResult
     public func add(_ tracks: [QTTrack], to playlist: QTPlaylist, restoring: Bool = false) -> [QTTrack] {
-        let present = Set(rows(of: playlist).map(\.videoId))
-        var seen = present
-        let fresh = tracks.filter { (restoring || $0.availability.isPlayable) && seen.insert($0.videoId).inserted }
-            .map { t in var t = t; t.setVideoId = nil; return t }
+        let shown = rows(of: playlist)
+        let present = Set(shown.map(\.videoId))
+        let presentEntries = Set(shown.compactMap(\.setVideoId))
+        var seen = Set<String>()
+        let fresh = tracks.filter { t in
+            guard restoring || t.availability.isPlayable else { return false }
+            if restoring, let s = t.setVideoId { return !presentEntries.contains(s) && seen.insert(s).inserted }
+            return !present.contains(t.videoId) && seen.insert(t.videoId).inserted
+        }
         guard !fresh.isEmpty, acceptsChanges() else { return [] }
-        edits.remember(fresh)
-        let ids = fresh.map(\.videoId)
+        func newRows(_ tracks: [QTTrack]) -> [QTTrack] { tracks.map { t in var t = t; t.setVideoId = nil; return t } }
+        edits.remember(newRows(fresh))
         let id = playlist.id
         if Self.isPlaceholder(id) || id.hasPrefix("local:") {
             // A playlist made here, or one still being created (the songs follow it to the account).
-            edits.updateCreated(id) { $0.tracks = ($0.tracks ?? []) + fresh }
-            return fresh
+            let songs = newRows(fresh.filter { !present.contains($0.videoId) })
+            edits.updateCreated(id) { $0.tracks = ($0.tracks ?? []) + songs }
+            return songs
         }
         guard syncsToAccount, isAccountPlaylist(playlist) else {
             let base = Set((latest(playlist).tracks ?? []).map(\.videoId))
+            var inPlace: [QTTrack] = []
+            var songs: [QTTrack] = []
             edits.edit(.local, id) { c in
+                for t in fresh {
+                    if let s = t.setVideoId, c.removedEntries[s] != nil {
+                        c.removedEntries[s] = nil
+                        inPlace.append(t)
+                    } else if !present.contains(t.videoId) {
+                        songs.append(t)
+                    }
+                }
+                let ids = songs.map(\.videoId)
                 c.removed.subtract(ids)
                 c.added += ids.filter { !base.contains($0) && !c.added.contains($0) }
                 if c.order != nil { c.order! += ids }
             }
-            return fresh
+            return inPlace + newRows(songs)
         }
+        // A song the playlist doesn't hold is added; a further copy of one it holds (Undo) goes as a duplicate.
+        var known = present
+        var songs: [QTTrack] = []
+        var copies: [QTTrack] = []
+        for t in newRows(fresh) {
+            if known.insert(t.videoId).inserted { songs.append(t) } else { copies.append(t) }
+        }
+        let ids = songs.map(\.videoId)
         edits.clearLocal(id) { c in
             c.removed.subtract(ids)
             c.added.removeAll { ids.contains($0) }
         }
-        sendAdd(fresh, to: id, name: playlist.title.resolved)
-        return fresh
+        if !songs.isEmpty { sendAdd(songs, to: id, name: playlist.title.resolved) }
+        if !copies.isEmpty { sendAdd(copies, to: id, name: playlist.title.resolved, copies: true) }
+        return songs + copies
     }
 
-    private func sendAdd(_ tracks: [QTTrack], to id: String, name: String) {
+    /// `copies`: songs the playlist already holds, added as further rows.
+    private func sendAdd(_ tracks: [QTTrack], to id: String, name: String, copies: Bool = false) {
+        showAdd(tracks, to: id, copies: copies)
+        enqueue { [self] in await writeAdd(tracks, to: id, name: name, copies: copies) }
+    }
+
+    private func showAdd(_ tracks: [QTTrack], to id: String, copies: Bool = false) {
         let ids = tracks.map(\.videoId)
+        if copies { return edits.setPendingCopies(ids, in: id, adding: true) }
         edits.edit(.pending, id) { c in
             c.removed.subtract(ids)
             c.added += ids.filter { !c.added.contains($0) }
         }
-        enqueue { [self] in
-            do {
-                let results = try await send { try await $0.addToPlaylist(id, videoIds: ids) }
-                let setIDs = Dictionary(results.map { ($0.videoId, $0.setVideoId) }, uniquingKeysWith: { a, _ in a })
-                addedEntries[id, default: [:]].merge(setIDs) { _, new in new }
-                store?.confirmAdd(tracks.map { t in var t = t; t.setVideoId = setIDs[t.videoId]; return t }, to: id)
-            } catch {
-                guard isCurrentJob else { return }
-                fail(error, QTLoc.tr("Couldn’t add to %@", table: .live, name)) { [weak self] in
-                    self?.sendAdd(tracks, to: id, name: name)
-                }
-            }
-            guard isCurrentJob else { return }
+    }
+
+    /// The add itself (in a queued job); true once YouTube has added the rows. `retry` replaces the failure toast's
+    /// Try Again (an upload redoes what is left of it).
+    @discardableResult
+    private func writeAdd(_ tracks: [QTTrack], to id: String, name: String, copies: Bool = false,
+                          retry: (@MainActor () -> Void)? = nil) async -> Bool {
+        let ids = tracks.map(\.videoId)
+        var landed = false
+        do {
+            let results = try await send { try await $0.addToPlaylist(id, videoIds: ids, allowingDuplicates: copies) }
+            let setIDs = Dictionary(results.map { ($0.videoId, $0.setVideoId) }, uniquingKeysWith: { a, _ in a })
+            addedEntries[id, default: [:]].merge(setIDs) { _, new in new }
+            store?.confirmAdd(tracks.map { t in var t = t; t.setVideoId = setIDs[t.videoId]; return t }, to: id)
+            edits.clearLocal(id) { c in c.added.removeAll { ids.contains($0) } }
+            landed = true
+        } catch {
+            guard isCurrentJob else { return false }
+            fail(error, QTLoc.tr("Couldn’t add to %@", table: .live, name), retry: retry ?? { [weak self] in
+                self?.sendAdd(tracks, to: id, name: name, copies: copies)
+            })
+        }
+        guard isCurrentJob else { return landed }
+        if copies {
+            edits.setPendingCopies(ids, in: id, adding: false)
+        } else {
             edits.edit(.pending, id) { c in c.added.removeAll { ids.contains($0) } }
         }
+        return landed
     }
 
     /// Takes rows out of a playlist the account owns (or one made here): exactly these rows, so one copy of a song
@@ -461,7 +581,12 @@ public final class QTAccountWriter {
     }
 
     private func sendRemove(_ rows: [QTTrack], from id: String, name: String) {
-        func overlay(_ c: inout QTPlaylistEdits.Changes, _ on: Bool) {
+        showRemove(rows, from: id)
+        enqueue { [self] in await writeRemove(rows, from: id, name: name) }
+    }
+
+    private func showRemove(_ rows: [QTTrack], from id: String, _ on: Bool = true) {
+        edits.edit(.pending, id) { c in
             for t in rows {
                 if let s = t.setVideoId {
                     c.removedEntries[s] = on ? t.videoId : nil
@@ -472,25 +597,36 @@ public final class QTAccountWriter {
                 }
             }
         }
-        edits.edit(.pending, id) { overlay(&$0, true) }
-        enqueue { [self] in
-            do {
-                let entries = try await entryIDs(for: rows, in: id)
-                let items = zip(rows, entries).map { (videoId: $0.videoId, setVideoId: $1) }
-                try await send { try await $0.removeFromPlaylist(id, items: items) }
-                for item in items where addedEntries[id]?[item.videoId] == item.setVideoId {
-                    addedEntries[id]?[item.videoId] = nil
-                }
-                store?.confirmRemove(Set(entries), from: id)
-            } catch {
-                guard isCurrentJob else { return }
-                fail(error, QTLoc.tr("Couldn’t remove songs from %@", table: .live, name)) { [weak self] in
-                    self?.sendRemove(rows, from: id, name: name)
-                }
+    }
+
+    @discardableResult
+    private func writeRemove(_ rows: [QTTrack], from id: String, name: String,
+                             retry: (@MainActor () -> Void)? = nil) async -> Bool {
+        var landed = false
+        do {
+            let entries = try await entryIDs(for: rows, in: id)
+            let items = zip(rows, entries).map { (videoId: $0.videoId, setVideoId: $1) }
+            try await send { try await $0.removeFromPlaylist(id, items: items) }
+            for item in items where addedEntries[id]?[item.videoId] == item.setVideoId {
+                addedEntries[id]?[item.videoId] = nil
             }
-            guard isCurrentJob else { return }
-            edits.edit(.pending, id) { overlay(&$0, false) }
+            store?.confirmRemove(Set(entries), from: id)
+            // This Mac's removal of these rows is done with (of a song, once no row of it is left).
+            let left = Set(store?.playlist(id)?.tracks?.map(\.videoId) ?? [])
+            edits.clearLocal(id) { c in
+                for s in entries { c.removedEntries[s] = nil }
+                c.removed = c.removed.filter { v in left.contains(v) || !rows.contains { $0.videoId == v } }
+            }
+            landed = true
+        } catch {
+            guard isCurrentJob else { return false }
+            fail(error, QTLoc.tr("Couldn’t remove songs from %@", table: .live, name), retry: retry ?? { [weak self] in
+                self?.sendRemove(rows, from: id, name: name)
+            })
         }
+        guard isCurrentJob else { return landed }
+        showRemove(rows, from: id, false)
+        return landed
     }
 
     /// Moves `moved` (in their current order) so they sit at `index` of the playlist as shown before the move.
@@ -520,47 +656,59 @@ public final class QTAccountWriter {
     /// Brings the playlist into `order`. `moved` (row keys) are the rows to move; nil works out the fewest moves
     /// (an upload of a reorder made with Sync off, a placeholder's reorder).
     private func sendOrder(_ order: [QTTrack], moved: Set<String>?, in id: String, name: String) {
-        edits.edit(.pending, id) { $0.order = order.map(Self.rowKey) }
-        enqueue { [self] in
-            do {
-                let movedIndexes: [Int]
-                let entries: [String?]
-                if let moved {
-                    movedIndexes = order.indices.filter { moved.contains(Self.rowKey(order[$0])) }
-                    // The moved rows and the rows they go in front of; nothing else needs an id.
-                    let needed = Set(movedIndexes.flatMap { [$0, $0 + 1] }.filter { order.indices.contains($0) })
-                    let ids = try await entryIDs(for: needed.sorted().map { order[$0] }, in: id)
-                    let byIndex = Dictionary(uniqueKeysWithValues: zip(needed.sorted(), ids))
-                    entries = order.indices.map { byIndex[$0] }
-                } else {
-                    let ids = try await entryIDs(for: order, in: id)
-                    let current = (store?.playlist(id)?.tracks ?? []).compactMap(\.setVideoId)
-                    movedIndexes = Self.fewestMoves(to: ids, from: current)
-                    entries = ids
-                }
-                // Each moved row goes in front of its successor in the new order, last first, so every successor
-                // is already in place. A successor without an id would send the row to the end instead: never.
-                for i in movedIndexes.reversed() {
-                    guard let s = entries[i] else { throw QTInnerTubeError.parse("setVideoId") }
-                    let successor: String?
-                    if order.indices.contains(i + 1) {
-                        guard let next = entries[i + 1] else { throw QTInnerTubeError.parse("setVideoId") }
-                        successor = next
-                    } else {
-                        successor = nil
-                    }
-                    try await send { try await $0.movePlaylistItem(id, setVideoId: s, before: successor) }
-                }
-                store?.confirmOrder(order.map(Self.rowKey), in: id)
-            } catch {
-                guard isCurrentJob else { return }
-                fail(error, QTLoc.tr("Couldn’t reorder %@", table: .live, name)) { [weak self] in
-                    self?.sendOrder(order, moved: moved, in: id, name: name)
-                }
+        showOrder(order, in: id)
+        enqueue { [self] in await writeOrder(order, moved: moved, in: id, name: name) }
+    }
+
+    private func showOrder(_ order: [QTTrack]?, in id: String) {
+        edits.edit(.pending, id) { $0.order = order?.map(Self.rowKey) }
+    }
+
+    @discardableResult
+    private func writeOrder(_ order: [QTTrack], moved: Set<String>?, in id: String, name: String,
+                            retry: (@MainActor () -> Void)? = nil) async -> Bool {
+        var landed = false
+        do {
+            let movedIndexes: [Int]
+            let entries: [String?]
+            if let moved {
+                movedIndexes = order.indices.filter { moved.contains(Self.rowKey(order[$0])) }
+                // The moved rows and the rows they go in front of; nothing else needs an id.
+                let needed = Set(movedIndexes.flatMap { [$0, $0 + 1] }.filter { order.indices.contains($0) })
+                let ids = try await entryIDs(for: needed.sorted().map { order[$0] }, in: id)
+                let byIndex = Dictionary(uniqueKeysWithValues: zip(needed.sorted(), ids))
+                entries = order.indices.map { byIndex[$0] }
+            } else {
+                let ids = try await entryIDs(for: order, in: id)
+                let current = (store?.playlist(id)?.tracks ?? []).compactMap(\.setVideoId)
+                movedIndexes = Self.fewestMoves(to: ids, from: current)
+                entries = ids
             }
-            guard isCurrentJob else { return }
-            edits.edit(.pending, id) { $0.order = nil }
+            // Each moved row goes in front of its successor in the new order, last first, so every successor
+            // is already in place. A successor without an id would send the row to the end instead: never.
+            for i in movedIndexes.reversed() {
+                guard let s = entries[i] else { throw QTInnerTubeError.parse("setVideoId") }
+                let successor: String?
+                if order.indices.contains(i + 1) {
+                    guard let next = entries[i + 1] else { throw QTInnerTubeError.parse("setVideoId") }
+                    successor = next
+                } else {
+                    successor = nil
+                }
+                try await send { try await $0.movePlaylistItem(id, setVideoId: s, before: successor) }
+            }
+            store?.confirmOrder(order.map(Self.rowKey), in: id)
+            edits.clearLocal(id) { $0.order = nil }
+            landed = true
+        } catch {
+            guard isCurrentJob else { return false }
+            fail(error, QTLoc.tr("Couldn’t reorder %@", table: .live, name), retry: retry ?? { [weak self] in
+                self?.sendOrder(order, moved: moved, in: id, name: name)
+            })
         }
+        guard isCurrentJob else { return landed }
+        showOrder(nil, in: id)
+        return landed
     }
 
     /// Indexes of `target` to move so `current` reads as `target`: everything outside one longest run that is
@@ -590,9 +738,10 @@ public final class QTAccountWriter {
         return target.indices.filter { !keep.contains($0) }
     }
 
-    /// Entry ids for `rows` of playlist `id`: their own, the loaded rows' (by song, each used once), the ones
-    /// YouTube gave this app's adds; when some are still missing (the page isn't loaded, or predates the rows), the
-    /// playlist is read again once. Throws when a row still has none — never guesses.
+    /// Entry ids for `rows` of playlist `id`: their own, the ones YouTube gave this app's adds (a row without an id is
+    /// one this app added: also a further copy of a song the playlist holds), the loaded rows' (by song, each used
+    /// once); when some are still missing (the page isn't loaded, or predates the rows), the playlist is read again
+    /// once. Throws when a row still has none — never guesses.
     private func entryIDs(for rows: [QTTrack], in id: String) async throws -> [String] {
         func lookup() -> [String]? {
             let loaded = store?.playlist(id)?.tracks ?? []
@@ -601,9 +750,9 @@ public final class QTAccountWriter {
             var out: [String] = []
             for r in rows {
                 let s = r.setVideoId.flatMap { used.contains($0) ? nil : $0 }
+                    ?? added[r.videoId].flatMap { used.contains($0) ? nil : $0 }
                     ?? loaded.first { $0.videoId == r.videoId && $0.setVideoId.map { !used.contains($0) } == true }?
                         .setVideoId
-                    ?? added[r.videoId].flatMap { used.contains($0) ? nil : $0 }
                 guard let s else { return nil }
                 used.insert(s)
                 out.append(s)
@@ -652,25 +801,44 @@ public final class QTAccountWriter {
 
     private func sendDetails(_ id: String, title: String?, description: String?, privacy: QTPlaylistPrivacy?,
                              name: String) {
+        showDetails(id, title: title, description: description, privacy: privacy)
+        enqueue { [self] in
+            await writeDetails(id, title: title, description: description, privacy: privacy, name: name)
+        }
+    }
+
+    private func showDetails(_ id: String, title: String?, description: String?, privacy: QTPlaylistPrivacy?) {
         edits.edit(.pending, id) { c in
             c.title = title
             c.description = description
             c.privacy = privacy
         }
-        enqueue { [self] in
-            do {
-                try await send { try await $0.editPlaylistDetails(id, title: title, description: description,
-                                                                  privacy: privacy) }
-                store?.confirmDetails(id, title: title, description: description, privacy: privacy)
-            } catch {
-                guard isCurrentJob else { return }
-                fail(error, QTLoc.tr("Couldn’t save changes to “%@”", table: .live, name)) { [weak self] in
-                    self?.sendDetails(id, title: title, description: description, privacy: privacy, name: name)
-                }
+    }
+
+    @discardableResult
+    private func writeDetails(_ id: String, title: String?, description: String?, privacy: QTPlaylistPrivacy?,
+                              name: String, retry: (@MainActor () -> Void)? = nil) async -> Bool {
+        var landed = false
+        do {
+            try await send { try await $0.editPlaylistDetails(id, title: title, description: description,
+                                                              privacy: privacy) }
+            store?.confirmDetails(id, title: title, description: description, privacy: privacy)
+            edits.clearLocal(id) { c in
+                if title != nil, c.title == title { c.title = nil }
+                if description != nil, c.description == description { c.description = nil }
+                if privacy != nil, c.privacy == privacy { c.privacy = nil }
             }
-            guard isCurrentJob else { return }
-            edits.edit(.pending, id) { c in c.title = nil; c.description = nil; c.privacy = nil }
+            landed = true
+        } catch {
+            guard isCurrentJob else { return false }
+            let again = retry ?? { [weak self] in
+                self?.sendDetails(id, title: title, description: description, privacy: privacy, name: name)
+            }
+            fail(error, QTLoc.tr("Couldn’t save changes to “%@”", table: .live, name), retry: again)
         }
+        guard isCurrentJob else { return landed }
+        showDetails(id, title: nil, description: nil, privacy: nil)
+        return landed
     }
 
     /// Deletes a playlist (asked first by the caller: it can't be undone).
@@ -692,20 +860,28 @@ public final class QTAccountWriter {
     }
 
     private func sendDelete(_ id: String, name: String) {
-        edits.edit(.pending, id) { $0.isDeleted = true }
-        enqueue { [self] in
-            do {
-                try await send { try await $0.deletePlaylist(id) }
-                store?.confirmDelete(id)
-            } catch {
-                guard isCurrentJob else { return }
-                fail(error, QTLoc.tr("Couldn’t delete “%@”", table: .live, name)) { [weak self] in
-                    self?.sendDelete(id, name: name)
-                }
-            }
+        showDelete(id)
+        enqueue { [self] in await writeDelete(id, name: name) }
+    }
+
+    private func showDelete(_ id: String, _ on: Bool = true) {
+        edits.edit(.pending, id) { $0.isDeleted = on }
+    }
+
+    private func writeDelete(_ id: String, name: String, retry: (@MainActor () -> Void)? = nil) async {
+        do {
+            try await send { try await $0.deletePlaylist(id) }
+            store?.confirmDelete(id)
+            // Nothing is left of the playlist to keep changes for.
+            edits.clearLocal(id) { $0 = QTPlaylistEdits.Changes() }
+        } catch {
             guard isCurrentJob else { return }
-            edits.edit(.pending, id) { $0.isDeleted = false }
+            fail(error, QTLoc.tr("Couldn’t delete “%@”", table: .live, name), retry: retry ?? { [weak self] in
+                self?.sendDelete(id, name: name)
+            })
         }
+        guard isCurrentJob else { return }
+        showDelete(id, false)
     }
 
     /// Makes a playlist (with `tracks`, e.g. the queue). It shows in the sidebar at once; `opens` goes to it. Syncing,
@@ -724,26 +900,36 @@ public final class QTAccountWriter {
         edits.addCreated(placeholder)
         if opens { QTNavigator.shared.go(.section(.playlist(placeholder.id))) }
         guard sync else { return placeholder }
-        enqueue { [self] in
-            do {
-                let raw = try await send {
-                    try await $0.createPlaylist(title: title, description: description, privacy: privacy,
-                                                videoIds: songs.map(\.videoId))
-                }
-                madePlaylist(QTInnerTube.playlistBrowseId(raw), for: placeholder)
-            } catch {
-                guard isCurrentJob else { return }
-                let latest = edits.createdPlaylist(placeholder.id)
-                QTNavigator.shared.leavePlaylist(placeholder.id)
-                edits.removeCreated(placeholder.id)
-                guard let latest else { return } // deleted meanwhile: nothing to redo
-                fail(error, QTLoc.tr("Couldn’t create “%@”", table: .live, title)) { [weak self] in
-                    self?.create(title: latest.title.resolved, description: latest.description ?? "",
-                                 privacy: latest.privacy ?? privacy, tracks: latest.tracks ?? [], opens: opens)
+        enqueue { [self] in await writeCreate(placeholder, opens: opens) }
+        return placeholder
+    }
+
+    /// Makes `p` in the account: a placeholder (it goes when the create fails; Try Again makes it anew) or a
+    /// playlist made on this Mac being uploaded (it stays here until YouTube has made it).
+    private func writeCreate(_ p: QTPlaylist, opens: Bool) async {
+        let title = p.title.resolved
+        do {
+            let raw = try await send {
+                try await $0.createPlaylist(title: title, description: p.description ?? "",
+                                            privacy: p.privacy ?? .private, videoIds: (p.tracks ?? []).map(\.videoId))
+            }
+            madePlaylist(QTInnerTube.playlistBrowseId(raw), for: p)
+        } catch {
+            guard isCurrentJob else { return }
+            if p.id.hasPrefix("local:") {
+                return fail(error, QTLoc.tr("Couldn’t create “%@”", table: .live, title)) { [weak self] in
+                    self?.uploadCreated(p.id)
                 }
             }
+            let latest = edits.createdPlaylist(p.id)
+            QTNavigator.shared.leavePlaylist(p.id)
+            edits.removeCreated(p.id)
+            guard let latest else { return } // deleted meanwhile: nothing to redo
+            fail(error, QTLoc.tr("Couldn’t create “%@”", table: .live, title)) { [weak self] in
+                self?.create(title: latest.title.resolved, description: latest.description ?? "",
+                             privacy: latest.privacy ?? .private, tracks: latest.tracks ?? [], opens: opens)
+            }
         }
-        return placeholder
     }
 
     /// YouTube made the playlist `id` for `placeholder`: it takes the placeholder's place, and whatever changed on
@@ -794,12 +980,13 @@ public final class QTAccountWriter {
             edits.setFlag(.local, key, saved == store?.savedStates[raw] ? nil : saved)
             return
         }
-        if edits.localFlags[key] != nil { edits.setFlag(.local, key, nil) }
+        // A switch kept on this Mac goes once the account has the new state (a failure shows it again).
         edits.setFlag(.pending, key, saved)
         enqueue { [self] in
             do {
                 try await send { try await $0.rate(playlistId: raw, saved ? .like : .none) }
                 store?.confirmSaved(saved, playlistID: raw)
+                if edits.localFlags[key] != nil { edits.setFlag(.local, key, nil) }
             } catch {
                 guard isCurrentJob else { return }
                 fail(error, QTLoc.tr(saved ? "Couldn’t add “%@” to your library" : "Couldn’t remove “%@” from your library",
@@ -823,12 +1010,12 @@ public final class QTAccountWriter {
             edits.setFlag(.local, key, subscribed == store?.subscriptions[channelID] ? nil : subscribed)
             return
         }
-        if edits.localFlags[key] != nil { edits.setFlag(.local, key, nil) }
         edits.setFlag(.pending, key, subscribed)
         enqueue { [self] in
             do {
                 try await send { try await $0.setSubscribed(subscribed, channelId: channelID) }
                 store?.confirmSubscribed(subscribed, channelID: channelID)
+                if edits.localFlags[key] != nil { edits.setFlag(.local, key, nil) }
             } catch {
                 guard isCurrentJob else { return }
                 fail(error, QTLoc.tr(subscribed ? "Couldn’t subscribe to %@" : "Couldn’t unsubscribe from %@",
@@ -932,6 +1119,7 @@ public final class QTAccountWriter {
         chain?.cancel()
         chain = nil
         queuedLikes = []
+        forcedLikes = []
         writesInFlight = 0
         isPaused = false
         pausedRetries = []

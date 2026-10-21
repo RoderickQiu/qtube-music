@@ -71,6 +71,26 @@
         }
       }
     },
+    "QTube Music is switching accounts. Try again in a moment." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "QTube Music 正在切换账户，请稍后再试。"
+          }
+        }
+      }
+    },
+    "QTube Music couldn’t like this song." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "QTube Music 无法喜欢这首歌曲。"
+          }
+        }
+      }
+    },
     "Pause" : {
       "localizations" : {
         "zh-Hans" : {

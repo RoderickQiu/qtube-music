@@ -1959,6 +1959,44 @@
         }
       }
     },
+    "%lld changes to likes and playlists are only on this Mac. Upload them to your YouTube Music account, or discard them. To keep them on this Mac only, turn off Sync in Settings › Account." : {
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld change to likes or playlists is only on this Mac. Upload it to your YouTube Music account, or discard it. To keep it on this Mac only, turn off Sync in Settings › Account."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld changes to likes and playlists are only on this Mac. Upload them to your YouTube Music account, or discard them. To keep them on this Mac only, turn off Sync in Settings › Account."
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有 %lld 项对喜欢的音乐和播放列表的更改只在这台 Mac 上。可以将它们上传到你的 YouTube Music 账户，或者丢弃。如果只想保留在这台 Mac 上，请在“设置 › 账户”中关闭同步。"
+          }
+        }
+      }
+    },
+    "Not Now" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "以后再说"
+          }
+        }
+      }
+    },
     "Upload Changes" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1975,16 +2013,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "丢弃更改"
-          }
-        }
-      }
-    },
-    "Turn Off Sync" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "关闭同步"
           }
         }
       }

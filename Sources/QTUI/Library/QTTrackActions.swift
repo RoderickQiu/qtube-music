@@ -132,14 +132,16 @@ public enum QTTrackActions {
             ? QTLoc.tr("Removed “%@” from %@", table: .live, removed[0].title, name)
             : QTLoc.tr("Removed %lld songs from %@", table: .live, removed.count, name)
         model.showToast(message) {
-            // Back in, then each to its old place (first row first, so the later indexes hold). The rows that come
-            // back are new rows of the songs (no entry id until YouTube gives them one).
+            // Back in, then each to its old place (first row first, so the later indexes hold). A row hidden only on
+            // this Mac comes back in its place with its entry id; the others are new rows of the songs (no entry id
+            // until YouTube gives them one), also one copy of a song the playlist still holds once.
             let back = writer.add(removed, to: playlist, restoring: true)
-            let backIDs = Set(back.map(\.videoId))
-            for (index, t) in before.enumerated() where keys.contains(QTAccountWriter.rowKey(t)) && backIDs.contains(t.videoId) {
+            var newRows = back.filter { $0.setVideoId == nil }.map(\.videoId)
+            for (index, t) in before.enumerated() where keys.contains(QTAccountWriter.rowKey(t)) {
+                guard let i = newRows.firstIndex(of: t.videoId) else { continue }
+                newRows.remove(at: i)
                 let rows = writer.rows(of: playlist)
-                guard let row = rows.last(where: { $0.videoId == t.videoId && $0.setVideoId == nil })
-                    ?? rows.last(where: { $0.videoId == t.videoId }) else { continue }
+                guard let row = rows.last(where: { $0.videoId == t.videoId && $0.setVideoId == nil }) else { continue }
                 writer.move([row], in: playlist, to: index)
             }
         }
