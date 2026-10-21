@@ -241,6 +241,48 @@ enum QTWebPlaybackBridgeScript {
     })();
     """
 
+    /// Keeps a listening page from pausing itself (page world, document start, before the bridge so its timers are the
+    /// raw ones — they run while the page's own are frozen). YouTube Music pauses after a while without input and asks
+    /// "Still listening?" (`ytmusic-you-there-renderer`); the check compares its activity stamp `window._lact` with
+    /// the clock. While the app wants music the stamp is refreshed once a minute, and a prompt is answered whenever
+    /// one shows — on the bridge's reports, and every 2 s for half a minute after the page paused by itself (the
+    /// prompt can come after the pause, with no media event). The queue resumes the media itself
+    /// (`QTQueueController.superviseTick`). Selectors and the stamp follow YouTube's page and may drift:
+    /// `QTBridgeKeepAliveTests` pin the behaviour, the live soak (`Scripts/playback-soak.py`) catches drift.
+    static let keepAlive = """
+    (() => {
+      if (window.__qtKeepAlive) return;
+      const raw = { si: setInterval.bind(window), ci: clearInterval.bind(window) };
+      const PROMPT = 'ytmusic-you-there-renderer button, ytmusic-you-there-renderer tp-yt-paper-button, '
+                   + 'ytmusic-you-there-renderer yt-button-renderer';
+      const K = { want: false, paused: false, retry: 0, tries: 0, clicks: 0, stamps: 0 };
+      function stamp() { try { window._lact = Date.now(); K.stamps++; } catch (_) {} }
+      function dismiss() {
+        const b = document.querySelector(PROMPT);
+        if (!b) return false;
+        try { b.click(); K.clicks++; } catch (_) {}
+        return true;
+      }
+      function stopRetry() { if (K.retry) raw.ci(K.retry); K.retry = 0; }
+      raw.si(() => { if (K.want) { stamp(); dismiss(); } }, 60000);
+      window.__qtKeepAlive = {
+        // Every bridge report: `want` = the app wants this page playing (not held); `paused` = its item's media is paused.
+        tick(want, paused) {
+          K.want = !!want; K.paused = !!paused;
+          if (!K.want || !K.paused) { stopRetry(); return; }
+          stamp(); dismiss();
+          if (K.retry) return;
+          K.tries = 0;
+          K.retry = raw.si(() => {
+            if (!K.want || !K.paused || ++K.tries > 15) { stopRetry(); return; }
+            stamp(); dismiss();
+          }, 2000);
+        },
+        info() { return { want: K.want, retrying: !!K.retry, clicks: K.clicks, stamps: K.stamps }; },
+      };
+    })();
+    """
+
     /// The bridge (page world, document start). Waits for `#movie_player`, then reports.
     static let bridge = """
     (() => {
@@ -369,7 +411,8 @@ enum QTWebPlaybackBridgeScript {
         const s = sample();
         const now = Date.now();
         if (S.hold && !s.paused) { pauseNow(); s.paused = true; }
-        else if (!S.hold && s.paused && s.match) dismissPrompts();  // paused by the page ("Still listening?")
+        // Paused by the page while the app wants music ("Still listening?"): `keepAlive` answers it.
+        if (window.__qtKeepAlive) window.__qtKeepAlive.tick(!S.hold, s.paused && s.match);
         if (force || changed(s, S.last) || now - S.lastPost > 5000) { S.last = s; S.lastPost = now; post(s); }
         maybeEnded(s);
       }
@@ -418,10 +461,6 @@ enum QTWebPlaybackBridgeScript {
       function applyVolume() {
         const p = player(); if (!p) return;
         try { p.setVolume(Math.round(S.vol * 100)); S.muted ? p.mute() : p.unMute(); } catch (_) {}
-      }
-      function dismissPrompts() {
-        const b = document.querySelector('ytmusic-you-there-renderer button, ytmusic-you-there-renderer tp-yt-paper-button');
-        if (b) b.click();
       }
       function attach() {
         const p = player();

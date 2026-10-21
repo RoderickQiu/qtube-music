@@ -20,8 +20,13 @@ import WebKit
 ///   specific `QTPlaybackError`; the queue skips it and the app shows a toast.
 /// - **Network:** offline time never counts towards load timeouts or the stall watchdog; when the network comes
 ///   back a stalled item reloads at its position. A load that times out online is retried once on a fresh page.
+/// - **Crashes:** a WebContent process that dies (`webContentProcessDidTerminate`), a page that no longer takes
+///   commands, or a page left over from a long sleep is replaced by a fresh one at the same position, playing or
+///   paused as before.
 /// - **Power:** lowest video quality while no video is shown, and the page's timers are frozen a few seconds into
-///   a pause (`Configuration.freezeAfterPause`), so a paused engine costs next to nothing.
+///   a pause the app asked for (`Configuration.freezeAfterPause`), so a paused engine costs next to nothing. A pause
+///   the page made itself is never frozen: its "Still listening?" prompt has to stay answerable
+///   (`QTWebPlaybackBridgeScript.keepAlive`).
 /// - **Video (M5):** `video` (`QTWebVideoOutput`) moves the web view into an app view while the app shows the
 ///   music video (the page becomes a bare `<video>` surface, quality sized to the slot) and back into the hidden
 ///   host when it doesn't; native Picture in Picture goes through WebKit. Song⇄Video switches of the same track
@@ -118,6 +123,15 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
     private var didRetryStall = false
     /// play/pause requested before the page's player was ready; applied on `ready`.
     private var playIntentBeforeReady: Bool?
+    /// What the app last asked for: play (autoplaying load, play) or not (cued load, pause, stop). A page that pauses
+    /// while this is true paused on its own, and is never frozen.
+    private(set) var intendsPlayback = false
+    /// Notices a WebContent process that died (the page goes blank and stops answering).
+    private lazy var navigationWatcher = QTWebPlaybackNavigationWatcher(engine: self)
+    /// Recent WebContent crashes (uptime); a page that keeps crashing fails the item instead of looping.
+    private var recentCrashes: [TimeInterval] = []
+    /// After a sleep this long the page's player state (tokens, stream URLs) is stale: the next play gets a fresh page.
+    static let longSleep: TimeInterval = 30 * 60
     private var freezeTask: Task<Void, Never>?
     /// WebKit's hidden-page throttling is back on (paused + frozen).
     var isThrottlingHiddenPage = false
@@ -206,6 +220,7 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         }
         // A switch still preparing in the standby page is superseded by any new load (including switching back).
         cancelStandby(.superseded)
+        intendsPlayback = autoplay
         var item = item
         var autoplay = autoplay
         let previousMode = state.item.flatMap { $0.track.videoId == item.track.videoId ? $0.mode : nil }
@@ -316,22 +331,44 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
 
     public func play() {
         guard state.item != nil else { return }
+        intendsPlayback = true
+        // A page left over from a long sleep (or a crash) plays nothing useful: a fresh one at the same position.
+        if needsFreshPage, pendingLoads.isEmpty, webView != nil {
+            reloadCurrent(autoplay: true)
+            return
+        }
         if state.status == .ended {
             state.timeline = QTPlaybackTimeline(time: 0, rate: 0, duration: state.timeline.duration)
         }
+        if !pendingLoads.isEmpty, state.status == .paused {
+            // Paused while it loaded, wanted again: still on its way.
+            state.status = .loading
+            state.isBuffering = true
+            publish()
+        }
         cancelFreeze()
         guard isPageReady else { playIntentBeforeReady = true; return }
-        Task { await command("play") }
+        let gen = generation
+        Task { @MainActor [weak self] in
+            guard let self, await !self.command("play") else { return }
+            // The page didn't take it (its process died, the player is gone): reload where it was, playing.
+            guard gen == self.generation, self.intendsPlayback, self.pendingLoads.isEmpty else { return }
+            QTWebVideoOutput.log.info("the page didn't take play; reloading the item")
+            self.reloadCurrent(autoplay: true)
+        }
     }
 
     public func pause() {
         resumeAfterMoveDeadline = nil
+        intendsPlayback = false
         cancelStandby(.fallBack)
         guard state.item != nil else { return }
-        // Optimistic: freeze the timeline now so the UI doesn't drift while the page catches up.
-        if state.status == .playing {
+        // Optimistic: freeze the timeline now so the UI doesn't drift while the page catches up. Paused while
+        // loading (offline, a slow page) shows paused at once; the load finishes held.
+        if state.status == .playing || (state.status == .loading && state.ad == nil) {
             state.timeline = QTPlaybackTimeline(time: state.timeline.currentTime, rate: 0, duration: state.timeline.duration)
             state.status = .paused
+            state.isBuffering = false
             publish()
         }
         guard isPageReady else { playIntentBeforeReady = false; return }
@@ -390,6 +427,7 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
 
     public func stop() {
         cancelStandby(.superseded)
+        intendsPlayback = false
         generation += 1
         cancelFreeze()
         playingVideoID = nil
@@ -431,6 +469,68 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         resume.startTime = state.ad == nil ? state.timeline.currentTime : item.startTime
         let autoplay = state.status == .playing || playIntentBeforeReady == true
         Task { try? await self.load(resume, autoplay: autoplay) }
+    }
+
+    // MARK: Recovery
+
+    /// Loads the current item again at its position on a fresh page (a crashed WebContent process, a page that stopped
+    /// answering commands, a long sleep), playing or held as `autoplay` says.
+    func reloadCurrent(autoplay: Bool) {
+        guard var item = state.item, pendingLoads.isEmpty else { return }
+        needsFreshPage = true
+        switch state.status {
+        case .ended: item.startTime = 0
+        case .loading: break
+        default: item.startTime = state.ad == nil ? state.timeline.currentTime : (lastContentTime ?? item.startTime)
+        }
+        Task { try? await self.load(item, autoplay: autoplay) }
+    }
+
+    /// The page's WebContent process died (memory pressure, a WebKit crash): the page is blank and every command
+    /// fails. The item reloads on a fresh page where it was — playing or held as the app last asked. A page that keeps
+    /// crashing fails the item instead (the queue moves on).
+    func webContentProcessDidTerminate() {
+        QTWebVideoOutput.log.error("player page's WebContent process terminated")
+        isPageReady = false
+        isPageFrozen = false
+        isThrottlingHiddenPage = false
+        needsFreshPage = true
+        stopWatchdog()
+        cancelFreeze()
+        let now = ProcessInfo.processInfo.systemUptime
+        recentCrashes = recentCrashes.filter { now - $0 < 120 } + [now]
+        guard let item = state.item else { return }
+        if recentCrashes.count >= 3 {
+            recentCrashes = []
+            let error = QTPlaybackError.engine("the player page keeps crashing")
+            state.status = .failed(error)
+            state.ad = nil
+            state.isBuffering = false
+            publish()
+            pendingLoads.removeValue(forKey: generation)?.resume(throwing: error)
+            return
+        }
+        if pendingLoads[generation] != nil, let videoID = requestedVideoID {
+            // The load in flight goes on, on a new page.
+            navigate(videoID: videoID, start: item.startTime, autoplay: intendsPlayback, generation: generation)
+        } else if intendsPlayback, state.status == .playing {
+            reloadCurrent(autoplay: true)
+        }
+        // Paused, ended or failed: nothing plays, so no page is needed yet — the next play or load makes a fresh one
+        // (`needsFreshPage`), at the position the state still shows.
+    }
+
+    /// From the Picture in Picture window's own controls: the listener's pause, not the page's.
+    public var isPausedByListener: Bool {
+        state.status == .paused && video.isPictureInPictureActive
+    }
+
+    /// After a long sleep the page's player state is stale (tokens, stream URLs): the next play reloads it fresh.
+    public func systemDidWake(after sleep: TimeInterval) {
+        lastProgress = (state.timeline.currentTime, ProcessInfo.processInfo.systemUptime)
+        guard sleep >= Self.longSleep, webView != nil else { return }
+        needsFreshPage = true
+        pageAccount = nil
     }
 
     // MARK: Song/Video ids
@@ -492,6 +592,7 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
 
         let view = QTWebPlaybackView(frame: NSRect(x: 0, y: 0, width: 1280, height: 800), configuration: config)
         view.customUserAgent = configuration.userAgent
+        view.navigationDelegate = navigationWatcher
         // Transparent page: in a video slot the slot's own backdrop shows around (and before) the first frame.
         if view.responds(to: NSSelectorFromString("setDrawsBackground:")) { view.setValue(false, forKey: "drawsBackground") }
         view.underPageBackgroundColor = .clear
@@ -521,6 +622,7 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         var sources = [bootstrap, QTWebPlaybackBridgeScript.mediaSessionShield]
         if configuration.isSilent { sources.append(QTWebPlaybackBridgeScript.silence) }
         sources.append(QTWebPlaybackBridgeScript.videoSurface)
+        sources.append(QTWebPlaybackBridgeScript.keepAlive)
         sources.append(QTWebAudioScript.parsers)
         sources.append(QTWebAudioScript.tap)
         sources.append(QTWebPlaybackBridgeScript.bridge)
@@ -612,14 +714,7 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
             apply(sample)
         case "ended":
             guard (dict["gen"] as? Int) == generation, state.item != nil, state.ad == nil else { return }
-            let end = state.duration > 0 ? state.duration : state.timeline.currentTime
-            state.timeline = QTPlaybackTimeline(time: end, rate: 0, duration: state.timeline.duration)
-            state.status = .ended
-            state.isBuffering = false
-            stopWatchdog()
-            // A Song⇄Video switch still preparing is dropped: the track is over, the queue moves on.
-            abandonStandbyForOldPage()
-            publish()
+            finishItem()
         case "error":
             guard (dict["gen"] as? Int) == generation, state.item != nil else { return }
             let error = QTWebPlaybackErrorMapper.error(code: dict["code"] as? Int ?? 0, status: dict["status"] as? String ?? "",
@@ -635,6 +730,18 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         default:
             break
         }
+    }
+
+    /// The item is over: `.ended` at its end; the queue decides what's next.
+    private func finishItem() {
+        let end = state.duration > 0 ? state.duration : state.timeline.currentTime
+        state.timeline = QTPlaybackTimeline(time: end, rate: 0, duration: state.timeline.duration)
+        state.status = .ended
+        state.isBuffering = false
+        stopWatchdog()
+        // A Song⇄Video switch still preparing is dropped: the track is over, the queue moves on.
+        abandonStandbyForOldPage()
+        publish()
     }
 
     private func apply(_ s: QTWebPlaybackSample) {
@@ -699,8 +806,12 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
             pendingLoads.removeValue(forKey: generation)?.resume()
         }
         trackProgress(s, at: now)
-        if !s.paused { cancelFreeze() } else if s.ad == nil, pendingLoads.isEmpty { scheduleFreeze() }
+        if !s.paused { cancelFreeze() } else if s.ad == nil, pendingLoads.isEmpty, mayFreeze { scheduleFreeze() }
     }
+
+    /// Only a pause the app asked for (or the end of the item) freezes the page; one the page made by itself keeps its
+    /// timers, so the queue can resume it and the bridge can answer YouTube's prompt.
+    private var mayFreeze: Bool { !intendsPlayback || state.status == .ended }
 
     /// Samples arrive every ~1.2 s while playing; most only confirm the interpolated timeline. Publishing those
     /// would re-render every view that reads the state, so only real changes (and drift ≥ 0.25 s) go out.
@@ -720,7 +831,7 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
             guard let self, !Task.isCancelled, gen == self.generation else { return }
             self.freezeTask = nil
             guard self.state.status == .paused || self.state.status == .ended, self.state.ad == nil,
-                  self.pendingLoads.isEmpty else { return }
+                  self.pendingLoads.isEmpty, self.mayFreeze else { return }
             self.isPageFrozen = await self.command("freeze")
             if self.isPageFrozen, let prefs = self.webView?.configuration.preferences {
                 QTWebKitTuning.setHiddenPageThrottling(true, on: prefs)
@@ -851,19 +962,35 @@ public final class QTWebPlaybackEngine: QTPlaybackEngine {
         if state.ad != nil {
             QTWebVideoOutput.log.info("ad stalled for \(stalledFor, format: .fixed(precision: 1)) s; reloading the item")
         }
-        if didRetryStall {
+        // During an ad the page's clock may be the ad's: resume the content where it was (or where it starts).
+        let position = state.ad != nil ? (lastContentTime ?? item.startTime) : lastProgress.time
+        switch Self.stallAction(position: position, duration: state.duration, didRetry: didRetryStall) {
+        case .finish:
+            // Stuck in the last seconds: a reload there would never be armed to end (and YouTube would pick its own
+            // next). The track is as good as over.
+            state.ad = nil
+            finishItem()
+        case .fail:
             state.status = .failed(.network("stalled"))
             state.ad = nil
             state.isBuffering = false
+            state.timeline = QTPlaybackTimeline(time: position, rate: 0, duration: state.timeline.duration)
             publish()
-        } else {
+        case .reload:
             didRetryStall = true
             var resume = item
-            // During an ad the page's clock may be the ad's: resume the content where it was (or where it starts).
-            resume.startTime = state.ad != nil ? (lastContentTime ?? item.startTime) : state.timeline.currentTime
+            resume.startTime = position
             lastProgress = (resume.startTime, ProcessInfo.processInfo.systemUptime)
             Task { try? await self.load(resume, autoplay: true); self.didRetryStall = true }
         }
+    }
+
+    enum StallAction: Equatable { case reload, finish, fail }
+
+    /// What a stall at `position` does: the last seconds of an item finish it; otherwise one reload there, then fail.
+    static func stallAction(position: TimeInterval, duration: TimeInterval, didRetry: Bool) -> StallAction {
+        if duration > 0, position >= duration - 3 { return .finish }
+        return didRetry ? .fail : .reload
     }
 
     private func stopWatchdog() {
@@ -1070,6 +1197,24 @@ final class QTWebPlaybackMessageProxy: NSObject, WKScriptMessageHandler {
             case .standby: onStandbyMessage?(message.body)
             case .retired: break
             }
+        }
+    }
+}
+
+/// The pages' navigation delegate, for one event: a WebContent process that died. The main page reloads; a
+/// Song⇄Video standby page is dropped (its switch falls back to the in-page reload).
+@MainActor
+final class QTWebPlaybackNavigationWatcher: NSObject, WKNavigationDelegate {
+    weak var engine: QTWebPlaybackEngine?
+
+    init(engine: QTWebPlaybackEngine) { self.engine = engine }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        guard let engine else { return }
+        if webView === engine.webView {
+            engine.webContentProcessDidTerminate()
+        } else if let standby = engine.standby, standby.webView === webView {
+            standby.failed = true
         }
     }
 }

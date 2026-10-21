@@ -251,6 +251,8 @@ final class QTNativeAudioPlayer {
     var onDecodeError: ((Int, any Error) -> Void)?
     /// The output device changed and the graph restarted (the engine re-anchors its clock).
     var onRouteChange: (() -> Void)?
+    /// The graph couldn't be started again after the output changed (the engine falls back to the web engine).
+    var onOutputFailure: ((any Error) -> Void)?
 
     init() {
         deckA = QTNativeDeck(name: "A", queue: queue, format: format)
@@ -482,23 +484,43 @@ final class QTNativeAudioPlayer {
     // MARK: Output device changes
 
     /// The output device changed (headphones, AirPlay, sample rate): AVAudioEngine has stopped. Restart where the
-    /// active track is, as it was (playing or paused).
+    /// active track is, as it was (playing or paused). If the graph won't start again, the engine falls back.
     private func configurationChanged() {
         Self.log.info("native: output configuration changed")
+        do {
+            try restartGraph(afterConfigurationChange: true)
+            onRouteChange?()
+        } catch {
+            Self.log.error("native: the graph didn't restart after a configuration change: \(error, privacy: .public)")
+            onOutputFailure?(error)
+        }
+    }
+
+    /// Rebuilds the connections and restarts the active deck at its position (a configuration change, a stalled clock,
+    /// waking from sleep). Throws when the engine won't start.
+    func restartGraph(afterConfigurationChange: Bool = false) throws {
         let wasPlaying = isPlaying
         let deck = active
         cancelCrossfade(keepIncoming: true)
+        if afterConfigurationChange {
+            // The engine stopped by itself and dropped the tap with its configuration.
+            isTapInstalled = false
+            tapCleanup?.cancel()
+        } else {
+            engine.stop()
+            removeTap()
+        }
         isConnected = false
-        isTapInstalled = false
-        tapCleanup?.cancel()
         connect()
         if let token = queue.sync(execute: { deck.firstToken }), let t = position(of: token) {
-            try? queue.sync { try deck.restart(token: token, atFrame: AVAudioFramePosition(t * format.sampleRate)) }
+            try queue.sync { try deck.restart(token: token, atFrame: AVAudioFramePosition(t * format.sampleRate)) }
         }
         if wasPlaying {
-            try? startEngine()
+            try startEngine()
             deck.node.play()
         }
-        onRouteChange?()
     }
+
+    /// The graph should be producing sound and is: the engine runs and the active node plays.
+    var isRunning: Bool { engine.isRunning && active.node.isPlaying }
 }

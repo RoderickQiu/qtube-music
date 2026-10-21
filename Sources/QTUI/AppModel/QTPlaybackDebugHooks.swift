@@ -15,6 +15,7 @@ import QTPlayback
 //
 // Commands: play · pause · toggle · next · previous · skipAd · seek:<s> · seekEnd:<s before end> · mode:song|video
 //           · playID:<videoId> — play one track looked up read-only in the live catalog
+//           · albumEnd:<browseId> — play an album from its last track, so Autoplay's radio follows (reliability soak)
 //           · surface:window|stage · panel:now-playing|queue · offline · online
 //           · window:close|reopen — close the main window / bring it back the way a Dock click does (without
 //             activating the app), to check that reopening never disturbs playback
@@ -53,6 +54,16 @@ final class QTPlaybackDebugHooks {
         if let path = model.launch.string("qt.playback.statusFile") {
             startStatus(URL(fileURLWithPath: path))
         }
+        // `-qt.playback.notice interrupted|autoplay|network`: that notice's toast shortly after launch (screenshots,
+        // with `-qt.playback.readyWhen toast`).
+        let notices: [String: QTPlaybackNotice] = ["interrupted": .interrupted, "autoplay": .autoplayUnavailable,
+                                                   "network": .networkUnavailable]
+        if let notice = model.launch.string("qt.playback.notice").flatMap({ notices[$0] }) {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(2))
+                QTPlaybackServices.shared.debugShow(notice)
+            }
+        }
     }
 
     // MARK: Commands
@@ -81,6 +92,18 @@ final class QTPlaybackDebugHooks {
                     return
                 }
                 await player.play([track], startingAt: 0, mode: model.isVideoMode ? .video : .song)
+            }
+        case "albumEnd":   // reliability soak: an album (browse id) from its last track, so Autoplay's radio follows
+            Task { @MainActor in
+                let store = QTLiveCatalogStore.shared
+                await store.loadAlbum(arg)
+                guard let page = store.albumPages[arg], let tracks = page.album.tracks,
+                      let last = tracks.lastIndex(where: \.availability.isPlayable) else {
+                    self.log.append(["at": ProcessInfo.processInfo.systemUptime, "command": "albumEnd-result", "result": "not found"])
+                    return
+                }
+                let source = QTQueueSource(kind: .album, id: arg, title: .verbatim(page.album.title))
+                await player.play(tracks, startingAt: last, source: source, mode: model.isVideoMode ? .video : .song)
             }
         case "surface": model.surface = QTSurface(argument: arg) ?? .window
         case "panel":
@@ -199,6 +222,10 @@ final class QTPlaybackDebugHooks {
             "autoplayHead": queue.autoplay.prefix(5).map(\.track.videoId),
             "toast": model.toast?.message ?? "",
             "lastFailureMessage": QTPlaybackServices.shared.lastFailureMessage ?? "",
+            // Reliability soak: the listener's intent, the last notice, Autoplay loading more.
+            "wantsPlayback": player.playback.wantsPlayback,
+            "lastNotice": QTPlaybackServices.shared.lastNotice.map { "\($0)" } ?? "",
+            "fetchingAutoplay": player.playback.isFetchingAutoplay,
             "commands": log,
             "mainWindowVisible": NSApp.windows.contains { $0.identifier == QTWindowID.main.identifier && $0.isVisible },
             "launchPlaybackApplied": model.didApplyLaunchPlayback,

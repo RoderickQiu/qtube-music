@@ -45,7 +45,7 @@ swift test  --scratch-path .build/<you> --disable-xctest
 - **Keep `--disable-xctest` for now.** Every suite uses Swift Testing, so the XCTest pass has nothing to run. A
   plain `swift test` still runs that pass first, and on this host (Xcode 27.1, macOS 27) the `QTUITests.xctest`
   runner hangs in it, blocked in a CFPreferences XPC call. Re-checked 2026-10-19.
-- **Current result:** 467 tests in 79 suites pass (after the R5 integration). They need no network and none of the git-ignored data.
+- **Current result:** 581 tests in 95 suites pass (after the pre-launch reliability work). They need no network and none of the git-ignored data.
 - **Opt-in suites** are gated by environment variables:
   - `QT_LIVE=1`: live, anonymous InnerTube, lyrics and playback.
   - `QT_RECORD=1`: re-record the InnerTube fixtures.
@@ -83,6 +83,7 @@ Launch arguments apply to one session only and are never saved. Pass them as
 | `Scripts/contact-sheet.sh <name> [--title T] [--columns N] <img> <caption>…` | Makes one captioned PNG in `screenshots/`. |
 | `Scripts/perf-cpu.py <label> [--seconds 30] [--trace …] [args]` | Measures app and WebContent CPU over a fixed window. Appends a line to `.build/perf-cpu.jsonl`; a run where the app wasn't playing or used another engine than asked is marked `"valid": false` and exits 1. Method and results are in [docs/perf.md](perf.md). |
 | `Scripts/playback-acceptance.py [--plays 10] [--signed-in]` | M4 acceptance, silent: plays N tracks in a row and checks for stalls, a single Now Playing entry, remote commands, CPU and, with `--signed-in`, queue persistence and one Song → Video → Song switch. Writes `.build/playback-acceptance.json`. |
+| `Scripts/playback-soak.py [--hours 3.5] [--album MPREb_…] [--anonymous]` | The live reliability soak, silent, **one live run at a time** (locked; stops at the first bot check): hours of natural playback with an album running into radio, a 10-minute pause, offline → online, Song⇄Video, window close/reopen and display sleep. JSONL log every 5 s, pass criteria in the script's header. Writes `.build/playback-soak.json[l]`. |
 | `Scripts/now-playing.sh clients\|item\|info\|send` | Reads the system's Now Playing state through MediaRemote. |
 | `Scripts/make-mock-catalog.py` · `Scripts/make-app-icon.sh` | Build the demo catalog (git-ignored) · render the app icon. |
 | `swift run QTPlaybackLab --scenario …` | Runs the web engine headless, muted and anonymous. Scenarios: `basic`, `advance`, `switch`, `spectrum`, `memory`, … |

@@ -41,6 +41,11 @@ public typealias QTAutoplayContinuation = @MainActor (QTAutoplayRequest) async t
 /// moves on). Repeat All loops the context (re-shuffled when shuffle is on). Shuffle is a true shuffle: every
 /// context track once per cycle, never the same track twice in a row across cycles; Up Next is never shuffled;
 /// History records what actually played, so Previous walks back through it.
+///
+/// Reliability (`QTQueueController+Reliability`): the listener's intent (`wantsPlayback`) is reconciled with the
+/// engine once a second while it matters — pauses nobody asked for are undone once, a queue/engine disagreement
+/// reloads the queue's track, network trouble retries the same track instead of skipping it, a missed end still moves
+/// on. Recovery is silent; `onNotice` speaks only when the listener has to know or act.
 @MainActor
 @Observable
 public final class QTQueueController {
@@ -48,7 +53,7 @@ public final class QTQueueController {
     public static let restartThreshold: TimeInterval = 3
     /// Ask the continuation for more when Autoplay has this many items or fewer.
     public static let autoplayLowWatermark = 3
-    /// Stop skipping after this many unplayable tracks in a row.
+    /// Stop skipping after this many unplayable tracks in a row (network trouble doesn't count).
     public static let maxConsecutiveFailures = 3
 
     public private(set) var engine: any QTPlaybackEngine
@@ -72,7 +77,7 @@ public final class QTQueueController {
     /// engine swaps or a restored queue. Lets scrobblers tell a replay of the same video id from the same play.
     public private(set) var playSerial = 0
     /// The last load failure (cleared by the next successful load).
-    public private(set) var lastFailure: QTPlaybackError?
+    public internal(set) var lastFailure: QTPlaybackError?
 
     @ObservationIgnored public var autoplayContinuation: QTAutoplayContinuation?
     /// Song⇄Video counterpart lookup (InnerTube `next`, then a conservative search) for tracks that don't carry
@@ -92,6 +97,9 @@ public final class QTQueueController {
     @ObservationIgnored public var onRemoteLike: (@MainActor (QTTrack, Bool) -> Void)?
     /// A track failed to play (and was skipped, unless `skipped` is false). The app shows a toast.
     @ObservationIgnored public var onFailure: (@MainActor (QTPlaybackFailureEvent) -> Void)?
+    /// Playback stopped for a reason other than one track failing, and the listener should know (`QTPlaybackNotice`).
+    /// The app shows one toast, with the notice's action.
+    @ObservationIgnored public var onNotice: (@MainActor (QTPlaybackNotice) -> Void)?
     /// The process's single Now Playing owner (nil: none). Attached later when the app switches to real data.
     @ObservationIgnored public private(set) var nowPlaying: QTNowPlayingController?
 
@@ -105,20 +113,31 @@ public final class QTQueueController {
     @ObservationIgnored private var origins: [UUID: QTQueueSection] = [:]
     @ObservationIgnored private var stateTask: Task<Void, Never>?
     @ObservationIgnored private var saveTask: Task<Void, Never>?
-    @ObservationIgnored private var continuationTask: Task<Int, Never>?
-    @ObservationIgnored private var loadToken = 0
-    @ObservationIgnored private var loadsInFlight = 0
-    @ObservationIgnored private var consecutiveFailures = 0
+    @ObservationIgnored var continuationTask: Task<QTContinuationResult, Never>?
+    @ObservationIgnored private var continuationSerial = 0
+    @ObservationIgnored var loadToken = 0
+    /// The token of the newest load while it is in flight (superseded loads that are still unwinding don't count).
+    @ObservationIgnored var loadInFlight: Int?
+    /// `advance` is running (it may wait on the autoplay continuation for a while).
+    @ObservationIgnored var advancesInFlight = 0
+    @ObservationIgnored var consecutiveFailures = 0
     @ObservationIgnored private var lastAnnouncedTrackID: String?
     /// The item last handed to `engine.prepareNext` (gapless/crossfade engines may move on to it by themselves).
     @ObservationIgnored private var preparedNext: QTPlaybackItem?
-    /// The user's intent: true after play/autoplaying load, false after pause. Decides whether a failure skips.
-    @ObservationIgnored private var wantsPlayback = false
-    /// Held while playing or loading so App Nap never throttles track ends, ad countdowns or the
-    /// simulated engine's clock when the app is in the background or occluded (real audio output already
-    /// exempts the process; this covers silent engines and the gaps between tracks).
+    /// The user's intent: true after play/autoplaying load, false after pause. Decides whether a failure skips, and
+    /// what the reliability watch reconciles the engine with.
+    @ObservationIgnored public internal(set) var wantsPlayback = false
+    /// Held so App Nap never throttles track ends, ad countdowns or the simulated engine's clock when the app is in
+    /// the background or occluded (real audio output already exempts the process; this covers silent engines and the
+    /// gaps between tracks). Only actual playback also keeps the Mac from idle-sleeping (`activityLevel`).
     @ObservationIgnored private var playbackActivity: NSObjectProtocol?
-    @ObservationIgnored private let uptime: @MainActor () -> TimeInterval
+    @ObservationIgnored private(set) var activityLevel = QTPlaybackActivityLevel.none
+    @ObservationIgnored let uptime: @MainActor () -> TimeInterval
+    /// What the reliability watch tracks between ticks.
+    @ObservationIgnored var watch = QTPlaybackWatch()
+    /// How often the watch ticks while it has something to watch (nil: only when `superviseTick()` is called — tests).
+    @ObservationIgnored private let supervision: Duration?
+    @ObservationIgnored private var supervisionTask: Task<Void, Never>?
 
     /// - Parameters:
     ///   - engine: the active engine (`QTPlaybackEngineSelector`).
@@ -126,14 +145,18 @@ public final class QTQueueController {
     ///   - store: queue persistence; nil = in-memory only.
     ///   - random: shuffle source (tests inject a seeded generator).
     ///   - uptime: clock the engine's timeline is anchored to (tests inject the simulated engine's clock).
+    ///   - supervision: tick interval of the reliability watch; nil = ticks only through `superviseTick()` (tests on a
+    ///     manual clock).
     public init(engine: any QTPlaybackEngine, nowPlaying: QTNowPlayingController? = nil, store: QTQueueStore? = nil,
                 random: any RandomNumberGenerator = SystemRandomNumberGenerator(),
-                uptime: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
+                uptime: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+                supervision: Duration? = .seconds(1)) {
         self.engine = engine
         self.nowPlaying = nowPlaying
         self.store = store
         self.random = QTRandomSource(base: random)
         self.uptime = uptime
+        self.supervision = supervision
         state = engine.state
         observe(engine)
         nowPlaying?.commandHandler = { [weak self] command in self?.handleRemote(command) ?? false }
@@ -186,13 +209,22 @@ public final class QTQueueController {
 
     // MARK: Transport
 
+    /// Plays. When the engine has lost the queue's item (stopped, failed, crashed, or playing something else) the item
+    /// loads again where it was, instead of the button doing nothing.
     public func play() {
         wantsPlayback = true
-        engine.play()
+        watch.listenerResumed()
+        if let reload = reloadPositionForPlay() {
+            Task { await self.loadCurrent(startTime: reload, autoplay: true, mode: self.mode) }
+        } else {
+            engine.play()
+        }
+        superviseSoon()
     }
 
     public func pause() {
         wantsPlayback = false
+        watch.listenerPaused()
         engine.pause()
     }
 
@@ -215,12 +247,20 @@ public final class QTQueueController {
         guard queue.nowPlaying != nil else { return }
         if currentTime > Self.restartThreshold || queue.history.isEmpty {
             playSerial += 1
+            if reloadPositionForPlay() != nil {
+                // The engine lost the item: load it again from the start.
+                await loadCurrent(startTime: 0, autoplay: true, mode: mode)
+                return
+            }
             engine.seek(to: 0)
             if engine.state.status != .playing { play() }
             return
         }
         let previous = queue.history.removeLast()
-        if let current = queue.nowPlaying {
+        // Under Repeat All the history's items are queued again too: the one coming back plays now, not later as well.
+        queue.upNext.removeAll { $0.id == previous.id }
+        queue.autoplay.removeAll { $0.id == previous.id }
+        if let current = queue.nowPlaying, current.id != previous.id {
             switch origins[current.id] ?? .autoplay {
             case .upNext: queue.upNext.insert(current, at: 0)
             case .autoplay: queue.autoplay.insert(current, at: 0)
@@ -335,6 +375,8 @@ public final class QTQueueController {
 
     /// Empties the whole queue and stops playback.
     public func clearAll() {
+        wantsPlayback = false
+        watch.reset()
         engine.stop()
         queue = QTQueue()
         replaceContext([], source: nil)
@@ -355,6 +397,7 @@ public final class QTQueueController {
         engine.prepareNext(nil)
         engine = newEngine
         preparedNext = nil
+        watch.engineDidChange()
         observe(newEngine)
         state = newEngine.state
         if queue.nowPlaying != nil {
@@ -427,7 +470,7 @@ public final class QTQueueController {
     }
 
     /// After every queue edit (all of them save): the engine hears what comes next.
-    private func scheduleSave() {
+    func scheduleSave() {
         syncPreparedNext()
         guard store != nil else { return }
         saveTask?.cancel()
@@ -449,26 +492,44 @@ public final class QTQueueController {
 
     // MARK: Advancing
 
-    private func advance(userInitiated: Bool) async {
+    func advance(userInitiated: Bool) async {
         guard queue.nowPlaying != nil || !queue.upNext.isEmpty || !queue.autoplay.isEmpty else { return }
+        advancesInFlight += 1
+        defer { advancesInFlight -= 1 }
         if let next = popNext() {
             becomeCurrent(next.item, from: next.section)
-        } else if repeatMode == .all, !context.isEmpty {
+        } else if repeatMode == .all, queue.isAutoplayEnabled, !context.isEmpty {
+            // (With Autoplay off the context doesn't play, so there is nothing to wrap round to.)
             let current = queue.nowPlaying?.track.videoId
             queue.autoplay = isShuffleOn ? shuffled(context, avoidingFirst: current) : context
             contextCursor = nil
             guard let next = popNext() else { return }
             becomeCurrent(next.item, from: next.section)
-        } else if queue.isAutoplayEnabled, autoplayContinuation != nil, await awaitContinuation() > 0, let next = popNext() {
+        } else if queue.isAutoplayEnabled, autoplayContinuation != nil {
+            let current = queue.nowPlaying?.id
+            let result = await awaitContinuation()
+            // Something else moved the queue on while the continuation loaded (Next, a jump): that wins.
+            guard queue.nowPlaying?.id == current else { return }
+            guard result == .added, let next = popNext() else {
+                reachedEnd(userInitiated: userInitiated, autoplayFailed: result == .failed)
+                return
+            }
             becomeCurrent(next.item, from: next.section)
         } else {
-            // End of the queue: the last item stays loaded (ended), like Music.app.
+            reachedEnd(userInitiated: userInitiated, autoplayFailed: false)
             return
         }
         await loadCurrent(startTime: 0, autoplay: true, mode: preferredMode)
     }
 
-    private func handleEnded() async {
+    /// End of the queue: the last item stays loaded (ended), like Music.app, and the listener is no longer waiting for
+    /// anything. When Autoplay couldn't load more (radio failed after its retries) they hear about it once, with Retry.
+    private func reachedEnd(userInitiated: Bool, autoplayFailed: Bool) {
+        if !userInitiated, !engine.state.isPlaying { wantsPlayback = false }
+        if autoplayFailed { notify(.autoplayUnavailable) }
+    }
+
+    func handleEnded() async {
         if repeatMode == .one {
             playSerial += 1
             engine.seek(to: 0)
@@ -478,9 +539,15 @@ public final class QTQueueController {
         await advance(userInitiated: false)
     }
 
+    /// Something can follow the current item: queued, a Repeat All wrap, or more from Autoplay's continuation.
+    var hasNextItem: Bool {
+        !queue.upNext.isEmpty || (queue.isAutoplayEnabled && (!queue.autoplay.isEmpty || autoplayContinuation != nil))
+            || (repeatMode == .all && queue.isAutoplayEnabled && !context.isEmpty)
+    }
+
     /// What `advance` would play next without asking anyone (no Repeat All wrap, no continuation fetch), or nil.
     /// Repeat One replays on its own, so nothing is prepared then.
-    private func naturalNext() -> QTQueueItem? {
+    func naturalNext() -> QTQueueItem? {
         guard repeatMode != .one, queue.nowPlaying != nil else { return nil }
         if let first = queue.upNext.first { return first }
         return queue.isAutoplayEnabled ? queue.autoplay.first : nil
@@ -506,6 +573,8 @@ public final class QTQueueController {
         consecutiveFailures = 0
         lastFailure = nil
         wantsPlayback = true
+        watch.loadDidStart(next.id)
+        superviseSoon()
         announceTrackChange()
         resolveCounterparts()
         prefetchContinuationIfNeeded()
@@ -536,20 +605,23 @@ public final class QTQueueController {
         contextGeneration += 1
         continuationTask?.cancel()
         continuationTask = nil
+        isFetchingAutoplay = false
         queue.autoplaySource = source
     }
 
-    private func loadCurrent(startTime: TimeInterval, autoplay: Bool, mode newMode: QTPlaybackMode) async {
+    func loadCurrent(startTime: TimeInterval, autoplay: Bool, mode newMode: QTPlaybackMode) async {
         applyKnownCounterpart()
         guard let item = queue.nowPlaying else { return }
         loadToken += 1
         let token = loadToken
-        loadsInFlight += 1
-        defer { loadsInFlight -= 1 }
+        loadInFlight = token
+        defer { if loadInFlight == token { loadInFlight = nil } }
         let track = item.track
         resolveCounterparts()
         mode = (newMode == .video && track.hasVideo) ? .video : .song
         wantsPlayback = autoplay
+        watch.loadDidStart(item.id)
+        superviseSoon()
         announceTrackChange()
         scheduleSave()
         do {
@@ -594,14 +666,26 @@ public final class QTQueueController {
     }
 
     /// Skips an unplayable item when the user meant to be listening; stops after `maxConsecutiveFailures`.
-    private func skipAfterFailure(_ track: QTTrack, _ error: QTPlaybackError) async {
-        consecutiveFailures += 1
-        let hasNext = !queue.upNext.isEmpty || (queue.isAutoplayEnabled && (!queue.autoplay.isEmpty || autoplayContinuation != nil))
-            || (repeatMode == .all && !context.isEmpty)
+    /// Network trouble isn't the item's fault: it is tried again first (`retryAfterNetworkFailure`), and a network
+    /// failure that does end in a skip never counts towards the limit.
+    func skipAfterFailure(_ track: QTTrack, _ error: QTPlaybackError) async {
+        // Acted on once: the engine's stream may still deliver this load's `.failed` afterwards.
+        watch.handledFailureToken = loadToken
+        if error.isNetwork {
+            // Paused: nothing to retry now; Play loads it again.
+            guard wantsPlayback else { return }
+            if retryAfterNetworkFailure(track) { return }
+        } else {
+            consecutiveFailures += 1
+        }
         // A bot check stops the queue: the next item would land on it too.
-        let skip = wantsPlayback && consecutiveFailures < Self.maxConsecutiveFailures && hasNext && error != .botCheck
+        let skip = wantsPlayback && consecutiveFailures < Self.maxConsecutiveFailures && hasNextItem && error != .botCheck
         onFailure?(QTPlaybackFailureEvent(track: track, error: error, skipped: skip, consecutive: consecutiveFailures))
-        guard skip else { return }
+        guard skip else {
+            // The queue gave up: the listener isn't waiting for anything any more.
+            wantsPlayback = false
+            return
+        }
         await advance(userInitiated: false)
     }
 
@@ -654,42 +738,107 @@ public final class QTQueueController {
 
     // MARK: Autoplay continuation
 
-    private func prefetchContinuationIfNeeded() {
+    func prefetchContinuationIfNeeded() {
         guard queue.isAutoplayEnabled, autoplayContinuation != nil, continuationTask == nil, repeatMode != .all,
               queue.autoplay.count <= Self.autoplayLowWatermark else { return }
-        continuationTask = Task { @MainActor [weak self] in
-            guard let self else { return 0 }
-            let added = await self.fetchContinuation()
-            self.continuationTask = nil
-            return added
+        startContinuation()
+    }
+
+    @discardableResult
+    private func startContinuation() -> Task<QTContinuationResult, Never> {
+        continuationSerial += 1
+        let serial = continuationSerial
+        let task = Task { @MainActor [weak self] () -> QTContinuationResult in
+            guard let self else { return .failed }
+            let result = await self.fetchContinuation()
+            if self.continuationSerial == serial { self.continuationTask = nil }
+            return result
+        }
+        continuationTask = task
+        return task
+    }
+
+    private func awaitContinuation() async -> QTContinuationResult {
+        await (continuationTask ?? startContinuation()).value
+    }
+
+    /// More Autoplay tracks: each attempt has `continuationTimeout`, a failed or hung one is retried after a short
+    /// pause (`continuationRetryDelays`). `.failed` only when every attempt failed; `.empty` when the radio had
+    /// nothing new (a natural end).
+    private func fetchContinuation() async -> QTContinuationResult {
+        guard autoplayContinuation != nil else { return .empty }
+        let generation = contextGeneration
+        isFetchingAutoplay = true
+        defer { if generation == contextGeneration { isFetchingAutoplay = false } }
+        superviseSoon()
+        for attempt in 0...Self.continuationRetryDelays.count {
+            if attempt > 0 { await watchWait(Self.continuationRetryDelays[attempt - 1]) }
+            guard generation == contextGeneration, let fetch = autoplayContinuation else { return .stale }
+            var exclude = Set(context.map(\.track.videoId))
+            exclude.formUnion(queue.upNext.map(\.track.videoId))
+            exclude.formUnion(queue.autoplay.map(\.track.videoId))
+            if let id = queue.nowPlaying?.track.videoId { exclude.insert(id) }
+            let request = QTAutoplayRequest(source: queue.autoplaySource,
+                                            seed: (queue.autoplay.last ?? queue.nowPlaying)?.track,
+                                            excludingVideoIDs: exclude)
+            let answer = await fetchWithTimeout(fetch, request, timeout: Self.continuationTimeout)
+            guard generation == contextGeneration else { return .stale }
+            guard let tracks = answer else { continue }
+            var seen = request.excludingVideoIDs
+            let items = tracks.filter { $0.availability.isPlayable && seen.insert($0.videoId).inserted }.map { QTQueueItem(track: $0) }
+            guard !items.isEmpty else { return .empty }
+            context.append(contentsOf: items)
+            queue.autoplay.append(contentsOf: isShuffleOn ? shuffled(items, avoidingFirst: nil) : items)
+            scheduleSave()
+            return .added
+        }
+        return .failed
+    }
+
+    /// The Retry of `.autoplayUnavailable`: asks for more Autoplay again and, when the queue had stopped at its end,
+    /// plays on.
+    public func retryAutoplay() async {
+        guard queue.nowPlaying != nil, autoplayContinuation != nil else { return }
+        if naturalNext() == nil, !engine.state.isPlaying {
+            wantsPlayback = true
+            superviseSoon()
+            await advance(userInitiated: false)
+        } else if await awaitContinuation() == .failed {
+            notify(.autoplayUnavailable)
         }
     }
 
-    private func awaitContinuation() async -> Int {
-        if let running = continuationTask { return await running.value }
-        return await fetchContinuation()
+    // MARK: Sleep and wake
+
+    /// The Mac is going to sleep: pause, as the listener would (nothing resumes by itself on wake, like Music).
+    public func systemWillSleep() {
+        guard wantsPlayback || engine.state.isPlaying else { return }
+        pause()
     }
 
-    private func fetchContinuation() async -> Int {
-        guard let fetch = autoplayContinuation else { return 0 }
-        let generation = contextGeneration
-        var exclude = Set(context.map(\.track.videoId))
-        exclude.formUnion(queue.upNext.map(\.track.videoId))
-        exclude.formUnion(queue.autoplay.map(\.track.videoId))
-        if let id = queue.nowPlaying?.track.videoId { exclude.insert(id) }
-        let request = QTAutoplayRequest(source: queue.autoplaySource,
-                                        seed: (queue.autoplay.last ?? queue.nowPlaying)?.track,
-                                        excludingVideoIDs: exclude)
-        isFetchingAutoplay = true
-        defer { isFetchingAutoplay = false }
-        guard let tracks = try? await fetch(request), generation == contextGeneration else { return 0 }
-        var seen = exclude
-        let items = tracks.filter { $0.availability.isPlayable && seen.insert($0.videoId).inserted }.map { QTQueueItem(track: $0) }
-        guard !items.isEmpty else { return 0 }
-        context.append(contentsOf: items)
-        queue.autoplay.append(contentsOf: isShuffleOn ? shuffled(items, avoidingFirst: nil) : items)
-        scheduleSave()
-        return items.count
+    /// The Mac woke after `sleep` seconds. The engine checks itself (a long sleep gets a fresh player page, the native
+    /// graph is verified); the watch starts its timings afresh.
+    public func systemDidWake(after sleep: TimeInterval) {
+        watch.engineDidChange()
+        engine.systemDidWake(after: sleep)
+    }
+
+    // MARK: Reliability watch loop
+
+    /// Ticks the watch once a second while it has something to watch, then stops (no timer while idle).
+    func startSupervisionLoop() {
+        guard let interval = supervision, supervisionTask == nil else { return }
+        supervisionTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: interval)
+                guard let self, !Task.isCancelled else { return }
+                self.superviseTick()
+                guard self.needsSupervision else {
+                    self.supervisionTask = nil
+                    return
+                }
+            }
+        }
     }
 
     // MARK: Engine state
@@ -705,40 +854,54 @@ public final class QTQueueController {
         }
     }
 
-    private func receive(_ s: QTPlaybackState, from source: any QTPlaybackEngine) {
+    func receive(_ s: QTPlaybackState, from source: any QTPlaybackEngine) {
         guard source === engine else { return }
         let previous = state
         state = s
-        updatePlaybackActivity(for: s.status)
-        if loadsInFlight == 0, let id = s.item?.queueID, id != queue.nowPlaying?.id, id == preparedNext?.queueID {
+        watch.observe(s, current: queue.nowPlaying?.id, at: uptime())
+        updatePlaybackActivity()
+        if loadInFlight == nil, let id = s.item?.queueID, id != queue.nowPlaying?.id, id == preparedNext?.queueID {
             advanceToPrepared(s)
             return
         }
         publishNowPlaying()
-        guard loadsInFlight == 0, s.item?.track.videoId == queue.nowPlaying?.track.videoId else { return }
+        guard loadInFlight == nil, s.item?.track.videoId == queue.nowPlaying?.track.videoId else { return }
         if s.status == .ended, previous.status != .ended {
             Task { await self.handleEnded() }
         } else if case .failed(let error) = s.status, previous.status != s.status, previous.item != nil,
-                  let track = queue.nowPlaying?.track {
+                  watch.handledFailureToken != loadToken, let track = queue.nowPlaying?.track {
             lastFailure = error
             Task { await self.skipAfterFailure(track, error) }
         } else if s.status != previous.status, s.status == .paused {
             scheduleSave()
+            // Not asked for while the listener wants music ("Still listening?", WebKit): the watch looks at it.
+            if wantsPlayback { superviseSoon() }
         }
     }
 
-    private func updatePlaybackActivity(for status: QTPlaybackStatus) {
-        let active: Bool
-        switch status {
-        case .playing, .loading: active = true
-        default: active = false
+    /// Only actual playback keeps the Mac awake; a load (which may wait for the network for minutes), the gap between
+    /// tracks or a retry only keeps App Nap away, so their timers run on time.
+    func updatePlaybackActivity() {
+        let level: QTPlaybackActivityLevel
+        switch state.status {
+        case .playing: level = .playing
+        case .loading: level = .busy
+        default: level = wantsPlayback && (advancesInFlight > 0 || watch.isRecovering) ? .busy : .none
         }
-        if active, playbackActivity == nil {
-            playbackActivity = ProcessInfo.processInfo.beginActivity(
-                options: [.userInitiated, .idleSystemSleepDisabled], reason: "Playing music")
-        } else if !active, let activity = playbackActivity {
+        guard level != activityLevel else { return }
+        activityLevel = level
+        if let activity = playbackActivity {
             ProcessInfo.processInfo.endActivity(activity)
             playbackActivity = nil
+        }
+        switch level {
+        case .none: break
+        case .busy:
+            playbackActivity = ProcessInfo.processInfo.beginActivity(
+                options: .userInitiatedAllowingIdleSystemSleep, reason: "Loading music")
+        case .playing:
+            playbackActivity = ProcessInfo.processInfo.beginActivity(
+                options: [.userInitiated, .idleSystemSleepDisabled], reason: "Playing music")
         }
     }
 

@@ -272,12 +272,18 @@ public enum QTNativeFailure: Error, Sendable, Hashable, CustomStringConvertible 
         if let stream = error as? QTNativeStreamError {
             switch stream {
             case .cipherUnsolved(let s): return .systemic("solver: \(s)")
-            case .http(let code): return .systemic("HTTP \(code)")
+            // Refused (403/410/401: the session or the player): the native path is off for the session. A passing
+            // server error or rate limit (5xx, 429, 408) is about this request only: the item plays in the web engine.
+            case .http(let code): return Self.isTransientHTTP(code) ? .item("HTTP \(code)") : .systemic("HTTP \(code)")
             case .noPlayableAudio(let s): return s.contains("SABR") ? .systemic("SABR only") : .item(s)
             }
         }
         if let url = error as? URLError { return .item("network: \(url.code.rawValue)") }
         return .systemic(String(describing: error))
+    }
+
+    static func isTransientHTTP(_ code: Int) -> Bool {
+        code >= 500 || code == 429 || code == 408
     }
 }
 

@@ -19,6 +19,7 @@ import WebKit
 //   -qt.playback.readyWhen playing|ad|buffering|failed|toast   hold the ready file until playback gets there
 //   -qt.playback.loadDelay <s>         hold each load this long (slow-network look, for loading screenshots)
 //   -qt.playback.statusFile <path>     DEBUG: JSON status for scripts (see QTPlaybackDebugHooks)
+//   -qt.playback.notice interrupted|autoplay|network   DEBUG: show that playback notice's toast (screenshots)
 //   -qt.playback.native YES|NO         session override of Settings › Premium engine › Native engine (opt-in). The
 //                                      native engine itself comes in once the account is known to be Premium and
 //                                      signed in (QTNativeEngineCoordinator); real data only.
@@ -117,8 +118,8 @@ public struct QTPlaybackSetup: Sendable, Equatable {
     }
 }
 
-/// Glue between playback and the rest of the app: failure toasts, offline notice, readiness for screenshots,
-/// queue flush on quit, DEBUG hooks. One per process.
+/// Glue between playback and the rest of the app: failure toasts, offline notice, playback notices, sleep and wake,
+/// readiness for screenshots, queue flush on quit, DEBUG hooks. One per process.
 @MainActor
 public final class QTPlaybackServices {
     public static let shared = QTPlaybackServices()
@@ -126,6 +127,9 @@ public final class QTPlaybackServices {
     public private(set) var setup: QTPlaybackSetup?
     private weak var model: QTAppModel?
     private var terminationObserver: NSObjectProtocol?
+    private var sleepObservers: [NSObjectProtocol] = []
+    /// When the Mac went to sleep (wall clock: uptime stands still during sleep).
+    private var sleptAt: Date?
     private var readyHold: UUID?
     private var readyWatch: Task<Void, Never>?
     private var wasOfflineNoticeShown = false
@@ -136,6 +140,7 @@ public final class QTPlaybackServices {
         self.setup = setup
         let playback = model.player.playback
         playback.onFailure = { [weak self] event in self?.report(event) }
+        playback.onNotice = { [weak self] notice in self?.report(notice) }
         hookEngine(playback.engine)
         terminationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
@@ -146,6 +151,7 @@ public final class QTPlaybackServices {
                 playback.nowPlaying?.clear()
             }
         }
+        observeSleep()
         holdReadinessIfAsked(model.launch)
         // Premium + opted in + signed in → the native engine (and back when any of that stops being true).
         QTNativeEngineCoordinator.shared.install(model: model)
@@ -226,6 +232,68 @@ public final class QTPlaybackServices {
 
     /// The most recent failure toast (DEBUG status file, tests).
     public private(set) var lastFailureMessage: String?
+    /// The most recent playback notice (DEBUG status file).
+    public private(set) var lastNotice: QTPlaybackNotice?
+
+    /// The toast for a playback notice, and its action's title. Exposed for tests.
+    public static func message(for notice: QTPlaybackNotice) -> (message: String, action: String?) {
+        switch notice {
+        case .interrupted:
+            (QTLoc.tr("Playback was interrupted", table: .playback), QTLoc.tr("Resume", table: .playback))
+        case .autoplayUnavailable:
+            (QTLoc.tr("Couldn’t load more songs", table: .playback), QTLoc.tr("Try Again", table: .live))
+        case .networkUnavailable:
+            (QTLoc.tr("Playback paused — no connection", table: .playback), nil)
+        }
+    }
+
+    #if DEBUG
+    /// `-qt.playback.notice` (QTPlaybackDebugHooks): shows a notice's toast for screenshots.
+    func debugShow(_ notice: QTPlaybackNotice) { report(notice) }
+    #endif
+
+    private func report(_ notice: QTPlaybackNotice) {
+        guard let model else { return }
+        lastNotice = notice
+        let playback = model.player.playback
+        let (message, action) = Self.message(for: notice)
+        switch notice {
+        case .interrupted:
+            model.showToast(message, actionTitle: action) { playback.play() }
+        case .autoplayUnavailable:
+            model.showToast(message, actionTitle: action) { Task { await playback.retryAutoplay() } }
+        case .networkUnavailable:
+            model.showToast(message)
+        }
+    }
+
+    // MARK: Sleep and wake
+
+    /// Pauses as the Mac goes to sleep (like Music, nothing resumes on wake); on wake the engines check themselves.
+    /// Display sleep alone isn't sleep: music plays on.
+    private func observeSleep() {
+        let center = NSWorkspace.shared.notificationCenter
+        sleepObservers = [
+            center.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { _ in
+                QTMainActorHop.onMainThread { QTPlaybackServices.shared.systemWillSleep() }
+            },
+            center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { _ in
+                QTMainActorHop.onMainThread { QTPlaybackServices.shared.systemDidWake() }
+            },
+        ]
+    }
+
+    private func systemWillSleep() {
+        sleptAt = Date()
+        model?.player.playback.systemWillSleep()
+        model?.player.playback.flushNow()
+    }
+
+    private func systemDidWake() {
+        let slept = sleptAt.map { Date().timeIntervalSince($0) } ?? 0
+        sleptAt = nil
+        model?.player.playback.systemDidWake(after: slept)
+    }
 
     private func networkChanged(available: Bool) {
         guard let model else { return }
