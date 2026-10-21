@@ -44,6 +44,10 @@ public final class QTIntegrationsCoordinator {
     var makeListenBrainzClient: (String, URL) -> QTListenBrainzClient = { QTListenBrainzClient(token: $0, server: $1) }
     /// Posts "now playing" notifications (tests record instead).
     var postNotification: ((QTTrack) -> Void)?
+    /// The clock listening is counted on, read on the main actor when playback reports an event. System uptime,
+    /// which stands still while the Mac sleeps, so a sleep in the middle of a song never counts as listening (only
+    /// differences matter). Tests inject their own.
+    var listenClock: () -> Date = { Date(timeIntervalSinceReferenceDate: ProcessInfo.processInfo.systemUptime) }
 
     /// Each integration's calls run one after another, in the order playback produced them (a separate unstructured
     /// Task per call would let Swift reorder e.g. `disconnect()` before a pending `update()`). Separate queues, so a
@@ -132,54 +136,84 @@ public final class QTIntegrationsCoordinator {
     /// One listen = one (video id, play serial): Repeat One and replays of the same song start a new listen; the
     /// launch track (cued, paused) starts one when it first plays; turning scrobbling on mid-song tracks it from then.
     /// `rate` is the media rate (0 while paused or buffering), so the listen counts media time.
+    /// Each event is stamped here, when playback reports it, and the queue only waits for the scrobbler's
+    /// bookkeeping, never for its network calls (`QTScrobbler.post`).
     private func updateScrobbling(song: QTTrack?, serial: Int, rate: Double, playing: Bool, enabled: Bool) {
         let key = enabled ? song.map { "\($0.videoId)#\(serial)" } : nil
         let scrobbler = scrobbler
+        let time = listenClock()
         if key != scrobbleKey {
             if let key, let song, playing {
                 scrobbleKey = key
                 scrobbleRate = rate
                 let item = Self.scrobble(song)
-                scrobbleQueue.enqueue { await scrobbler.trackChanged(to: item, rate: rate) }
+                scrobbleQueue.enqueue { await scrobbler.post(.track(item, rate: rate), at: time) }
             } else if scrobbleKey != nil {
                 scrobbleKey = nil
                 scrobbleRate = 0
                 // The listen ended (another song cued, stopped, or the demo library took over): what was really
                 // listened to scrobbles if it qualified. Every service turned off: forget it without sending.
                 if enabled {
-                    scrobbleQueue.enqueue { await scrobbler.trackChanged(to: nil, playing: false) }
+                    scrobbleQueue.enqueue { await scrobbler.post(.track(nil, rate: 0), at: time) }
                 } else {
                     scrobbleQueue.enqueue { await scrobbler.reset() }
                 }
             }
         } else if key != nil, rate != scrobbleRate {
             scrobbleRate = rate
-            scrobbleQueue.enqueue { await scrobbler.playbackChanged(rate: rate) }
+            scrobbleQueue.enqueue { await scrobbler.post(.rate(rate), at: time) }
         }
         updateTicker(running: playing && key != nil)
     }
 
+    /// Whose plays the services send: Last.fm by user name, ListenBrainz by user name and server.
+    static func lastFMAccount(_ prefs: QTLastFMPrefs) -> String? {
+        prefs.username.map { "lastfm:" + $0.lowercased() }
+    }
+
+    static func listenBrainzAccount(_ prefs: QTListenBrainzPrefs) -> String? {
+        guard let name = prefs.username else { return nil }
+        return name + "@" + (prefs.server ?? QTListenBrainzRequest.defaultServer).absoluteString
+    }
+
+    /// Settings' Disconnect: forgets the account and drops the plays still waiting for it (another account connected
+    /// later never gets them). A session revoked by the service keeps them for when the same account reconnects.
+    public func disconnect(_ id: QTScrobbleServiceID) {
+        let account: String?
+        switch id {
+        case .lastFM:
+            account = Self.lastFMAccount(store.settings.lastFM)
+            store.disconnectLastFM()
+        case .listenBrainz:
+            account = Self.listenBrainzAccount(store.settings.listenBrainz)
+            store.disconnectListenBrainz()
+        }
+        guard let account else { return }
+        let scrobbler = scrobbler
+        scrobbleQueue.enqueue { await scrobbler.discardQueue(id, account: account) }
+    }
+
     private func configureLastFM(_ prefs: QTLastFMPrefs) {
-        let signature = "\(prefs.isEnabled)|\(prefs.isConnected)|\(prefs.apiKey)|\(prefs.hasSecret)|\(prefs.sendsNowPlaying)"
+        let signature = "\(prefs.isEnabled)|\(prefs.username ?? "-")|\(prefs.apiKey)|\(prefs.hasSecret)|\(prefs.sendsNowPlaying)"
         guard signature != scrobblerConfigs[.lastFM] else { return }
         scrobblerConfigs[.lastFM] = signature
         let scrobbler = scrobbler
         guard prefs.isEnabled, prefs.isConnected else {
-            scrobbleQueue.enqueue { await scrobbler.configure(.lastFM, service: nil) }
+            scrobbleQueue.enqueue { await scrobbler.setUp(.lastFM, service: nil) }
             return
         }
-        let store = store, makeClient = makeLastFMClient
+        let store = store, makeClient = makeLastFMClient, account = Self.lastFMAccount(prefs)
         scrobbleQueue.enqueue {
             // The Keychain read happens off the main thread (`loadLastFMSession`).
             guard let session = await store.loadLastFMSession() else {
-                await scrobbler.configure(.lastFM, service: nil)
+                await scrobbler.setUp(.lastFM, service: nil)
                 return
             }
             let service = QTLastFMScrobbleService(client: makeClient(session.credentials), sessionKey: session.sessionKey)
-            await scrobbler.configure(.lastFM, service: service, sendsNowPlaying: prefs.sendsNowPlaying,
-                                      onInvalidCredentials: { Task { @MainActor in QTIntegrationsCoordinator.shared.lastFMSessionWasRevoked() } },
-                                      onPaused: { Task { @MainActor in QTIntegrationsCoordinator.shared.lastFMSendingPaused() } })
-            await scrobbler.flush(.lastFM)
+            await scrobbler.setUp(.lastFM, service: service, account: account, sendsNowPlaying: prefs.sendsNowPlaying,
+                                  onInvalidCredentials: { Task { @MainActor in QTIntegrationsCoordinator.shared.lastFMSessionWasRevoked() } },
+                                  onPaused: { Task { @MainActor in QTIntegrationsCoordinator.shared.lastFMSendingPaused() } })
+            await scrobbler.sendQueued(.lastFM)
         }
     }
 
@@ -189,21 +223,21 @@ public final class QTIntegrationsCoordinator {
         scrobblerConfigs[.listenBrainz] = signature
         let scrobbler = scrobbler
         guard prefs.isEnabled, prefs.isConnected else {
-            scrobbleQueue.enqueue { await scrobbler.configure(.listenBrainz, service: nil) }
+            scrobbleQueue.enqueue { await scrobbler.setUp(.listenBrainz, service: nil) }
             return
         }
-        let store = store, makeClient = makeListenBrainzClient
+        let store = store, makeClient = makeListenBrainzClient, account = Self.listenBrainzAccount(prefs)
         scrobbleQueue.enqueue {
             // The token is read from the Keychain off the main thread too (`loadListenBrainzSession`).
             guard let session = await store.loadListenBrainzSession() else {
-                await scrobbler.configure(.listenBrainz, service: nil)
+                await scrobbler.setUp(.listenBrainz, service: nil)
                 return
             }
             let service = QTListenBrainzScrobbleService(client: makeClient(session.token, session.server))
-            await scrobbler.configure(.listenBrainz, service: service, sendsNowPlaying: prefs.sendsNowPlaying,
-                                      onInvalidCredentials: { Task { @MainActor in QTIntegrationsCoordinator.shared.listenBrainzTokenWasRevoked() } },
-                                      onPaused: { Task { @MainActor in QTIntegrationsCoordinator.shared.listenBrainzSendingPaused() } })
-            await scrobbler.flush(.listenBrainz)
+            await scrobbler.setUp(.listenBrainz, service: service, account: account, sendsNowPlaying: prefs.sendsNowPlaying,
+                                  onInvalidCredentials: { Task { @MainActor in QTIntegrationsCoordinator.shared.listenBrainzTokenWasRevoked() } },
+                                  onPaused: { Task { @MainActor in QTIntegrationsCoordinator.shared.listenBrainzSendingPaused() } })
+            await scrobbler.sendQueued(.listenBrainz)
         }
     }
 
@@ -232,8 +266,8 @@ public final class QTIntegrationsCoordinator {
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(15))
                     guard let self, !Task.isCancelled else { return }
-                    let scrobbler = self.scrobbler
-                    self.scrobbleQueue.enqueue { await scrobbler.tick() }
+                    let scrobbler = self.scrobbler, time = self.listenClock()
+                    self.scrobbleQueue.enqueue { await scrobbler.post(.tick, at: time) }
                 }
             }
         } else if !running {
@@ -284,11 +318,13 @@ public final class QTIntegrationsCoordinator {
             if wasActive { discordQueue.enqueue { await discord.disconnect() } }
             return
         }
+        // A private upload's link and artwork never leave the Mac (the artwork URL is a private library image).
         let payload = shown.map { t in
-            QTDiscordTrack(title: t.title, artist: t.artistLine, album: t.album?.title,
-                           artworkURL: t.artwork.max { ($0.width ?? 0) < ($1.width ?? 0) }?.url,
-                           link: URL(string: QTTrackActions.link(for: t)), duration: t.duration / speed,
-                           elapsed: wallElapsed, isPlaying: true)
+            let isPrivate = Self.isPrivatelyOwned(t)
+            return QTDiscordTrack(title: t.title, artist: t.artistLine, album: t.album?.title,
+                                  artworkURL: isPrivate ? nil : t.artwork.max { ($0.width ?? 0) < ($1.width ?? 0) }?.url,
+                                  link: isPrivate ? nil : URL(string: QTTrackActions.link(for: t)), duration: t.duration / speed,
+                                  elapsed: wallElapsed, isPlaying: true, isPrivatelyOwned: isPrivate)
         }
         let clientID = prefs.clientID, artwork = prefs.showsArtwork
         let button = QTLoc.tr("Open in YouTube Music", table: .desktop)
@@ -300,6 +336,7 @@ public final class QTIntegrationsCoordinator {
     /// Waits until every integration call queued so far has run (tests).
     func drain() async {
         await scrobbleQueue.drain()
+        await scrobbler.settle()
         await discordQueue.drain()
     }
 }

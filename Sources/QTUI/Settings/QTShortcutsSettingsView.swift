@@ -57,11 +57,7 @@ private struct QTShortcutRow: View {
         } label: {
             Text(title)
             if let conflict = QTGlobalHotKeys.shared.conflict(for: action) {
-                if conflict.isWarning {
-                    Text("\(Image(systemName: "exclamationmark.triangle.fill").renderingMode(.original)) \(conflict.message)")
-                } else {
-                    Text(verbatim: conflict.message)
-                }
+                Text("\(Image(systemName: "exclamationmark.triangle.fill").renderingMode(.original)) \(conflict.message)")
             }
         }
     }

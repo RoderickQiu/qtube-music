@@ -269,13 +269,39 @@ import Testing
         store.pin(b, for: "v1")
         #expect(pinned == "lrclib")
         #expect(store.others(for: "v1") == [a])
-        // A report leaves the menu at once and reaches the lyrics session (which keeps it).
+        // A report moves the version to the end of the menu as reported, at once, and reaches the lyrics session
+        // (which keeps it).
         var reported: String?
-        store.onReport = { _, id in reported = id }
-        store.reportWrong("v1")
+        store.onReport = { _, id in reported = id; return true }
+        #expect(store.canReport("v1"))
+        #expect(store.reportWrong("v1") == "lrclib")
         #expect(reported == "lrclib")
-        #expect(store.versions["v1"] == [a])
+        #expect(store.versions["v1"]?.map(\.id) == ["netease", "lrclib"])
+        #expect(store.versions["v1"]?.last?.isReported == true)
         #expect(store.choice(for: "v1") == .automatic)
+        // Nothing showing: nothing to report, and no "Reported" toast (finding 23).
+        #expect(!store.canReport("v1"))
+        #expect(store.reportWrong("v1") == nil)
+        // Undo marks it back and reaches the session.
+        var undone: String?
+        store.onUndoReport = { _, id in undone = id }
+        store.undoReport("lrclib", for: "v1")
+        #expect(undone == "lrclib")
+        #expect(store.versions["v1"]?.last?.isReported == false)
+        // A session that can't act on it reports nothing.
+        store.publish([a, b], for: "v2", selected: "netease")
+        store.onReport = { _, _ in false }
+        #expect(store.reportWrong("v2") == nil)
+        #expect(store.versions["v2"] == [a, b])
+        // Publishing with nothing showing clears the old selection.
+        store.publish([a, b], for: "v2", selected: nil)
+        #expect(!store.canReport("v2"))
+    }
+
+    @Test func reportedRowsSayReported() {
+        let v = QTLyricsVersion(id: "lrclib:1", source: .lrclib, syncKind: .line, confidence: 0.95, isPossibleMismatch: true,
+                                isReported: true)
+        #expect(v.menuDetail(isBest: true) == QTLoc.tr("Reported"))
     }
 
     @Test func choicesNotifyTheSession() {

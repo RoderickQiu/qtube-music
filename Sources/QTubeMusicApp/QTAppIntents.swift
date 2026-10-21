@@ -64,10 +64,14 @@ struct QTLikeCurrentTrackIntent: AppIntent {
     static let openAppWhenRun = false
 
     @MainActor func perform() async throws -> some IntentResult & ProvidesDialog {
-        guard let title = QTScripting.likeCurrentTrack() else {
+        switch QTScripting.likeCurrentTrack() {
+        case .liked(let title):
+            return .result(dialog: IntentDialog(LocalizedStringResource("Liked “\(title)”.", table: "AppIntents")))
+        case .nothingPlaying:
             return .result(dialog: IntentDialog(LocalizedStringResource("Nothing is playing.", table: "AppIntents")))
+        case .signInRequired:
+            return .result(dialog: IntentDialog(LocalizedStringResource("Sign in to YouTube Music in QTube Music to like songs.", table: "AppIntents")))
         }
-        return .result(dialog: IntentDialog(LocalizedStringResource("Liked “\(title)”.", table: "AppIntents")))
     }
 }
 

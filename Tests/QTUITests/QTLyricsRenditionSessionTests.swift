@@ -88,6 +88,54 @@ struct QTRenditionStubProvider: QTLyricsSourceProvider {
         #expect(session.document?.offset == 0)
     }
 
+    /// Finding 11: in video mode with the video's own timing, the Lyrics Source menu, Report and Undo act on the
+    /// versions of the video's cut, not on the song's.
+    @Test func videoModeReportsTheVersionOnScreen() async throws {
+        struct TwoMVCuts: QTLyricsSourceProvider {
+            let source = QTLyricsSource.lrclib
+            func search(_ query: QTLyricsQuery) async throws -> [QTLyricsCandidate] {
+                [QTLyricsCandidate(source: source, remoteID: "song", title: query.title, artists: query.artists, duration: 257),
+                 QTLyricsCandidate(source: source, remoteID: "mv1", title: query.title, artists: query.artists, duration: 338),
+                 QTLyricsCandidate(source: source, remoteID: "mv2", title: query.title, artists: query.artists, duration: 338)]
+            }
+            func lyrics(for candidate: QTLyricsCandidate) async throws -> QTParsedLyrics? {
+                try await QTRenditionStubProvider().lyrics(for: QTLyricsCandidate(
+                    source: source, remoteID: candidate.remoteID == "song" ? "song" : "mv", title: candidate.title, artists: candidate.artists))
+            }
+        }
+        let settings = QTSettingsStore(defaults: UserDefaults(suiteName: "qt.lyrics-rendition.tests.\(UUID().uuidString)")!)
+        settings.override { $0.lyricsTranslation = .off }
+        let cache = try QTLyricsCache(url: nil)
+        let store = QTLyricsVersionStore()
+        let session = QTLyricsSession(settings: settings, resolver: QTLyricsResolver(providers: [TwoMVCuts()], cache: cache),
+                                      versionStore: store)
+        let id = Self.song.videoId
+        session.load(Self.song)
+        await waitUntil { session.phase != .loading }
+        #expect(store.selected[id] == "lrclib:song")
+
+        session.setRendition(QTLyricsRenditionCoordinator.rendition(track: Self.song, mode: .video, duration: 338))
+        await waitUntil { session.renditionTiming == .own }
+        // The menu lists the video cut's versions, the one showing selected.
+        #expect(store.selected[id] == "lrclib:mv1")
+        #expect(store.versions[id]?.map(\.id) == ["lrclib:mv1", "lrclib:mv2"])
+
+        #expect(store.reportWrong(id) == "lrclib:mv1")
+        await waitUntil { store.selected[id] == "lrclib:mv2" }
+        #expect(session.renditionTiming == .own)
+        #expect(await cache.rejectedVersionIDs(for: "mvVideoId01~338s") == ["lrclib:mv1"])
+        #expect(await cache.rejectedVersionIDs(for: id).isEmpty)
+        #expect(session.chosenVersionID == "lrclib:song")
+
+        store.undoReport("lrclib:mv1", for: id)
+        await waitUntil { store.selected[id] == "lrclib:mv1" }
+        #expect(await cache.rejectedVersionIDs(for: "mvVideoId01~338s").isEmpty)
+
+        // Back to the song: its own versions again.
+        session.setRendition(QTLyricsRenditionCoordinator.rendition(track: Self.song, mode: .song, duration: 257))
+        #expect(store.selected[id] == "lrclib:song")
+    }
+
     @Test func sameLengthVideoKeepsTheSongTiming() async throws {
         let session = try makeSession(hasMVCut: true)
         session.load(Self.song)

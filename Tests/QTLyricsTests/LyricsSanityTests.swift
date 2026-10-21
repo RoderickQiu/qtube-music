@@ -49,8 +49,8 @@ struct QTHonestLyricsProvider: QTLyricsSourceProvider {
         })
     }
 
-    static func query(_ videoId: String, _ title: String, duration: TimeInterval = 60) -> QTLyricsQuery {
-        QTLyricsQuery(videoId: videoId, title: title, artists: ["Test Artist"], duration: duration)
+    static func query(_ videoId: String, _ title: String, artist: String = "Test Artist", duration: TimeInterval = 60) -> QTLyricsQuery {
+        QTLyricsQuery(videoId: videoId, title: title, artists: [artist], duration: duration)
     }
 
     static func tempCacheURL() -> URL {
@@ -59,24 +59,45 @@ struct QTHonestLyricsProvider: QTLyricsSourceProvider {
 
     // MARK: Same text for different songs
 
-    @Test func decoyServingOneTextForThreeSongsIsRejected() async throws {
+    @Test func decoyServingOneTextForManySongsIsFlaggedNotDropped() async throws {
         let cache = try QTLyricsCache(url: nil)
         let resolver = QTLyricsResolver(providers: [QTDecoyLyricsProvider(), QTHonestLyricsProvider()], cache: cache)
-        let a = Self.query("vidA", "Northern Kettle"), b = Self.query("vidB", "Velvet Compass"), c = Self.query("vidC", "Orange Ferry")
+        let a = Self.query("vidA", "Northern Kettle", artist: "Ann"), b = Self.query("vidB", "Velvet Compass", artist: "Ben")
+        let c = Self.query("vidC", "Orange Ferry", artist: "Cleo")
 
-        // First song: nothing to compare with yet, the word-synced decoy wins.
+        // One other song with the same text proves nothing: the word-synced decoy wins for the first two.
         #expect(await resolver.resolve(a).chosenID == "decoy:same")
-        // Second and third: the same text for songs with other titles is filler, never chosen nor offered.
-        for q in [b, c] {
-            let r = await resolver.resolve(q)
-            #expect(r.document?.source == .lrclib, "\(q.title)")
-            #expect(!r.versions.contains { $0.id == "decoy:same" })
-        }
-        // The first song looks again (its cached pick was dropped) and gets its own lyrics too.
-        let again = await resolver.resolve(a)
-        #expect(!again.fromCache)
-        #expect(again.document?.source == .lrclib)
-        #expect(again.document?.lines.first?.text.hasPrefix("Northern Kettle") == true)
+        #expect(await resolver.resolve(b).chosenID == "decoy:same")
+        // Chosen for two other titles by two other artists: filler. Not picked, but still offered, badged and last.
+        let r = await resolver.resolve(c)
+        #expect(r.document?.source == .lrclib)
+        let decoy = try #require(r.versions.first { $0.id == "decoy:same" })
+        #expect(decoy.flags?.contains(.sharedText) == true)
+        #expect(decoy.isPossibleMismatch)
+        #expect(r.versions.last?.id == "decoy:same")
+        // Picking it anyway works.
+        #expect(await resolver.pin(versionID: "decoy:same", for: c).chosenID == "decoy:same")
+        // The other songs' cached lyrics are left alone (no other track's entry is deleted from a lookup).
+        #expect(await cache.entry(for: "vidA")?.chosenID == "decoy:same")
+    }
+
+    /// Finding 2: only the version actually chosen is recorded, so versions that were merely fetched for other songs
+    /// can never mark the right lyrics as filler.
+    @Test func onlyTheChosenTextIsRecorded() async throws {
+        let cache = try QTLyricsCache(url: nil)
+        let resolver = QTLyricsResolver(providers: [QTDecoyLyricsProvider(), QTHonestLyricsProvider()], cache: cache)
+        let a = Self.query("vidA", "Northern Kettle", artist: "Ann")
+        let chosen = await resolver.resolve(a)
+        #expect(chosen.chosenID == "decoy:same")
+        let decoy = try #require(QTLyricsSanity.fingerprint(Self.parsed(QTDecoyLyricsProvider.lines)))
+        let honest = try #require(QTLyricsSanity.fingerprint(Self.parsed((1...8).map { "Northern Kettle#1 placeholder line number \($0) goes here" })))
+        #expect(await cache.fingerprintTracks(decoy, excluding: "-").map(\.videoId) == ["vidA"])
+        #expect(await cache.fingerprintTracks(honest, excluding: "-").isEmpty)
+        // Reporting it clears the track's fingerprint before the next pick is recorded.
+        let next = await resolver.reject(versionID: "decoy:same", for: a)
+        #expect(next.document?.source == .lrclib)
+        #expect(await cache.fingerprintTracks(decoy, excluding: "-").isEmpty)
+        #expect(await cache.fingerprintTracks(honest, excluding: "-").map(\.videoId) == ["vidA"])
     }
 
     @Test func coversAndReReleasesMayShareLyrics() async throws {
@@ -84,6 +105,11 @@ struct QTHonestLyricsProvider: QTLyricsSourceProvider {
         // One song: studio, live and a remaster share their text (titles ≥ 90 % alike).
         for (id, title) in [("v1", "Harbour Lights"), ("v2", "Harbour Lights (Live)"), ("v3", "Harbour Lights - 2015 Remaster")] {
             #expect(await resolver.resolve(Self.query(id, title)).chosenID == "decoy:same", "\(title)")
+        }
+        // One artist's song under translated titles, and a cover of it under yet another title: still one song.
+        let other = QTLyricsResolver(providers: [QTDecoyLyricsProvider()], cache: try QTLyricsCache(url: nil))
+        for (id, title, artist) in [("t1", "Sunny Day", "Jay"), ("t2", "Clear Sky", "Jay"), ("t3", "Bright Weather", "Mia")] {
+            #expect(await other.resolve(Self.query(id, title, artist: artist)).chosenID == "decoy:same", "\(title)")
         }
     }
 
@@ -99,16 +125,51 @@ struct QTHonestLyricsProvider: QTLyricsSourceProvider {
         let next = await first.reject(versionID: wrong, for: q)
         #expect(next.chosenID != nil)
         #expect(next.chosenID != wrong)
-        #expect(!next.versions.contains { $0.id == wrong })
+        // Still listed — last, as reported — so the report can be taken back.
+        #expect(next.versions.last?.id == wrong)
+        #expect(next.versions.last?.isReported == true)
 
-        // A relaunch (new cache connection, new resolver, forced lookup) still never shows it.
+        // A relaunch (new cache connection, new resolver, forced lookup) still never chooses it.
         let relaunched = QTLyricsResolver(providers: [QTHonestLyricsProvider(ids: ["1", "2"])], cache: try QTLyricsCache(url: url))
         let r = await relaunched.resolve(q, forceRefresh: true)
         #expect(r.chosenID == next.chosenID)
-        #expect(!r.versions.contains { $0.id == wrong })
+        #expect(r.versions.last.map { $0.id == wrong && $0.isReported == true } == true)
         // Picking it on purpose takes the report back.
         #expect(await relaunched.pin(versionID: wrong, for: q).chosenID == wrong)
-        #expect(await relaunched.unpin(for: q).versions.contains { $0.id == wrong })
+        let back = await relaunched.unpin(for: q)
+        #expect(back.versions.contains { $0.id == wrong && $0.isReported != true })
+    }
+
+    /// Finding 10: Undo on the "Reported" toast restores the version, and the pin the report dropped.
+    @Test func undoingAReportRestoresThePin() async throws {
+        let resolver = QTLyricsResolver(providers: [QTHonestLyricsProvider(ids: ["1", "2"])], cache: try QTLyricsCache(url: nil))
+        let q = Self.query("vidU", "Undo Song")
+        let auto = try #require(await resolver.resolve(q).chosenID)
+        let other = try #require(await resolver.resolve(q).versions.first { $0.id != auto }?.id)
+        #expect(await resolver.pin(versionID: other, for: q).pinnedID == other)
+        let reported = await resolver.reject(versionID: other, for: q)
+        #expect(reported.chosenID == auto)
+        #expect(reported.pinnedID == nil)
+        let undone = await resolver.undoReject(versionID: other, wasPinned: true, for: q)
+        #expect(undone.chosenID == other)
+        #expect(undone.pinnedID == other)
+        #expect(!undone.versions.contains { $0.isReported == true })
+    }
+
+    /// Finding 16: a pinned version that can't be fetched any more still reads as pinned, and Automatic clears it.
+    @Test func stalePinIsReportedAndAutomaticClearsIt() async throws {
+        let cache = try QTLyricsCache(url: nil)
+        let resolver = QTLyricsResolver(providers: [QTHonestLyricsProvider()], cache: cache)
+        let q = Self.query("vidS", "Stale Pin")
+        await cache.setPinnedVersionID("lrclib:gone", for: q.videoId)
+        let r = await resolver.resolve(q)
+        #expect(r.chosenID == "lrclib:Stale Pin#1")
+        #expect(r.pinnedID == "lrclib:gone")
+        #expect(r.isPinned)
+        let auto = await resolver.unpin(for: q)
+        #expect(auto.pinnedID == nil)
+        #expect(!auto.isPinned)
+        #expect(await cache.pinnedVersionID(for: q.videoId) == nil)
     }
 
     @Test func reportingTheOnlyVersionLeavesNoLyrics() async throws {
@@ -215,23 +276,62 @@ struct QTHonestLyricsProvider: QTLyricsSourceProvider {
 
     // MARK: Unofficial sources need a length
 
-    @Test func unofficialSourcesNeedAKnownDuration() {
+    @Test func unofficialSourcesWithoutALengthAreDoubtful() {
         let scorer = QTLyricsMatchScorer()
         let q = Self.query("v", "Copper Bell", duration: 60)
         let undated = QTLyricsCandidate(source: .qq, remoteID: "1", title: "Copper Bell", artists: ["Test Artist"])
         let before = scorer.score(undated, for: q)
-        // Plain lyrics say nothing about the recording's length: rejected.
+        // Plain lyrics say nothing about the recording's length: a penalty and a badge, not a rejection.
         let plain = QTParsedLyrics(lines: QTDecoyLyricsProvider.lines.map { QTParsedLyricsLine(start: nil, text: $0) })
-        #expect(scorer.rescore(before, candidate: undated, lyrics: plain, for: q).rejection == .unknownDuration)
+        let doubtful = scorer.rescore(before, candidate: undated, lyrics: plain, for: q)
+        #expect(doubtful.rejection == nil)
+        #expect(doubtful.flags == [.unknownLength])
+        #expect(doubtful.total < before.total)
         // Synced lyrics sung most of the way through (to ~50 s of 60 s) show it.
-        #expect(scorer.rescore(before, candidate: undated, lyrics: Self.parsed(QTDecoyLyricsProvider.lines), for: q).rejection == nil)
+        #expect(scorer.rescore(before, candidate: undated, lyrics: Self.parsed(QTDecoyLyricsProvider.lines), for: q).flags.isEmpty)
         // A length the payload declares counts too.
         var declared = plain
         declared.metadata.length = 61
-        #expect(scorer.rescore(before, candidate: undated, lyrics: declared, for: q).rejection != .unknownDuration)
+        #expect(!scorer.rescore(before, candidate: undated, lyrics: declared, for: q).flags.contains(.unknownLength))
         // Official sources are not held to it.
         let lrclib = QTLyricsCandidate(source: .lrclib, remoteID: "1", title: "Copper Bell", artists: ["Test Artist"])
-        #expect(scorer.rescore(scorer.score(lrclib, for: q), candidate: lrclib, lyrics: plain, for: q).rejection == nil)
+        #expect(scorer.rescore(scorer.score(lrclib, for: q), candidate: lrclib, lyrics: plain, for: q).flags.isEmpty)
+    }
+
+    /// Finding 22: plain QQ lyrics (QQ lists no lengths) show when they are all there is, badged; another version of
+    /// the song wins over them.
+    @Test func undatedQQLyricsShowOnlyWhenNothingElseIs() async throws {
+        struct PlainQQ: QTLyricsSourceProvider {
+            let source = QTLyricsSource.qq
+            func search(_ q: QTLyricsQuery) async throws -> [QTLyricsCandidate] {
+                [QTLyricsCandidate(source: source, remoteID: "qq1", title: q.title, artists: q.artists)]
+            }
+            func lyrics(for c: QTLyricsCandidate) async throws -> QTParsedLyrics? {
+                QTParsedLyrics(lines: QTDecoyLyricsProvider.lines.map { QTParsedLyricsLine(start: nil, text: $0) })
+            }
+        }
+        let config = QTLyricsResolverConfiguration(unofficialSources: .init(qq: true))
+        let alone = QTLyricsResolver(providers: [PlainQQ()], cache: try QTLyricsCache(url: nil), configuration: config)
+        let r = await alone.resolve(Self.query("vidQ", "Copper Bell"))
+        #expect(r.chosenID == "qq:qq1")
+        #expect(r.isPossibleMismatch)
+        let both = QTLyricsResolver(providers: [PlainQQ(), QTHonestLyricsProvider()], cache: try QTLyricsCache(url: nil), configuration: config)
+        let r2 = await both.resolve(Self.query("vidQ", "Copper Bell"))
+        #expect(r2.document?.source == .lrclib)
+        #expect(!r2.versions.contains { $0.id == "qq:qq1" })
+    }
+
+    /// Finding 12: lyrics in a language the recognizer doesn't know (invented Welsh lines here, ~0.59 confidence)
+    /// aren't gibberish; and the hint alone never forces the badge.
+    @Test func unknownLanguagesAreNotGibberish() async throws {
+        let welsh = ["Mae'r glaw yn disgyn ar y bryniau llwyd", "Rydw i'n cerdded adref ar hyd y lôn", "Mae golau bach yn ffenest y tŷ",
+                     "Canwn gân i'r môr a'r mynyddoedd", "Daw'r haul yn ôl ar ôl y storm", "Arhosaf yma tan y bore bach"]
+        #expect(!QTLyricsSanity.isGibberish(welsh))
+        #expect(QTLyricsSanity.isGibberish(Self.mash))
+        #expect(!QTLyricsMatchFlag.gibberish.forcesBadge)
+        let v = QTResolvedLyricsVersion(candidate: QTLyricsCandidate(source: .lrclib, remoteID: "1", title: "T", artists: []),
+                                        score: 0.85, syncKind: .line, hasTranslation: false, flags: [.gibberish])
+        #expect(!v.isPossibleMismatch)
     }
 
     // MARK: Offsets per version and the schema migration
@@ -298,5 +398,41 @@ struct QTHonestLyricsProvider: QTLyricsSourceProvider {
         let reopened = try QTLyricsCache(url: url)
         #expect(await reopened.offset(for: "pinned", version: "netease:9") == 0.5)
         #expect(await reopened.offset(for: "unknown", version: "amll:1") == 0.2)
+    }
+
+    /// Finding 13: a migration step that fails rolls everything back, and the cache still opens and saves.
+    @Test func failedMigrationRollsBackAndStillOpens() async throws {
+        let url = Self.tempCacheURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        var db: OpaquePointer?
+        #expect(sqlite3_open(url.path, &db) == SQLITE_OK)
+        // A 0.1.1-style file whose carry-over insert fails half-way (a trigger refuses one row).
+        let old = """
+        CREATE TABLE offsets (video_id TEXT PRIMARY KEY, offset REAL NOT NULL);
+        CREATE TABLE version_offsets (video_id TEXT NOT NULL, version_id TEXT NOT NULL, offset REAL NOT NULL,
+            PRIMARY KEY (video_id, version_id));
+        CREATE TRIGGER refuse BEFORE INSERT ON version_offsets WHEN NEW.video_id = 'boom' BEGIN SELECT RAISE(ABORT, 'no'); END;
+        INSERT INTO offsets VALUES ('a', 0.5), ('boom', 0.1);
+        """
+        #expect(sqlite3_exec(db, old, nil, nil, nil) == SQLITE_OK)
+        sqlite3_close(db)
+
+        let cache = try QTLyricsCache(url: url)
+        // Rolled back: nothing half-migrated, the old table is still there for the next launch.
+        #expect(await cache.offset(for: "a", version: "lrclib:1") == nil)
+        #expect(sqlite3_open(url.path, &db) == SQLITE_OK)
+        var stmt: OpaquePointer?
+        #expect(sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM offsets", -1, &stmt, nil) == SQLITE_OK)
+        #expect(sqlite3_step(stmt) == SQLITE_ROW)
+        #expect(sqlite3_column_int(stmt, 0) == 2)
+        sqlite3_finalize(stmt)
+        sqlite3_close(db)
+        // Persistence keeps working meanwhile.
+        await cache.setPinnedVersionID("lrclib:1", for: "a")
+        await cache.addRejection("lrclib:2", for: "a")
+        let reopened = try QTLyricsCache(url: url)
+        #expect(await reopened.pinnedVersionID(for: "a") == "lrclib:1")
+        #expect(await reopened.rejectedVersionIDs(for: "a") == ["lrclib:2"])
     }
 }

@@ -59,11 +59,27 @@ public struct QTKeyCombo: Codable, Sendable, Hashable {
     /// F1–F20: fine on their own (they type nothing).
     public var isFunctionKey: Bool { QTKeyCombo.functionKeyNumbers[keyCode] != nil }
 
-    /// A global shortcut needs ⌘ or ⌃ (or is a function key). Anything else would swallow typing everywhere, and
-    /// since macOS 15 the system no longer delivers ⌥ / ⌥⇧-only hot keys to apps (they still register without an error).
-    public var isAllowedAsGlobal: Bool {
-        isFunctionKey || !modifiers.isDisjoint(with: [.command, .control])
+    /// Why a combo can't be a global shortcut.
+    public enum GlobalRefusal: Sendable, Hashable {
+        /// Neither ⌘ nor ⌃: it would swallow typing everywhere, and since macOS 15 the system no longer delivers ⌥ /
+        /// ⌥⇧-only hot keys to apps (they still register without an error).
+        case needsCommandOrControl
+        /// ⌘ alone is every app's own commands (⌘Q, ⌘W, ⌘L, ⌘←…), ⌃ alone on a key that types is text editing
+        /// (⌃A, ⌃E, ⌃K in every text field): taking those system-wide breaks other apps.
+        case needsAnotherModifier
     }
+
+    /// nil when the combo may be a global shortcut: an F-key (with or without modifiers); two or more modifiers, one
+    /// of them ⌘ or ⌃; or ⌃ alone on a key that types nothing (arrows, Return, Space…).
+    public var globalRefusal: GlobalRefusal? {
+        if isFunctionKey { return nil }
+        guard !modifiers.isDisjoint(with: [.command, .control]) else { return .needsCommandOrControl }
+        if modifiers == .command { return .needsAnotherModifier }
+        if modifiers == .control, QTKeyCombo.fixedKeyName(keyCode) == nil { return .needsAnotherModifier }
+        return nil
+    }
+
+    public var isAllowedAsGlobal: Bool { globalRefusal == nil }
 
     /// "⌃⌥⌘P". `keyName` gives the character the key types in the current layout (QTUI asks UCKeyTranslate); keys
     /// that type nothing (arrows, F-keys, Return…) have fixed names.

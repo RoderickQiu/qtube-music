@@ -289,7 +289,7 @@ public struct QTLyricsOptionsPopover: View {
             // Fixing wrong lyrics is one click: the next best version replaces them right away.
             LabeledContent(QTLoc.tr("Wrong lyrics?", table: .lyrics)) {
                 Button(QTLoc.tr("Report", table: .lyrics)) { QTLyricsSourceMenu.report(model) }
-                    .disabled(doc == nil)
+                    .disabled(doc == nil || !QTLyricsSourceMenu.canReport(model))
                     .help(QTLoc.tr("Never show these lyrics for this song; show the next best version instead", table: .lyrics))
                     .accessibilityIdentifier("qt.lyrics.reportWrong")
             }

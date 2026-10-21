@@ -38,8 +38,17 @@ import Testing
 
     @Test func globalCombosNeedCommandOrControl() {
         #expect(p.isAllowedAsGlobal)
-        #expect(QTKeyCombo(keyCode: 0x23, modifiers: .control).isAllowedAsGlobal)
-        #expect(QTKeyCombo(keyCode: 0x23, modifiers: .command).isAllowedAsGlobal)
+        #expect(QTKeyCombo(keyCode: 0x23, modifiers: [.control, .shift]).isAllowedAsGlobal)
+        #expect(QTKeyCombo(keyCode: 0x23, modifiers: [.command, .option]).isAllowedAsGlobal)
+        // ⌘ + one key is every app's own commands (⌘Q, ⌘W, ⌘L, ⌘←): never global.
+        for key: UInt32 in [0x0C, 0x0D, 0x25, 0x7B, 0x31, 0x23] {
+            #expect(QTKeyCombo(keyCode: key, modifiers: .command).globalRefusal == .needsAnotherModifier, "\(key)")
+        }
+        // ⌃ alone: fine on keys that type nothing (arrows, Space), not on letters (⌃A, ⌃E, ⌃K edit text everywhere).
+        #expect(QTKeyCombo(keyCode: 0x7E, modifiers: .control).isAllowedAsGlobal)
+        #expect(QTKeyCombo(keyCode: 0x31, modifiers: .control).isAllowedAsGlobal)
+        #expect(QTKeyCombo(keyCode: 0x00, modifiers: .control).globalRefusal == .needsAnotherModifier)
+        #expect(QTKeyCombo(keyCode: 0x23, modifiers: []).globalRefusal == .needsCommandOrControl)
         #expect(!QTKeyCombo(keyCode: 0x23, modifiers: []).isAllowedAsGlobal)
         #expect(!QTKeyCombo(keyCode: 0x23, modifiers: .shift).isAllowedAsGlobal)
         // ⌥ and ⌥⇧ alone: macOS 15+ doesn't deliver those to apps.

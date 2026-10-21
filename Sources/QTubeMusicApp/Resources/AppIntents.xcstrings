@@ -61,6 +61,16 @@
         }
       }
     },
+    "Sign in to YouTube Music in QTube Music to like songs." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请先在 QTube Music 中登录 YouTube Music，才能喜欢歌曲。"
+          }
+        }
+      }
+    },
     "Pause" : {
       "localizations" : {
         "zh-Hans" : {

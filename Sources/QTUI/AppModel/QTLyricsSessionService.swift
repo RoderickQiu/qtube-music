@@ -49,8 +49,11 @@ public final class QTLyricsSession {
     /// Every version found (the "Lyrics Source" menu), best first.
     public private(set) var versions: [QTResolvedLyricsVersion] = []
     public private(set) var chosenVersionID: String?
-    /// The user pinned `chosenVersionID` for this track, or turned lyrics off for it (persisted).
-    public private(set) var isPinned = false
+    /// The user's stored choice for this track: a version id (possibly one that wasn't found this time, while the
+    /// automatic pick shows), or `QTLyricsCache.noLyricsPin`. nil = Automatic.
+    public private(set) var pinnedVersionID: String?
+    /// The user pinned a version for this track, or turned lyrics off for it (persisted).
+    public var isPinned: Bool { pinnedVersionID != nil }
     /// "No Lyrics for This Song" is chosen for this track (persisted): no document, `versions` still listed.
     public private(set) var isLyricsOff = false
     /// Provider credit, e.g. "Source: LyricFind" for YouTube Music lyrics.
@@ -134,6 +137,9 @@ public final class QTLyricsSession {
     @ObservationIgnored private var shifts: [String: QTLyricsRenditionShift] = [:]
     /// Bumped when a shift becomes known (the rendition coordinator re-checks a switch that went unmapped).
     public private(set) var shiftGeneration = 0
+    /// The last "Report Wrong Lyrics", for the toast's Undo: which lookup it acted on (the track's own, or the
+    /// counterpart cut's key) and whether the version was pinned.
+    @ObservationIgnored private var lastReport: (videoId: String, ownKey: String?, versionID: String, wasPinned: Bool)?
 
     /// - Parameters:
     ///   - resolver: the engine (the app passes `QTLyricsResolver.standard(…)` over the on-disk cache).
@@ -164,8 +170,12 @@ public final class QTLyricsSession {
             self.turnOffLyrics()
         }
         versionStore?.onReport = { [weak self] videoId, versionID in
+            guard let self, self.track?.videoId == videoId else { return false }
+            return self.reportWrong(versionID: versionID)
+        }
+        versionStore?.onUndoReport = { [weak self] videoId, versionID in
             guard let self, self.track?.videoId == videoId else { return }
-            self.reportWrong(versionID: versionID)
+            self.undoReport(versionID: versionID)
         }
         observeSettings()
     }
@@ -174,11 +184,17 @@ public final class QTLyricsSession {
     /// YouTube Music provider on `QTInnerTubeLyricsClient`, mock-catalog fallback.
     public static func makeDefault(settings: QTSettingsStore, catalog: QTMockCatalog,
                                    launch: QTLaunchOptions) -> QTLyricsSession {
-        let cache: QTLyricsCache?
+        var cache: QTLyricsCache?
         switch launch.string("qt.lyrics.cache") {
         case "memory"?: cache = try? QTLyricsCache(url: nil)
         case let path?: cache = try? QTLyricsCache(url: URL(fileURLWithPath: (path as NSString).expandingTildeInPath))
         case nil: cache = try? QTLyricsCache(url: QTLyricsCache.defaultURL())
+        }
+        // A file that can't be opened at all (a failed migration alone never stops it) still leaves this session
+        // with a working cache: pins, reports and offsets hold until quit.
+        if cache == nil {
+            Logger(subsystem: "com.roderickqiu.qtube", category: "lyrics-session").error("lyrics cache unavailable; using memory")
+            cache = try? QTLyricsCache(url: nil)
         }
         let offline = launch.bool("qt.lyrics.offline") == true
         let http: any QTLyricsHTTPClient = offline ? QTOfflineLyricsHTTPClient() : QTURLSessionLyricsHTTPClient()
@@ -235,7 +251,7 @@ public final class QTLyricsSession {
         versions = []
         chosenVersionID = nil
         baseVersionID = nil
-        isPinned = false
+        pinnedVersionID = nil
         isLyricsOff = false
         attribution = nil
         unreachableSources = []
@@ -288,9 +304,24 @@ public final class QTLyricsSession {
 
     // MARK: Versions
 
+    // The "Lyrics Source" menu lists the versions of the lyrics showing: in video mode with lyrics timed for the
+    // video's own cut, those of that cut's lookup (`own`), so a pick or a report acts on what is on screen. "No Lyrics
+    // for This Song" is about the song and always goes to the track's own lookup.
+
+    /// The counterpart cut's lookup, when its lyrics are the ones showing.
+    private var shownOwn: QTLyricsRenditionLookup? {
+        guard renditionTiming == .own, let own, own.query != nil else { return nil }
+        return own
+    }
+
     /// "Lyrics Source": shows `versionID` for this track from now on (persisted).
     public func pin(versionID: String) {
         guard let track, engine == .live else { return }
+        if let own = shownOwn {
+            return runOwn(own, for: track) { resolver, query, config in
+                await resolver.pin(versionID: versionID, for: query, configuration: config)
+            }
+        }
         run(for: track, holdsReadiness: false) { resolver, query, config in
             await resolver.pin(versionID: versionID, for: query, configuration: config)
         }
@@ -299,6 +330,11 @@ public final class QTLyricsSession {
     /// Back to the automatic pick.
     public func unpin() {
         guard let track, engine == .live else { return }
+        if let own = shownOwn {
+            return runOwn(own, for: track) { resolver, query, config in
+                await resolver.unpin(for: query, configuration: config)
+            }
+        }
         run(for: track, holdsReadiness: false) { resolver, query, config in
             await resolver.unpin(for: query, configuration: config)
         }
@@ -312,12 +348,43 @@ public final class QTLyricsSession {
         }
     }
 
-    /// "Report Wrong Lyrics" (the version showing by default): never shown for this track again — remembered on this
-    /// Mac, never sent anywhere — and the next best version replaces it at once.
-    public func reportWrong(versionID: String? = nil) {
-        guard let track, engine == .live, let id = versionID ?? chosenVersionID else { return }
+    /// "Report Wrong Lyrics" (the version showing by default): never chosen for this track again — remembered on this
+    /// Mac, never sent anywhere — and the next best version replaces it at once. False when there is nothing to
+    /// report (no version showing, the bundled demo lyrics).
+    @discardableResult
+    public func reportWrong(versionID: String? = nil) -> Bool {
+        guard let track, engine == .live else { return false }
+        if let own = shownOwn {
+            guard let id = versionID ?? own.version else { return false }
+            lastReport = (track.videoId, own.key, id, own.pinnedID == id)
+            runOwn(own, for: track) { resolver, query, config in
+                await resolver.reject(versionID: id, for: query, configuration: config)
+            }
+            return true
+        }
+        guard let id = versionID ?? chosenVersionID else { return false }
+        lastReport = (track.videoId, nil, id, pinnedVersionID == id)
         run(for: track, holdsReadiness: false) { resolver, query, config in
             await resolver.reject(versionID: id, for: query, configuration: config)
+        }
+        return true
+    }
+
+    /// Undo on the "Reported" toast: takes the last report back (and the pin it dropped) and shows that version
+    /// again, if it is still about the lyrics this track shows.
+    public func undoReport(versionID: String) {
+        guard let track, engine == .live, let report = lastReport, report.videoId == track.videoId,
+              report.versionID == versionID else { return }
+        lastReport = nil
+        let pinned = report.wasPinned
+        if let key = report.ownKey {
+            guard let own, own.key == key else { return }
+            return runOwn(own, for: track) { resolver, query, config in
+                await resolver.undoReject(versionID: versionID, wasPinned: pinned, for: query, configuration: config)
+            }
+        }
+        run(for: track, holdsReadiness: false) { resolver, query, config in
+            await resolver.undoReject(versionID: versionID, wasPinned: pinned, for: query, configuration: config)
         }
     }
 
@@ -409,34 +476,51 @@ public final class QTLyricsSession {
             fullDocument = baseFull.map(QTLyricsRenditionTiming.plain)
             if !ownMatches, let rendition, let track { lookUpOwn(rendition, for: track) }
         }
+        publishVersions()
     }
 
     private func lookUpOwn(_ r: QTLyricsRendition, for track: QTTrack) {
+        let lookup = QTLyricsRenditionLookup(key: QTLyricsRenditionTiming.cacheKey(for: r),
+                                             query: QTLyricsRenditionTiming.query(for: query(for: track), rendition: r),
+                                             renditionDuration: r.duration)
+        own = lookup
+        runOwn(lookup, for: track) { resolver, query, config in
+            await resolver.resolve(query, configuration: config)
+        }
+    }
+
+    /// Runs a resolver call on the counterpart cut's lookup (the lookup itself, or a pick / report on it) and
+    /// publishes the result. What shows meanwhile stays.
+    private func runOwn(_ lookup: QTLyricsRenditionLookup, for track: QTTrack,
+                        _ body: @escaping @Sendable (QTLyricsResolver, QTLyricsQuery, QTLyricsResolverConfiguration) async -> QTLyricsResolution) {
+        guard let query = lookup.query else { return }
         ownTask?.cancel()
-        let key = QTLyricsRenditionTiming.cacheKey(for: r)
-        own = QTLyricsRenditionLookup(key: key)
-        let query = QTLyricsRenditionTiming.query(for: query(for: track), rendition: r)
+        let key = lookup.key, renditionDuration = lookup.renditionDuration
         let config = configuration
         let resolver = resolver
         let live = engine == .live
         ownTask = Task { @MainActor [weak self] in
-            let resolution: QTLyricsResolution? = live ? await resolver.resolve(query, configuration: config) : nil
+            let resolution: QTLyricsResolution? = live ? await body(resolver, query, config) : nil
             guard let self, !Task.isCancelled, self.own?.key == key, self.track?.videoId == track.videoId else { return }
-            var lookup = QTLyricsRenditionLookup(key: key, done: true)
-            if let resolution, let full = resolution.fullDocument {
-                lookup.full = full
-                lookup.shown = resolution.document
-                lookup.duration = resolution.versions.first { $0.id == resolution.chosenID }?.candidate.duration
-                lookup.version = resolution.chosenID
-                if let v = resolution.chosenID, let pending = self.pendingOffsets[Self.offsetKey(key, v)] {
-                    lookup.full?.offset = pending
-                    lookup.shown?.offset = pending
+            var lookup = QTLyricsRenditionLookup(key: key, done: true, query: query, renditionDuration: renditionDuration)
+            if let resolution {
+                lookup.versions = resolution.versions
+                lookup.pinnedID = resolution.pinnedID
+                if let full = resolution.fullDocument {
+                    lookup.full = full
+                    lookup.shown = resolution.document
+                    lookup.duration = resolution.versions.first { $0.id == resolution.chosenID }?.candidate.duration
+                    lookup.version = resolution.chosenID
+                    if let v = resolution.chosenID, let pending = self.pendingOffsets[Self.offsetKey(key, v)] {
+                        lookup.full?.offset = pending
+                        lookup.shown?.offset = pending
+                    }
                 }
             }
             self.own = lookup
             self.log.debug("rendition \(key, privacy: .public): \(lookup.full?.source.id ?? "none", privacy: .public) \(lookup.duration ?? 0)")
             if let base = self.baseFull, let ownFull = lookup.full,
-               let d = lookup.duration, abs(d - r.duration) <= QTLyricsRenditionTiming.lookupTolerance,
+               let d = lookup.duration, abs(d - renditionDuration) <= QTLyricsRenditionTiming.lookupTolerance,
                let shift = QTLyricsRenditionTiming.shift(from: base, to: ownFull) {
                 self.shifts[track.videoId] = QTLyricsRenditionShift(renditionKey: key, shift: shift, renditionOffset: ownFull.offset)
                 self.shiftGeneration += 1
@@ -517,7 +601,7 @@ public final class QTLyricsSession {
         var full = doc
         full?.offset = offset
         let shown = full.map { QTLyricsTranslationPolicy.applyProviderLane(to: $0, target: config.translationLanguage) }
-        return QTLyricsResolution(document: shown, fullDocument: full, versions: [], chosenID: nil, isPinned: false,
+        return QTLyricsResolution(document: shown, fullDocument: full, versions: [], chosenID: nil,
                                   attribution: nil, fromCache: true)
     }
 
@@ -532,10 +616,9 @@ public final class QTLyricsSession {
         }
         baseShown = shown
         baseFull = full
-        presentRendition()
         versions = r.versions
         chosenVersionID = r.chosenID
-        isPinned = r.isPinned
+        pinnedVersionID = r.pinnedID
         isLyricsOff = r.isLyricsOff
         attribution = r.attribution
         unreachableSources = r.unreachableSources
@@ -545,23 +628,35 @@ public final class QTLyricsSession {
         // The lookup itself counts as an attempt: re-opening a lyrics surface right away doesn't retry.
         if phase == .unreachable { lastRetry = Date() }
         lastConfiguration = config
-        if engine == .live { publishVersions(for: track) }
+        presentRendition()   // publishes the versions too
         log.debug("lyrics \(track.videoId, privacy: .public): \(shown?.source.id ?? "none", privacy: .public) \(shown?.syncKind.rawValue ?? "-", privacy: .public) tr \(shown?.translationLanguage ?? "-", privacy: .public)")
     }
 
-    /// Feeds the "Lyrics Source" menu (Controls menu and options popover): the versions with how much longer or
-    /// shorter each is timed than the track, and the persisted choice.
-    private func publishVersions(for track: QTTrack) {
-        guard let versionStore else { return }
-        let rows = versions.map { v in
+    /// Feeds the "Lyrics Source" menu (Controls menu and options popover), keyed by the track: the versions of the
+    /// lyrics showing (the track's own, or the counterpart cut's when those show) with how much longer or shorter
+    /// each is timed than what plays, and the persisted choice.
+    private func publishVersions() {
+        guard let versionStore, engine == .live, let track else { return }
+        let list: [QTResolvedLyricsVersion], chosen: String?, pin: String?, length: TimeInterval
+        if let own = shownOwn {
+            (list, chosen, pin, length) = (own.versions, own.version, own.pinnedID, own.renditionDuration)
+        } else {
+            (list, chosen, pin, length) = (versions, chosenVersionID, isLyricsOff ? QTLyricsCache.noLyricsPin : pinnedVersionID,
+                                           track.duration)
+        }
+        let rows = list.map { v in
             QTLyricsVersion(id: v.id, source: v.source, syncKind: v.syncKind ?? .line,
                             translationLanguage: v.translationLanguage, confidence: v.score,
-                            durationDelta: track.duration > 0 ? v.duration.map { $0 - track.duration } : nil,
-                            isPossibleMismatch: v.isPossibleMismatch)
+                            durationDelta: length > 0 ? v.duration.map { $0 - length } : nil,
+                            isPossibleMismatch: v.isPossibleMismatch, isReported: v.isReported == true)
         }
-        versionStore.publish(rows, for: track.videoId, selected: chosenVersionID)
-        versionStore.setChoice(isLyricsOff ? .off : isPinned ? chosenVersionID.map(QTLyricsSourceChoice.version) ?? .automatic : .automatic,
-                               for: track.videoId)
+        versionStore.publish(rows, for: track.videoId, selected: chosen)
+        let choice: QTLyricsSourceChoice = switch pin {
+        case nil: .automatic
+        case QTLyricsCache.noLyricsPin?: .off
+        case let id?: .version(id)
+        }
+        versionStore.setChoice(choice, for: track.videoId)
     }
 
     // MARK: Settings
@@ -622,12 +717,19 @@ public enum QTLyricsRenditionDisplay: Equatable, Sendable {
 struct QTLyricsRenditionLookup {
     var key: String
     var done = false
+    /// The cut's own query (videoId = `key`); picks and reports on its versions go to it.
+    var query: QTLyricsQuery?
+    /// Length of the cut that plays.
+    var renditionDuration: TimeInterval = 0
     var shown: QTLyricsDocument?
     var full: QTLyricsDocument?
     /// Length the chosen version declares.
     var duration: TimeInterval?
     /// The chosen version (its offset's key).
     var version: String?
+    /// Every version found for the cut ("Lyrics Source" while its lyrics show) and the stored pin.
+    var versions: [QTResolvedLyricsVersion] = []
+    var pinnedID: String?
 }
 
 /// How a counterpart's own lyrics line up with the track's.

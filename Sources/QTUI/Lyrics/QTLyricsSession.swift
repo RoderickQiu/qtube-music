@@ -20,11 +20,15 @@ public struct QTLyricsVersion: Identifiable, Hashable, Sendable {
     public var confidence: Double
     /// Seconds the version is timed longer (+) or shorter (−) than the track; nil when the source doesn't say.
     public var durationDelta: TimeInterval?
-    /// A low score or a failed sanity check (other script, gibberish, ends early): "Possible mismatch".
+    /// A low score or a failed sanity check (other script, ends early, the same text as other songs): "Possible
+    /// mismatch".
     public var isPossibleMismatch: Bool
+    /// The user reported it: listed last, "Reported"; picking it takes the report back.
+    public var isReported: Bool
 
     public init(id: String, source: QTLyricsSource, syncKind: QTLyricsSyncKind, translationLanguage: String? = nil,
-                confidence: Double = 1, durationDelta: TimeInterval? = nil, isPossibleMismatch: Bool? = nil) {
+                confidence: Double = 1, durationDelta: TimeInterval? = nil, isPossibleMismatch: Bool? = nil,
+                isReported: Bool = false) {
         self.id = id
         self.source = source
         self.syncKind = syncKind
@@ -32,6 +36,7 @@ public struct QTLyricsVersion: Identifiable, Hashable, Sendable {
         self.confidence = confidence
         self.durationDelta = durationDelta
         self.isPossibleMismatch = isPossibleMismatch ?? (confidence < 0.8)
+        self.isReported = isReported
     }
 
     /// Menu row title: "LRCLIB · Line timing", plus the version's own translation language when it has one.
@@ -41,11 +46,14 @@ public struct QTLyricsVersion: Identifiable, Hashable, Sendable {
         return parts.joined(separator: " · ")
     }
 
-    /// Menu row subtitle in plain words, no scores: "Best match" or "Possible mismatch", then how much longer or
-    /// shorter the version is timed when that is noticeable ("Possible mismatch · 12 s longer"). nil = nothing to say.
+    /// Menu row subtitle in plain words, no scores: "Reported", "Best match" or "Possible mismatch", then how much
+    /// longer or shorter the version is timed when that is noticeable ("Possible mismatch · 12 s longer"). nil =
+    /// nothing to say.
     public func menuDetail(isBest: Bool) -> String? {
         var parts: [String] = []
-        if isPossibleMismatch {
+        if isReported {
+            parts.append(QTLoc.tr("Reported"))
+        } else if isPossibleMismatch {
             parts.append(QTLoc.tr("Possible mismatch", table: .lyrics))
         } else if isBest {
             parts.append(QTLoc.tr("Best match", table: .lyrics))
@@ -87,14 +95,18 @@ public final class QTLyricsVersionStore {
     @ObservationIgnored public var onUnpin: (@MainActor (_ videoId: String) -> Void)?
     /// "No Lyrics for This Song".
     @ObservationIgnored public var onLyricsOff: (@MainActor (_ videoId: String) -> Void)?
-    /// "Report Wrong Lyrics": the lyrics module never shows that version for the track again and shows the next best.
-    @ObservationIgnored public var onReport: (@MainActor (_ videoId: String, _ versionID: String) -> Void)?
+    /// "Report Wrong Lyrics": the lyrics module never chooses that version for the track again and shows the next
+    /// best. Returns false when it can't act on it (nothing is reported then).
+    @ObservationIgnored public var onReport: (@MainActor (_ videoId: String, _ versionID: String) -> Bool)?
+    /// Undo on the "Reported" toast.
+    @ObservationIgnored public var onUndoReport: (@MainActor (_ videoId: String, _ versionID: String) -> Void)?
 
     public init() {}
 
+    /// - Parameter id: the version showing, nil when none is (no lyrics, or lyrics that aren't one of the versions).
     public func publish(_ candidates: [QTLyricsVersion], for videoId: String, selected id: String?) {
         versions[videoId] = candidates
-        if let id { selected[videoId] = id }
+        selected[videoId] = id
     }
 
     /// The lyrics session's persisted choice.
@@ -132,14 +144,31 @@ public final class QTLyricsVersionStore {
         onLyricsOff?(videoId)
     }
 
-    /// "Report Wrong Lyrics": the version showing leaves the list at once; the lyrics session keeps the report on
-    /// this Mac (never sent anywhere), so that version is never chosen or offered for this track again.
-    public func reportWrong(_ videoId: String) {
-        guard let id = selected[videoId] else { return }
-        versions[videoId]?.removeAll { $0.id == id }
+    /// A version is showing, so there is something to report.
+    public func canReport(_ videoId: String) -> Bool { selected[videoId] != nil }
+
+    /// "Report Wrong Lyrics": the version showing moves to the end of the list as reported at once; the lyrics
+    /// session keeps the report on this Mac (never sent anywhere), so that version is never chosen for this track
+    /// again unless it is picked. Returns the reported version's id, nil when nothing was reported.
+    @discardableResult
+    public func reportWrong(_ videoId: String) -> String? {
+        guard let id = selected[videoId] else { return nil }
+        if let onReport, !onReport(videoId, id) { return nil }
+        if var list = versions[videoId], let i = list.firstIndex(where: { $0.id == id }) {
+            var v = list.remove(at: i)
+            v.isReported = true
+            list.append(v)
+            versions[videoId] = list
+        }
         selected[videoId] = nil
         if pinned[videoId] == id { pinned[videoId] = nil }
-        onReport?(videoId, id)
+        return id
+    }
+
+    /// Undo for `reportWrong`: the lyrics session takes the report back and shows that version again.
+    public func undoReport(_ versionID: String, for videoId: String) {
+        if let i = versions[videoId]?.firstIndex(where: { $0.id == versionID }) { versions[videoId]?[i].isReported = false }
+        onUndoReport?(videoId, versionID)
     }
 
     /// Versions other than the one showing.

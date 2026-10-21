@@ -302,12 +302,22 @@ final class QTRecordedInnerTubeTransport: QTHTTPTransport, @unchecked Sendable {
         #expect(session.chosenVersionID == "netease:1")
         #expect(store.versions[Self.hero.videoId]?.count == 2)
 
-        store.reportWrong(Self.hero.videoId)
+        #expect(store.reportWrong(Self.hero.videoId) == "netease:1")
         await waitUntil { session.chosenVersionID == "netease:2" }
         #expect(session.chosenVersionID == "netease:2")
-        #expect(!session.versions.contains { $0.id == "netease:1" })
-        #expect(store.versions[Self.hero.videoId]?.map(\.id) == ["netease:2"])
+        // Listed last as reported (picking it takes the report back).
+        #expect(session.versions.last.map { $0.id == "netease:1" && $0.isReported == true } == true)
+        #expect(store.versions[Self.hero.videoId]?.map(\.id) == ["netease:2", "netease:1"])
+        #expect(store.versions[Self.hero.videoId]?.last?.isReported == true)
         #expect(await cache.rejectedVersionIDs(for: Self.hero.videoId) == ["netease:1"])
+
+        // Undo on the toast brings it back.
+        store.undoReport("netease:1", for: Self.hero.videoId)
+        await waitUntil { session.chosenVersionID == "netease:1" }
+        #expect(session.chosenVersionID == "netease:1")
+        #expect(await cache.rejectedVersionIDs(for: Self.hero.videoId).isEmpty)
+        #expect(store.reportWrong(Self.hero.videoId) == "netease:1")
+        await waitUntil { session.chosenVersionID == "netease:2" }
 
         let again = try makeSession(settings, ids: ["1", "2"], cache: cache)
         again.reload()

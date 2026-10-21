@@ -34,7 +34,8 @@ public enum QTDesktopLaunchKey {
     public static let staleMenus = "qt.desktop.staleMenus"
     /// DEBUG: path — run the AppleScript self-test (`QTScriptingProbe`) once ready and write its results there.
     public static let scriptProbe = "qt.desktop.scriptProbe"
-    /// DEBUG: `suggested` — Settings › Shortcuts starts with the suggested set (session only; screenshots).
+    /// DEBUG: `suggested` — Settings › Shortcuts starts with the suggested set; `conflicts` adds a menu clash (⇧⌘M)
+    /// and a stored ⌘-only binding (⌘L) (session only; screenshots).
     public static let hotKeys = "qt.desktop.hotKeys"
     /// DEBUG: comma list of actions (`like`, `playPause`…) whose shortcut shows as used by another app (screenshots).
     public static let hotKeyTaken = "qt.desktop.hotKeyTaken"

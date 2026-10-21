@@ -109,7 +109,28 @@ public struct QTScrobbleQueue: Sendable {
         if items.count != before { save() }
     }
 
-    public func nextBatch(max: Int) -> ArraySlice<QTScrobble> { items.prefix(max) }
+    /// The oldest plays that belong to `account` (plays of other accounts wait for theirs).
+    public func nextBatch(max: Int, account: String? = nil) -> ArraySlice<QTScrobble> {
+        items.filter { $0.account == account }.prefix(max)
+    }
+
+    public func count(account: String?) -> Int { items.count(where: { $0.account == account }) }
+
+    /// Plays queued before they were keyed belong to the account that connects first.
+    public mutating func adopt(by account: String) {
+        guard items.contains(where: { $0.account == nil }) else { return }
+        for i in items.indices where items[i].account == nil { items[i].account = account }
+        save()
+    }
+
+    /// Drops one account's plays (an explicit Disconnect). Returns how many.
+    @discardableResult
+    public mutating func removeAll(account: String) -> Int {
+        let before = items.count
+        items.removeAll { $0.account == account }
+        if items.count != before { save() }
+        return before - items.count
+    }
 
     /// Removes these plays (sent, or rejected for good). By value: new plays may have arrived meanwhile.
     public mutating func remove(_ plays: some Sequence<QTScrobble>) {
@@ -168,13 +189,29 @@ public enum QTScrobbleServiceID: String, Sendable, CaseIterable {
 
 // MARK: - Scrobbler
 
+/// A playback event for the listen tracker. The caller stamps when it happened (`QTScrobbler.post(_:at:)`), so a
+/// slow server answering an earlier event never makes it count late.
+public enum QTListenEvent: Sendable {
+    /// A new track (nil = playback stopped) playing at `rate` (0 = cued, paused).
+    case track(QTScrobble?, rate: Double)
+    /// Paused (0), resumed, or the speed changed.
+    case rate(Double)
+    /// Periodic check while playing.
+    case tick
+}
+
 /// Drives the scrobble services from playback events: now-playing updates, scrobbles at the threshold, queued sends.
 /// A service sends nothing until `configure` gives it one; every play that qualifies lands in the queue of each
-/// configured service.
+/// configured service, keyed to its account (and server), and is only ever sent there.
+///
+/// Events are bookkeeping only (`post(_:at:)` / `setUp`); what they send runs afterwards on one chain in event order
+/// (`send`), so a server that takes its time never delays the next event.
 public actor QTScrobbler {
     private struct Sink {
         var queue: QTScrobbleQueue
         var service: (any QTScrobbleService)?
+        /// Whose plays this service sends ("user" or "user@server"); nil in tests.
+        var account: String?
         var sendsNowPlaying = true
         /// Stopped for an account problem (`QTScrobbleFailure.accountProblem`) until `configure` or a relaunch.
         var isPaused = false
@@ -195,6 +232,8 @@ public actor QTScrobbler {
     private var sinks: [QTScrobbleServiceID: Sink]
     private var tracker = QTListenTracker()
     private let now: @Sendable () -> Date
+    /// The network work queued so far (now playing, sends), one after another.
+    private var sends: Task<Void, Never>?
 
     /// `queueFolder` nil = memory-only queues (tests).
     public init(queueFolder: URL? = QTScrobbleQueue.defaultFolder, now: @escaping @Sendable () -> Date = { Date() }) {
@@ -210,12 +249,24 @@ public actor QTScrobbler {
     /// Any service configured.
     public var isActive: Bool { sinks.values.contains { $0.service != nil } }
 
-    /// Sets (or with nil, stops) one service. Clears a pause and any backoff. A service connected mid-listen hears
-    /// about the song now rather than at the next one.
-    public func configure(_ id: QTScrobbleServiceID, service: (any QTScrobbleService)?, sendsNowPlaying: Bool = true,
-                          onInvalidCredentials: (@Sendable () -> Void)? = nil, onPaused: (@Sendable () -> Void)? = nil) async {
-        guard var sink = sinks[id] else { return }
+    /// Sets (or with nil, stops) one service and waits for what that sends. Clears a pause and any backoff. A
+    /// service connected mid-listen hears about the song now rather than at the next one.
+    /// - Parameter account: whose plays it sends; plays queued for another account wait for that one.
+    public func configure(_ id: QTScrobbleServiceID, service: (any QTScrobbleService)?, account: String? = nil,
+                          sendsNowPlaying: Bool = true, onInvalidCredentials: (@Sendable () -> Void)? = nil,
+                          onPaused: (@Sendable () -> Void)? = nil) async {
+        await setUp(id, service: service, account: account, sendsNowPlaying: sendsNowPlaying,
+                    onInvalidCredentials: onInvalidCredentials, onPaused: onPaused).value
+    }
+
+    /// `configure` without waiting for the network (the app's serial event queue).
+    @discardableResult
+    public func setUp(_ id: QTScrobbleServiceID, service: (any QTScrobbleService)?, account: String? = nil,
+                      sendsNowPlaying: Bool = true, onInvalidCredentials: (@Sendable () -> Void)? = nil,
+                      onPaused: (@Sendable () -> Void)? = nil) -> Task<Void, Never> {
+        guard var sink = sinks[id] else { return send {} }
         sink.service = service
+        sink.account = account
         sink.sendsNowPlaying = sendsNowPlaying
         sink.onInvalidCredentials = onInvalidCredentials
         sink.onPaused = onPaused
@@ -223,10 +274,45 @@ public actor QTScrobbler {
         sink.retryAt = nil
         sink.backoff = 0
         sink.generation += 1
+        if service != nil, let account { sink.queue.adopt(by: account) }
         sinks[id] = sink
         if service != nil, let item = tracker.item, tracker.isPlaying, !tracker.didScrobble {
-            await announce(item, to: id)
+            return send { await self.announce(item, to: id) }
         }
+        return send {}
+    }
+
+    /// Sends one service's queued plays, after the work already queued (no waiting).
+    @discardableResult
+    public func sendQueued(_ id: QTScrobbleServiceID) -> Task<Void, Never> {
+        send { await self.flush(id) }
+    }
+
+    /// An explicit Disconnect: that account's unsent plays are dropped. Returns how many.
+    @discardableResult
+    public func discardQueue(_ id: QTScrobbleServiceID, account: String) -> Int {
+        sinks[id]?.queue.removeAll(account: account) ?? 0
+    }
+
+    /// Plays waiting for `account`.
+    public func queuedCount(_ id: QTScrobbleServiceID, account: String?) -> Int {
+        sinks[id]?.queue.count(account: account) ?? 0
+    }
+
+    /// Waits until the network work queued so far has run (tests, the coordinator's `drain`).
+    public func settle() async {
+        await sends?.value
+    }
+
+    /// Runs `work` after everything queued before it.
+    private func send(_ work: @escaping @Sendable () async -> Void) -> Task<Void, Never> {
+        let previous = sends
+        let task = Task {
+            await previous?.value
+            await work()
+        }
+        sends = task
+        return task
     }
 
     /// Last.fm shorthand: a client and session key (either nil stops Last.fm).
@@ -245,18 +331,42 @@ public actor QTScrobbler {
     /// The listen being tracked (tests, diagnostics).
     public var currentItem: QTScrobble? { tracker.item }
 
-    /// A new track (or nil when playback stops) playing at `rate` (0 = cued, paused). Scrobbles the previous one if
-    /// it qualified.
-    public func trackChanged(to item: QTScrobble?, rate: Double) async {
-        let t = now()
-        if let due = tracker.scrobbleIfDue(at: t) { record(due) }
-        if let item {
-            tracker.start(item, rate: rate, at: t)
-            if rate > 0 { await announce(item) }
-        } else {
-            tracker = QTListenTracker()
+    /// Handles one playback event at `time` (when the app saw it; the listen clock's differences are what count)
+    /// and queues what it sends. Scrobbles the previous track on a track change if it qualified.
+    @discardableResult
+    public func post(_ event: QTListenEvent, at time: Date) -> Task<Void, Never> {
+        switch event {
+        case .track(let item, let rate):
+            if let due = tracker.scrobbleIfDue(at: time) { record(due) }
+            guard let item else {
+                tracker = QTListenTracker()
+                return send { await self.flush() }
+            }
+            tracker.start(item, rate: rate, at: time)
+            return send {
+                if rate > 0 { await self.announce(item) }
+                await self.flush()
+            }
+        case .rate(let rate):
+            let wasPlaying = tracker.isPlaying
+            tracker.setRate(rate, at: time)
+            if let due = tracker.scrobbleIfDue(at: time) {
+                record(due)
+                return send { await self.flush() }
+            }
+            if rate > 0, !wasPlaying, let item = tracker.item, !tracker.didScrobble, tracker.listened(at: time) < 1 {
+                return send { await self.announce(item) }
+            }
+            return send {}
+        case .tick:
+            if let due = tracker.scrobbleIfDue(at: time) { record(due) }
+            return send { await self.flush() }
         }
-        await flush()
+    }
+
+    /// A new track (or nil when playback stops) playing at `rate` (0 = cued, paused), now; waits for what it sends.
+    public func trackChanged(to item: QTScrobble?, rate: Double) async {
+        await post(.track(item, rate: rate), at: now()).value
     }
 
     public func trackChanged(to item: QTScrobble?, playing: Bool) async {
@@ -265,15 +375,7 @@ public actor QTScrobbler {
 
     /// Paused (0), resumed, or the speed changed.
     public func playbackChanged(rate: Double) async {
-        let t = now()
-        let wasPlaying = tracker.isPlaying
-        tracker.setRate(rate, at: t)
-        if let due = tracker.scrobbleIfDue(at: t) {
-            record(due)
-            await flush()
-        } else if rate > 0, !wasPlaying, let item = tracker.item, !tracker.didScrobble, tracker.listened(at: t) < 1 {
-            await announce(item)
-        }
+        await post(.rate(rate), at: now()).value
     }
 
     public func playbackChanged(playing: Bool) async {
@@ -283,14 +385,16 @@ public actor QTScrobbler {
     /// Periodic check while playing (the app calls it every ~15 s), so long tracks scrobble at the threshold
     /// rather than only when they end, and queued plays go out once a backoff has passed.
     public func tick() async {
-        if let due = tracker.scrobbleIfDue(at: now()) { record(due) }
-        await flush()
+        await post(.tick, at: now()).value
     }
 
-    /// The play goes into the queue of every configured service (a paused one too: it keeps its queue).
+    /// The play goes into the queue of every configured service (a paused one too: it keeps its queue), as that
+    /// service's account's.
     private func record(_ play: QTScrobble) {
         for id in QTScrobbleServiceID.allCases where sinks[id]?.service != nil {
-            sinks[id]?.queue.append(play)
+            var keyed = play
+            keyed.account = sinks[id]?.account
+            sinks[id]?.queue.append(keyed)
         }
     }
 
@@ -335,7 +439,7 @@ public actor QTScrobbler {
         sinks[id]?.isFlushing = true
         defer { sinks[id]?.isFlushing = false }
         if let maxAge = service.maxAge { sinks[id]?.queue.pruneExpired(maxAge: maxAge, now: now()) }
-        while let batch = sinks[id]?.queue.nextBatch(max: service.maxBatch), !batch.isEmpty {
+        while let batch = sinks[id]?.queue.nextBatch(max: service.maxBatch, account: sink.account), !batch.isEmpty {
             guard await deliver(batch, via: service, to: id, generation: sink.generation) else { return }
         }
     }
