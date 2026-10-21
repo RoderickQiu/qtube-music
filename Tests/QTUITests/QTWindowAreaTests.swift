@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import QTCore
 import Testing
@@ -236,5 +237,47 @@ import Testing
         #expect(en.format("%lld of %lld songs", table: .main, arguments: [1, 1]) == "1 of 1 song")
         let zh = QTLocalizer(preference: .zhCN)
         #expect(zh.format("%lld of %lld songs", table: .main, arguments: [2, 12]) == "2 / 12 首")
+    }
+}
+
+/// Sidebar rename in place, like Finder and Music: however it ends, it ends once; only Esc drops the typed name.
+@Suite @MainActor struct QTInPlaceRenameTests {
+    @Test func endsOnceAndOnlyEscDropsTheName() {
+        var rename = QTInPlaceRename()
+        // Not started: nothing to end.
+        #expect(rename.end(draft: "New", original: "Old") == nil)
+        rename.begin()
+        // A click outside (or ↩, focus leaving, the window losing key) keeps the trimmed name…
+        #expect(rename.end(draft: "  Night Renamed ", original: "Night") == "Night Renamed")
+        // …once: the focus loss that follows the same click saves nothing more.
+        #expect(rename.isEnded)
+        #expect(rename.end(draft: "Night Renamed", original: "Night") == nil)
+        // Esc, then the focus loss it causes: nothing saved.
+        rename.begin()
+        #expect(rename.end(cancelled: true, draft: "Typed", original: "Night") == nil)
+        #expect(rename.end(draft: "Typed", original: "Night") == nil)
+        // Blank or unchanged: nothing to save.
+        rename.begin()
+        #expect(rename.end(draft: "   ", original: "Night") == nil)
+        rename.begin()
+        #expect(rename.end(draft: "Night", original: "Night") == nil)
+    }
+
+    @Test func clicksOutsideTheFieldOrInAnotherWindowCount() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled],
+                              backing: .buffered, defer: true)
+        let other = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled],
+                             backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        other.isReleasedWhenClosed = false
+        let field = NSRect(x: 40, y: 200, width: 160, height: 22)
+        func outside(_ x: CGFloat, _ y: CGFloat, in w: NSWindow?) -> Bool {
+            QTClickOutsideMonitor.isOutside(click: NSPoint(x: x, y: y), clickWindow: w, frame: field, frameWindow: window)
+        }
+        #expect(!outside(100, 210, in: window))      // in the field: keeps editing
+        #expect(outside(300, 100, in: window))       // empty content
+        #expect(outside(100, 260, in: window))       // the row above, the toolbar
+        #expect(outside(100, 210, in: other))        // same spot, another window
+        #expect(outside(100, 210, in: nil))          // a click with no window (menu bar extra, Dock)
     }
 }

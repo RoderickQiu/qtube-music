@@ -169,6 +169,20 @@ import Testing
         #expect(target?.title == "Road")
     }
 
+    /// A playlist made on this Mac exists nowhere else: no Copy Link (and nothing to copy); one still being created in
+    /// the account has no id yet, so the item is dimmed until it has.
+    @Test func localPlaylistsHaveNoLink() {
+        let local = QTPlaylist(id: "local:7E1C", title: .verbatim("Night"), kind: .user, tracks: [])
+        let target = QTSidebarPlaylistTarget(item: .playlist(local.id), playlist: local)
+        #expect(target?.linkState == QTSidebarPlaylistTarget.LinkState.none)
+        #expect(target?.link == nil)
+        let pending = QTSidebarPlaylistTarget(item: .playlist("pending:42"), playlist: nil)
+        #expect(pending?.linkState == .pending)
+        #expect(pending?.link == nil)
+        #expect(QTSidebarPlaylistTarget(item: .liked, playlist: nil)?.linkState == .available)
+        #expect(QTSidebarPlaylistTarget.linkState(for: "VLPL123") == .available)
+    }
+
     // MARK: System menus language
 
     @Test func interfaceLanguageIsWrittenForTheSystemMenus() throws {

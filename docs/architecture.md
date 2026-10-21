@@ -244,7 +244,9 @@ One coordinator, `QTAccountWriter` (AppModel/, `QTLiveCatalogStore.writer`, `QTA
   (`QTAddToPlaylistMenu`: New Playlist…, then the account's playlists, checked when they already hold the songs)
   opens with what the app knows and refines itself from `playlist/get_add_to_playlist` while open.
 - **UI**: track tables (⌫ / Edit › Delete removes from an owned playlist or Liked Songs with Undo, drag to reorder in
-  playlist order, Remove from Playlist), sidebar (Rename in place — ↩ or clicking away keeps the name, Esc doesn't;
+  playlist order, Remove from Playlist), sidebar (Rename in place — ↩, a click anywhere else (content, another row,
+  the toolbar, another window; `qtOnClickOutside`, Shared/QTClickOutsideMonitor.swift) or the window losing key keeps
+  the name, Esc doesn't (`QTInPlaceRename`: ends once);
   Edit Playlist…, Delete Playlist…, Remove from Library, which always removes), the Playlists section (signed in or
   demo, also with no playlists: then a New Playlist… row; header menu New Playlist…), File › New Playlist… ⌘N, header
   More menu and "+" Add to Library, artist Subscribe, Save Queue as Playlist → `QTPlaylistSheets.swift` (New / Edit
@@ -450,6 +452,11 @@ Views:
 - **Wrong lyrics (prelaunch §8).** `QTLyricsSourceMenu` (Lyrics/) is the one "Lyrics Source" menu, shown in Controls ›
   Lyrics Source and in the popover: Automatic, the versions best first ("LRCLIB · Line timing" over a plain subtitle,
   "Best match" / "Possible mismatch · 12 s longer" — no raw scores), No Lyrics for This Song, Report Wrong Lyrics.
+  `QTLyricsVersion.menuRows` builds the rows: versions of one source with the same words (`textFingerprint`, from
+  `QTLyricsSanity.fingerprint`) are one row (the showing / pinned one stands for them); rows sharing a title also say
+  the song the source filed them under when it isn't the playing one ("“Title (Remix)”", another artist), their
+  length ("12 s longer", "Same length", "4:17"), then the album where that differs, then "Version 2" — never two
+  identical rows.
   `QTLyricsVersionStore` holds the rows and the choice; the session persists it through the resolver:
   `pin` / `unpin` (Automatic always unpins, a stale pin whose version wasn't found included; `isPinned` /
   `pinnedID` come from the stored pin) / `turnOffLyrics` (pin `"none"`: no document, versions still listed) /
@@ -1014,6 +1021,9 @@ InnerTube fixtures), `QT_DUMP=1` (print parser output), `QT_KEYCHAIN_TEST=1` (Ke
 - **Dock menu** (`QTDockMenuBuilder`): now playing, transport (disabled with nothing loaded, like Controls), like,
   shuffle, Repeat submenu (Off / Repeat All / Repeat One), mini player, desktop lyrics.
 - **Sidebar context menu** on Liked Songs and playlists: Play, Shuffle, Play Next, Copy Link (live lists load first).
+  A playlist made on this Mac (`local:`) has no YouTube Music link, so no Copy Link; one still being created
+  (`pending:`) shows it dimmed (`QTSidebarPlaylistTarget.linkState`). No other menu hands out a playlist link (track
+  menus copy the songs' own links).
 - **Mini player accessibility**: the panel is one labelled element ("Mini Player", value = title, artist) with named
   actions Show Main Window, Close Mini Player, Switch Size, so the hover-only controls are reachable without a mouse.
 - **Settings › Playback** effects (gapless, crossfade, EQ) are gated on the *playing engine's* capabilities

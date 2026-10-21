@@ -3,9 +3,11 @@ import QTCore
 import SwiftUI
 
 // Owner: builder "desktop". Right-click menu of the sidebar's Liked Songs and playlist rows (spec §8: real
-// context menus, like Music's sidebar): Play, Shuffle, Play Next, Copy Link; for the account's own playlists also
-// Rename (in place), Edit Playlist… and Delete Playlist…, and Remove from Library for saved ones. Live playlists load
-// their first page on demand; the mock catalog plays its own lists. Changes go through `QTAccountWriter`.
+// context menus, like Music's sidebar): Play, Shuffle, Play Next, Copy Link (not for a playlist that only exists on
+// this Mac: it has no YouTube Music link; dimmed while a new one is still being created); for the account's own
+// playlists also Rename (in place), Edit Playlist… and Delete Playlist…, and Remove from Library for saved ones. Live
+// playlists load their first page on demand; the mock catalog plays its own lists. Changes go through
+// `QTAccountWriter`.
 
 extension View {
     /// Adds the playlist context menu to a sidebar row (only Liked Songs and playlists get one). `onRename` starts
@@ -28,8 +30,16 @@ private struct QTSidebarContextMenuModifier: ViewModifier {
                 Button(QTLoc.tr("Play")) { target.play(shuffled: false) }
                 Button(QTLoc.tr("Shuffle")) { target.play(shuffled: true) }
                 Button(QTLoc.tr("Play Next")) { target.playNext() }
-                Divider()
-                Button(QTLoc.tr("Copy Link")) { target.copyLink() }
+                switch target.linkState {
+                case .available:
+                    Divider()
+                    Button(QTLoc.tr("Copy Link")) { target.copyLink() }
+                case .pending:
+                    Divider()
+                    Button(QTLoc.tr("Copy Link")) {}.disabled(true)
+                case .none:
+                    EmptyView()
+                }
                 if let playlist {
                     // Playlists the library only saved (someone else's) can't be edited, only removed from it.
                     let writer = QTAccountWriter.shared
@@ -71,8 +81,28 @@ struct QTSidebarPlaylistTarget {
         }
     }
 
-    /// `https://music.youtube.com/playlist?list=<id>` (Liked Songs is the `LM` list).
-    var link: String { "https://music.youtube.com/playlist?list=\(id.hasPrefix("VL") ? String(id.dropFirst(2)) : id)" }
+    /// Whether the list has a YouTube Music link to share.
+    enum LinkState: Equatable {
+        case available
+        /// Being created in the account: YouTube hasn't given it an id yet.
+        case pending
+        /// Made on this Mac (Sync off, or signed out of writes): it exists nowhere else.
+        case none
+    }
+
+    var linkState: LinkState { Self.linkState(for: id) }
+
+    static func linkState(for id: String) -> LinkState {
+        if id.hasPrefix("local:") { return .none }
+        if QTAccountWriter.isPlaceholder(id) { return .pending }
+        return .available
+    }
+
+    /// `https://music.youtube.com/playlist?list=<id>` (Liked Songs is the `LM` list); nil for a list with no link.
+    var link: String? {
+        guard linkState == .available else { return nil }
+        return "https://music.youtube.com/playlist?list=\(id.hasPrefix("VL") ? String(id.dropFirst(2)) : id)"
+    }
 
     private var source: QTQueueSource { QTQueueSource(kind: .playlist, id: id, title: .verbatim(title)) }
 
@@ -105,6 +135,7 @@ struct QTSidebarPlaylistTarget {
     }
 
     func copyLink() {
+        guard let link else { return }
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(link, forType: .string)
