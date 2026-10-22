@@ -27,7 +27,10 @@ open -g -n ".build/apps/QTube Music.app" --args -qt.catalog mock -qt.screen main
   catalogs and their metadata. It also restamps the binary's linked-on SDK. Without that stamp, AppKit and SwiftUI
   fall back to the pre-macOS-26 look, which is what a plain `swift run` gives you.
 - **Variants run side by side.** Each `QT_VARIANT` gets its own app name, bundle id and SwiftPM scratch folder
-  (`.build/<variant>`).
+  (`.build/<variant>`, ~0.5–1 GB). Reuse one short name rather than inventing a new one per task.
+- **`.build/` prunes itself.** After every build, `Scripts/prune-build.sh` deletes scratch folders idle for 24 h,
+  then the least recently used ones (idle 1 h+) while they total more than 6 GB, and variant apps older than 3 days.
+  It never touches `.build/default`, the main app, `release/` or anything a running process uses.
 - **The demo library comes from the main checkout.** The mock catalog (`Generated/MockCatalog/`, built by
   `Scripts/make-mock-catalog.py` from the prototype's git-ignored `data.js` and `assets/`) contains copyrighted
   covers and lyrics, so it is never committed. The scripts find it in the main checkout, including when they run
@@ -52,7 +55,8 @@ swift test  --scratch-path .build/<you> --disable-xctest
   - `QT_DUMP=1`: print parser output.
   - `QT_KEYCHAIN_TEST=1`: Keychain round trip.
 
-Use a private `--scratch-path` so you never wait on another build's SwiftPM lock.
+Use a private `--scratch-path` so you never wait on another build's SwiftPM lock; `Scripts/prune-build.sh` clears
+it away once it has been idle (see above).
 
 ## Dev launch arguments
 
@@ -78,6 +82,7 @@ Launch arguments apply to one session only and are never saved. Pass them as
 | Script | What it does |
 |---|---|
 | `Scripts/build-app.sh` | Builds, bundles and ad-hoc signs the app (`QT_VARIANT`, `QT_CONFIG`, `QT_SCRATCH`, `--print-path`). |
+| `Scripts/prune-build.sh` | Deletes idle scratch folders and old variant apps from `.build/` (`--dry-run`, `QT_PRUNE_IDLE_HOURS`, `QT_BUILD_CAP_GB`); run after every build. |
 | `Scripts/shoot.sh <name> [--window main\|mini\|desktopLyrics\|menuBarPopover\|settings\|reportProblem\|signIn\|signInHelp]… [args]` | Launches in the background on the test display (`$QT_SCREEN`; otherwise U270CA if connected, else the built-in display). Waits until the app is ready, captures each window into the main checkout's `screenshots/` and quits. It retakes captures that are thumbnails or caught mid-animation, and gives focus back if the app took it. Uses `-qt.catalog mock` unless you pass `-qt.catalog`. Malformed launch arguments (a key without a value, a stray word) stop it at once; a one-string `"-qt.surface stage -qt.paused YES"` is split. |
 | `Scripts/shoot-region.sh` | Screen-region capture for windows that aren't plain rectangles (mini player, unlocked desktop lyrics), kept inside the test display. Same argument checks and demo-catalog default as `shoot.sh`. |
 | `Scripts/contact-sheet.sh <name> [--title T] [--columns N] <img> <caption>…` | Makes one captioned PNG in `screenshots/`. |

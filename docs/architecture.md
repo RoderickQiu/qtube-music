@@ -983,7 +983,8 @@ InnerTube fixtures), `QT_DUMP=1` (print parser output), `QT_KEYCHAIN_TEST=1` (Ke
 - `Scripts/build-app.sh` — builds and assembles `.build/apps/QTube Music.app` (bundle id `com.roderickqiu.qtube`,
   macOS 15, `en` + `zh-Hans`, SwiftPM resource bundles in `Contents/Resources`, mock catalog, ad-hoc signed).
   `QT_VARIANT=<name>` → `QTube Music <name>.app`, `com.roderickqiu.qtube.dev-<name>`, scratch `.build/<name>`,
-  so agents run side by side. `QT_CONFIG=release`, `QT_SCRATCH=…`. `--print-path`. Works from worktrees.
+  so agents run side by side. `QT_CONFIG=release`, `QT_SCRATCH=…`. `--print-path`. Works from worktrees. Ends by
+  running `Scripts/prune-build.sh` (idle scratch folders and old variant apps go; scratch capped at 6 GB).
   **SDK stamp:** SwiftPM's default build system (swiftbuild) writes `LC_BUILD_VERSION sdk` = the deployment target
   (15.0) instead of the SDK it compiled against, and AppKit/SwiftUI choose the macOS 26+ design from the linked-on
   SDK — so the app ran in the old look on Tahoe (flush grey sidebar, flat toolbar). The script restamps the

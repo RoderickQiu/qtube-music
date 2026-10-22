@@ -206,4 +206,6 @@ if [[ -d "$APP/Contents/Frameworks/Sparkle.framework" ]]; then
   codesign --force -s - "$APP/Contents/Frameworks/Sparkle.framework" >&2
 fi
 codesign --force -s - "$APP" >&2
+# Old agents' scratch folders and variant apps (see the script); never fails the build.
+"$QT_REPO/Scripts/prune-build.sh" || true
 echo "$APP"
