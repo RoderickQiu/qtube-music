@@ -150,6 +150,6 @@ macOS 26 look. Architecture, dev tools and launch arguments are covered in
 
 ## Licence
 
-QTube Music is licensed under the [Mozilla Public License 2.0](LICENSE). It uses Sparkle, SwiftyOpenCC, OpenCC
+Made by [Tianrun Qiu](https://r-q.name). QTube Music is licensed under the [Mozilla Public License 2.0](LICENSE). It uses Sparkle, SwiftyOpenCC, OpenCC
 and yt-dlp's EJS solver; their licences are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). YouTube and
 YouTube Music are trademarks of Google LLC. Song titles, artwork and lyrics belong to their owners.

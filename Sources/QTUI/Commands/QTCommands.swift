@@ -26,6 +26,11 @@ public struct QTCommands: Commands {
     public var body: some Commands {
         let _ = desktop.register(openWindow: openWindow)
 
+        // App menu: About with credits (who made it, the website, the source).
+        CommandGroup(replacing: .appInfo) {
+            Button(QTLoc.tr("About %@", table: .desktop, QTAboutPanel.appName)) { QTAboutPanel.show() }
+        }
+
         // File: New Playlist ⌘N (like Music) and Close Window ⌘W; no document model, so no Open/Print.
         // (An empty File menu makes SwiftUI drop it and move Close into the Window menu.)
         CommandGroup(replacing: .newItem) {
