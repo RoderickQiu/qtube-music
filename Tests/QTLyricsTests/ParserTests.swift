@@ -4,6 +4,40 @@ import Testing
 @testable import QTLyrics
 
 @Suite struct LRCParserTests {
+    /// NetEase sends credits as JSON lines, with or without `"t"`, in plain and in timed payloads. They become
+    /// "作词: …" text, which the assembler drops as a credit (they used to show as raw JSON lyric lines).
+    @Test func netEaseJSONCreditLinesAreFlattenedAndDropped() {
+        let plain = """
+        {"c":[{"tx":"作词: "},{"tx":"Placeholder Lyricist"}]}
+        {"t":0,"c":[{"tx":"作曲: "},{"tx":"Placeholder Composer"}]}
+        Paper lanterns over Harbour Street
+        Counting trams until the morning
+        """
+        let p = QTLRCParser.parse(plain)
+        #expect(p.lines.map(\.text) == ["作词: Placeholder Lyricist", "作曲: Placeholder Composer",
+                                         "Paper lanterns over Harbour Street", "Counting trams until the morning"])
+        let doc = QTLyricsAssembler.document(from: p, source: .netease, confidence: 1, preferredTranslationLanguage: nil)
+        #expect(doc.lines.map(\.text) == ["Paper lanterns over Harbour Street", "Counting trams until the morning"])
+
+        let timed = """
+        {"t":0,"c":[{"tx":"作词: "},{"tx":"Placeholder Lyricist"}]}
+        [00:01.00]{"t":1000,"c":[{"tx":"编曲: "},{"tx":"Placeholder Arranger"}]}
+        [00:12.00]Paper lanterns over Harbour Street
+        [00:15.00]Counting trams until the morning
+        """
+        let t = QTLRCParser.parse(timed)
+        let timedDoc = QTLyricsAssembler.document(from: t, source: .netease, confidence: 1, preferredTranslationLanguage: nil)
+        #expect(timedDoc.lines.map(\.text) == ["Paper lanterns over Harbour Street", "Counting trams until the morning"])
+        #expect(!timedDoc.lines.contains { $0.text.contains("{") })
+    }
+
+    /// A lyric line that merely contains braces is left alone.
+    @Test func bracedLyricIsNotACredit() {
+        #expect(QTLRCParser.jsonCreditText("{not json} but sung") == nil)
+        #expect(QTLRCParser.jsonCreditText(#"{"a":1}"#) == nil)
+        #expect(QTLRCParser.parse("{la la la}").lines.map(\.text) == ["{la la la}"])
+    }
+
     @Test func multipleTimestampsOffsetAndMetadata() {
         let lrc = """
         [ti:Song]

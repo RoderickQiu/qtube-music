@@ -607,6 +607,8 @@ public actor QTLyricsResolver: QTLyricsProviding {
                                       attribution: nil, fromCache: fromCache, isLyricsOff: true)
         }
         var full = entry.document
+        // Entries cached before the LRC parser flattened NetEase's JSON credit lines still hold them as lyrics.
+        full?.lines.removeAll { QTLRCParser.jsonCreditText(Substring($0.text)).map(QTLyricsCleanup.isCredit) == true }
         if full != nil { full?.offset = await cache?.offset(for: entry.videoId, version: entry.chosenID ?? "") ?? 0 }
         let doc = full.map { QTLyricsTranslationPolicy.applyProviderLane(to: $0, target: config.translationLanguage) }
         return QTLyricsResolution(document: doc, fullDocument: full, versions: entry.versions, chosenID: entry.chosenID,

@@ -202,6 +202,25 @@ struct QTTwinWordsElsewhereProvider: QTLyricsSourceProvider {
         #expect(r.chosenID != "lrclib:a" && r.chosenID != "lrclib:b")
     }
 
+    /// Lyrics cached before the LRC parser flattened NetEase's JSON credit lines still hold them; they are dropped
+    /// when the cached entry is shown, without a new lookup.
+    @Test func cachedJSONCreditLinesAreDropped() async throws {
+        let cache = try QTLyricsCache(url: nil)
+        let resolver = QTLyricsResolver(providers: [QTHonestLyricsProvider()], cache: cache)
+        let q = Self.query("vidJ", "Old Cache")
+        #expect(await resolver.resolve(q).document != nil)
+        var entry = try #require(await cache.entry(for: q.videoId))
+        var doc = try #require(entry.document)
+        let credit = QTLyricsLine(start: 0, text: #"{"c":[{"tx":"作词: "},{"tx":"Placeholder Lyricist"}]}"#)
+        doc.lines.insert(credit, at: 0)
+        entry.document = doc
+        await cache.store(entry)
+        let r = await resolver.resolve(q)
+        #expect(r.fromCache)
+        #expect(r.document?.lines.contains { $0.text.hasPrefix("{") } == false)
+        #expect(r.document?.lines.count == doc.lines.count - 1)
+    }
+
     /// Finding 10: Undo on the "Reported" toast restores the version, and the pin the report dropped.
     @Test func undoingAReportRestoresThePin() async throws {
         let resolver = QTLyricsResolver(providers: [QTHonestLyricsProvider(ids: ["1", "2"])], cache: try QTLyricsCache(url: nil))

@@ -6,7 +6,9 @@ import QTCore
 /// - enhanced word tags (`[00:12.00]<00:12.00>Hello <00:12.40>world<00:13.10>`),
 /// - `[offset:+250]` (milliseconds; positive shows lyrics earlier) applied to every timestamp,
 /// - metadata tags (`ti`, `ar`, `al`, `length`, `la`/`lang`),
-/// - plain text files (no timestamps at all) → plain lyrics.
+/// - plain text files (no timestamps at all) → plain lyrics,
+/// - NetEase's JSON credit lines (`{"t":0,"c":[{"tx":"作词: "},{"tx":"…"}]}`, with or without `"t"`, timed or
+///   not) → their plain text ("作词: …"), which the assembler then drops as a credit.
 public enum QTLRCParser {
     public static func parse(_ text: String) -> QTParsedLyrics {
         var metadata = QTParsedLyricsMetadata()
@@ -17,6 +19,10 @@ public enum QTLRCParser {
         for rawLine in text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
             guard !line.isEmpty else { continue }
+            if let credit = jsonCreditText(Substring(line)) {
+                plain.append(credit)
+                continue
+            }
             var rest = Substring(line)
             var stamps: [TimeInterval] = []
             var sawTag = false
@@ -38,6 +44,7 @@ public enum QTLRCParser {
                 if !sawTag, !rest.isEmpty { plain.append(String(rest).trimmingCharacters(in: .whitespaces)) }
                 continue
             }
+            if let credit = jsonCreditText(rest) { rest = Substring(credit) }
             for t in stamps {
                 timed.append((t, rest, order))
                 order += 1
@@ -61,6 +68,16 @@ public enum QTLRCParser {
             lines.append(line)
         }
         return QTParsedLyrics(lines: lines, metadata: metadata)
+    }
+
+    /// The text of a NetEase JSON credit line (its `c[].tx` parts joined), nil for anything else.
+    static func jsonCreditText(_ line: Substring) -> String? {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix("{"), trimmed.hasSuffix("}"), trimmed.contains("\"c\""),
+              let object = try? JSONSerialization.jsonObject(with: Data(trimmed.utf8)) as? [String: Any],
+              let parts = object["c"] as? [[String: Any]] else { return nil }
+        let text = parts.compactMap { $0["tx"] as? String }.joined()
+        return text.trimmingCharacters(in: .whitespaces).isEmpty ? nil : text
     }
 
     private static func applyTag(_ key: String, value: String, to m: inout QTParsedLyricsMetadata) {
