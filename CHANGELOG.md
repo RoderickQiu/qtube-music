@@ -3,6 +3,38 @@
 All notable changes to QTube Music. Versions follow [Semantic Versioning](https://semver.org); `Scripts/release.sh`
 uses the section for a version as its release notes.
 
+## 0.2.0
+
+Your account, playback you can leave running, and the gaps people kept asking about.
+
+- **Likes and playlists sync.** Signed in, likes, new, renamed, reordered and deleted playlists, songs added or
+  removed, subscriptions and albums you add to your library change your YouTube Music account. Changes show at once
+  and undo themselves if YouTube refuses them. Turn off **Settings › Account › Sync likes and playlists** to keep
+  them on this Mac; turning it back on offers to upload them. Brand accounts switch from Settings or the Account
+  menu.
+- **Playlist management.** New Playlist (⌘N), Rename, Edit and Delete in the sidebar, remove and drag to reorder
+  in your own playlists, an Add to Playlist submenu that shows where a song already is, and Save Queue as Playlist.
+- **Playback that keeps going.** The app recovers from a crashed player page, network drops, radio that fails to
+  load, sleep and wake, and a song that won't start, usually without you noticing. Play/Pause follows what you asked
+  for, even while a song is still loading.
+- **Playback speed.** 0.5× to 2× with the pitch kept (Controls › Playback Speed, ⌥⌘. and ⌥⌘,). Ads still play
+  at 1×.
+- **Uploads.** Music you uploaded to YouTube Music has its own page: songs, albums and artists.
+- **Sign-in you can check.** The sign-in window shows the page's address with a lock, says what the app keeps,
+  and no longer dead-ends on passkeys. Signing out also signs out at Google. Accounts that can't sign in here
+  (passkey-only, Advanced Protection) can use Import Session from Firefox or a cookies.txt file.
+- **Wrong lyrics, fixed in one click.** Controls › Lyrics Source lists every version in plain words, Report Wrong
+  Lyrics is remembered (with Undo), No Lyrics for This Song hides them for that song, and each version keeps its
+  own timing. Sources that serve the same text for every song are caught. NetEase's songwriter credits no longer
+  show up as raw text.
+- **ListenBrainz** alongside Last.fm, from Settings › Integrations. Scrobbles count music time, so 2× still
+  scrobbles. Discord never shows your uploads' links.
+- **Global shortcuts.** Settings › Shortcuts sets system-wide keys for play, skip, like and the players, with no
+  Accessibility permission and warnings when a key is taken.
+- **Help › Report a Problem.** Opens a pre-filled GitHub issue with diagnostics you can read first; personal data
+  is removed.
+- **About** now says who made the app, with links to r-q.name, the website and the source.
+
 ## 0.1.1
 
 Fixes.
