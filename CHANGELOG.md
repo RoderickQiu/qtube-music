@@ -3,6 +3,22 @@
 All notable changes to QTube Music. Versions follow [Semantic Versioning](https://semver.org); `Scripts/release.sh`
 uses the section for a version as its release notes.
 
+## 0.3.0
+
+Whole artists, your own lyrics, and fixes.
+
+- **Play an artist means all of their songs.** Play and Shuffle on an artist (its page or a search result) used to
+  queue only the five top songs. The top songs still start at once, and the artist's whole song list follows.
+  Backing tracks (伴奏, Instrumental, Off Vocal, karaoke versions) are left out.
+- **Import lyrics.** Controls › Lyrics Source › Import Lyrics… (also in the "No lyrics" view), or drop a file on the
+  lyrics. LRC, TTML and plain text work, including Chinese files saved as GBK or Big5. The file shows for that song
+  as "Imported", keeps its own timing, and Remove Imported Lyrics takes it away again.
+- **Desktop lyrics move again.** Unlocked, the overlay can be dragged anywhere.
+- **Hover in song lists.** A row no longer stays highlighted after the pointer has left, the list has scrolled or
+  you switched to another app.
+- **The end of the queue is reachable.** Its last songs and Save Queue as Playlist no longer sit under the player
+  bar.
+
 ## 0.2.0
 
 Your account, playback you can leave running, and the gaps people kept asking about.
