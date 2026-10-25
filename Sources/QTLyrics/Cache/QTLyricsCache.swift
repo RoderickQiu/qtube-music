@@ -312,6 +312,10 @@ public actor QTLyricsCache {
             [.text(name), .blob(data), .real(Date().timeIntervalSince1970)])
     }
 
+    public func removeBlob(named name: String) {
+        run("DELETE FROM blobs WHERE name = ?", [.text(name)])
+    }
+
     // MARK: SQLite plumbing
 
     private enum Value {

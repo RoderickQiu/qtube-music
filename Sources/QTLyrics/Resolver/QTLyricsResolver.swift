@@ -192,7 +192,8 @@ public actor QTLyricsResolver: QTLyricsProviding {
         let stored = await cache?.pinnedVersionID(for: query.videoId)
         // "No Lyrics for This Song" hides what is found; the lookup still runs so the menu can offer the versions.
         let lyricsOff = stored == QTLyricsCache.noLyricsPin
-        let pinned = lyricsOff ? nil : stored
+        // Imported lyrics aren't looked up: the sources' own pick is found (and cached) beside them.
+        let pinned = lyricsOff || stored == QTImportedLyrics.versionID ? nil : stored
         // The pin is part of the key, so a pinned version that can't be fetched isn't retried on every call.
         let key = sourcesKey(config) + (pinned.map { "|pin:" + $0 } ?? "")
         if !forceRefresh, let entry = await cache?.entry(for: query.videoId), entry.sourcesKey == key,
@@ -281,6 +282,38 @@ public actor QTLyricsResolver: QTLyricsProviding {
         await takeBackReportedText(of: versionID, videoId: query.videoId)
         if wasPinned { await cache?.setPinnedVersionID(versionID, for: query.videoId) }
         return await resolve(query, configuration: configuration, forceRefresh: true)
+    }
+
+    // MARK: Imported lyrics
+
+    /// "Import Lyrics…": shows the file's lyrics for this track from now on (pinned; a file imported before is
+    /// replaced). nil when the file holds no lyrics (nothing changes then).
+    public func importLyrics(_ imported: QTImportedLyrics, for query: QTLyricsQuery,
+                             configuration: QTLyricsResolverConfiguration? = nil) async -> QTLyricsResolution? {
+        guard imported.parsed != nil, let cache, let data = try? JSONEncoder().encode(imported) else { return nil }
+        await cache.setBlob(data, named: QTImportedLyrics.blobName(query.videoId))
+        await cache.setPinnedVersionID(QTImportedLyrics.versionID, for: query.videoId)
+        return await resolve(query, configuration: configuration)
+    }
+
+    /// Deletes the file imported for this track; the automatic pick shows again when it was showing.
+    public func removeImportedLyrics(for query: QTLyricsQuery,
+                                     configuration: QTLyricsResolverConfiguration? = nil) async -> QTLyricsResolution {
+        await cache?.removeBlob(named: QTImportedLyrics.blobName(query.videoId))
+        if await cache?.pinnedVersionID(for: query.videoId) == QTImportedLyrics.versionID {
+            await cache?.setPinnedVersionID(nil, for: query.videoId)
+        }
+        return await resolve(query, configuration: configuration)
+    }
+
+    /// The file imported for a track, as a document for this lookup's settings and its "Lyrics Source" version.
+    private func imported(for videoId: String, _ config: QTLyricsResolverConfiguration)
+        async -> (version: QTResolvedLyricsVersion, document: QTLyricsDocument)? {
+        guard let data = await cache?.blob(named: QTImportedLyrics.blobName(videoId))?.data,
+              let file = try? JSONDecoder().decode(QTImportedLyrics.self, from: data), let parsed = file.parsed else { return nil }
+        let doc = QTLyricsAssembler.document(from: parsed, source: .imported, confidence: 1,
+                                             preferredTranslationLanguage: config.translationLanguage, romanize: config.romanize)
+        return (file.version(doc), doc)
     }
 
     /// The pinned version id for a track, if the user picked one (`QTLyricsCache.noLyricsPin` = lyrics off).
@@ -602,16 +635,21 @@ public actor QTLyricsResolver: QTLyricsProviding {
     /// - Parameter pin: the stored choice (a version id, `QTLyricsCache.noLyricsPin`, or nil for Automatic).
     private func present(_ entry: QTLyricsCacheEntry, pin: String?, fromCache: Bool,
                          _ config: QTLyricsResolverConfiguration) async -> QTLyricsResolution {
+        // A file the user imported for this track is listed first, and shows while it is pinned.
+        let imported = await imported(for: entry.videoId, config)
+        let versions = (imported.map { [$0.version] } ?? []) + entry.versions
         if pin == QTLyricsCache.noLyricsPin {
-            return QTLyricsResolution(document: nil, versions: entry.versions, chosenID: nil, pinnedID: pin,
+            return QTLyricsResolution(document: nil, versions: versions, chosenID: nil, pinnedID: pin,
                                       attribution: nil, fromCache: fromCache, isLyricsOff: true)
         }
-        var full = entry.document
+        let showsImported = pin == QTImportedLyrics.versionID && imported != nil
+        let chosenID = showsImported ? QTImportedLyrics.versionID : entry.chosenID
+        var full = showsImported ? imported?.document : entry.document
         // Entries cached before the LRC parser flattened NetEase's JSON credit lines still hold them as lyrics.
         full?.lines.removeAll { QTLRCParser.jsonCreditText(Substring($0.text)).map(QTLyricsCleanup.isCredit) == true }
-        if full != nil { full?.offset = await cache?.offset(for: entry.videoId, version: entry.chosenID ?? "") ?? 0 }
+        if full != nil { full?.offset = await cache?.offset(for: entry.videoId, version: chosenID ?? "") ?? 0 }
         let doc = full.map { QTLyricsTranslationPolicy.applyProviderLane(to: $0, target: config.translationLanguage) }
-        return QTLyricsResolution(document: doc, fullDocument: full, versions: entry.versions, chosenID: entry.chosenID,
-                                  pinnedID: pin, attribution: entry.attribution, fromCache: fromCache)
+        return QTLyricsResolution(document: doc, fullDocument: full, versions: versions, chosenID: chosenID,
+                                  pinnedID: pin, attribution: showsImported ? nil : entry.attribution, fromCache: fromCache)
     }
 }

@@ -127,6 +127,7 @@ struct QTNowPlayingTab: View {
                 .accessibilityHidden(player.ad != nil)
                 .animation(QTTheme.Motion.animation(QTTheme.Motion.ui, reduceMotion: reduceMotion), value: player.ad == nil)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .qtLyricsFileDrop(model)
                 .accessibilityIdentifier("qt.player.panel.lyrics")
         }
     }

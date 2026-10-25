@@ -55,7 +55,12 @@ public struct QTLyricsVersion: Identifiable, Hashable, Sendable {
 
     /// Menu row title: "LRCLIB · Line timing", plus the version's own translation language when it has one.
     public var menuTitle: String {
-        var parts = [QTLoc.tr(source.name), QTLoc.tr(syncKind == .word ? "Word timing" : "Line timing")]
+        let timing = switch syncKind {
+        case .word: QTLoc.tr("Word timing")
+        case .line: QTLoc.tr("Line timing")
+        case .plain: QTLoc.tr("Unsynced", table: .lyrics)
+        }
+        var parts = [QTLoc.tr(source.name), timing]
         if let tl = translationLanguage { parts.append(QTLyricsTranslationTarget.nativeName(for: tl)) }
         return parts.joined(separator: " · ")
     }
@@ -71,6 +76,8 @@ public struct QTLyricsVersion: Identifiable, Hashable, Sendable {
     /// The subtitle's parts. `distinguishing`: the row shares its title with others, so it also says which song the
     /// source filed it under (when that isn't the playing one) and always says something about its length.
     func detailParts(isBest: Bool, distinguishing: Bool) -> [String] {
+        // An imported file: its name.
+        if source == .imported { return matchedName.map { [$0] } ?? [] }
         var parts: [String] = []
         if isReported {
             parts.append(QTLoc.tr("Reported"))
@@ -229,7 +236,11 @@ public final class QTLyricsVersionStore {
     }
 
     /// A version is showing, so there is something to report.
-    public func canReport(_ videoId: String) -> Bool { selected[videoId] != nil }
+    public func canReport(_ videoId: String) -> Bool {
+        guard let id = selected[videoId] else { return false }
+        // The user's own file isn't a source's mistake.
+        return versions[videoId]?.first { $0.id == id }?.source != .imported
+    }
 
     /// "Report Wrong Lyrics": the version showing moves to the end of the list as reported at once; the lyrics
     /// session keeps the report on this Mac (never sent anywhere), so that version is never chosen for this track

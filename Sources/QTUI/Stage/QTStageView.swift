@@ -342,6 +342,7 @@ public struct QTStageView: View {
     private func lyrics(centered: Bool) -> some View {
         QTLyricsView(document: player.lyrics, time: player.timeline, style: .stage(centered: centered),
                      showsTranslation: showsTranslation) { player.seek(to: $0) }
+            .qtLyricsFileDrop(model)
             // A clear band under the title, then a long fade: a line leaving upwards is gone before it reaches
             // the title block instead of lingering under it as a half-transparent ghost.
             .mask {

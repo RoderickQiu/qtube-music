@@ -71,6 +71,16 @@
         }
       }
     },
+    "Choose an LRC, TTML or text file with the lyrics of “%@”.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择包含“%@”歌词的 LRC、TTML 或文本文件。"
+          }
+        }
+      }
+    },
     "Copy": {
       "localizations": {
         "zh-Hans": {
@@ -101,6 +111,26 @@
         }
       }
     },
+    "Import": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入"
+          }
+        }
+      }
+    },
+    "Import Lyrics…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入歌词…"
+          }
+        }
+      }
+    },
     "Lyrics Off": {
       "localizations": {
         "zh-Hans": {
@@ -117,6 +147,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "歌词来源"
+          }
+        }
+      }
+    },
+    "Lyrics imported for “%@”": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已为“%@”导入歌词"
           }
         }
       }
@@ -177,6 +217,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "发音"
+          }
+        }
+      }
+    },
+    "Remove Imported Lyrics": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除导入的歌词"
           }
         }
       }
@@ -287,6 +337,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "《%@》"
+          }
+        }
+      }
+    },
+    "“%@” has no lyrics QTube Music can read": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”中没有 QTube Music 能读取的歌词"
           }
         }
       }

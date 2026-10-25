@@ -141,6 +141,22 @@ public final class QTAppModel {
         model.panelTab = launch.panelTab ?? .nowPlaying
         // `-qt.search <text>`: open with search results (screenshots).
         if let query = launch.string("qt.search") { model.searchText = query }
+        #if DEBUG
+        // `-qt.lyrics.importFile <path>`: imports that file for the first song that plays, once its lyrics have
+        // loaded (the Open panel needs a person).
+        if let path = launch.string("qt.lyrics.importFile") {
+            Task { @MainActor in
+                for _ in 0..<600 {
+                    if let session = model.lyricsSession, let track = model.player.nowPlaying, session.track?.videoId == track.videoId,
+                       model.player.isPlaying, !session.isLoading {
+                        QTLyricsImport.importFile(URL(fileURLWithPath: (path as NSString).expandingTildeInPath), model: model)
+                        return
+                    }
+                    try? await Task.sleep(for: .milliseconds(100))
+                }
+            }
+        }
+        #endif
         model.isPanelShown = !(launch.panelHidden ?? false)
         model.isVideoMode = launch.videoMode ?? (launch.stageBackground == .video || settings.settings.preferVideos)
         if launch.extraWindows.contains(.desktopLyrics) { settings.override { $0.desktopLyrics.isShown = true } }

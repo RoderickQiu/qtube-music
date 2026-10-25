@@ -7,7 +7,8 @@ import SwiftUI
 /// Automatic (checked unless the user chose otherwise; the default goes first, as in any Mac picker), the versions
 /// found for this song best first — "LRCLIB · Line timing" over a plain-words subtitle ("Best match", "Possible
 /// mismatch · 12 s longer"; rows that share a title also say what sets them apart, `QTLyricsVersion.menuRows`) —
-/// then "No Lyrics for This Song", and optionally "Report Wrong Lyrics".
+/// then "No Lyrics for This Song", "Import Lyrics…" (and "Remove Imported Lyrics" once a file was imported for the
+/// song), and optionally "Report Wrong Lyrics".
 struct QTLyricsSourceMenu: View {
     let model: QTAppModel
     /// The popover has its own one-click Report button beside the menu.
@@ -39,6 +40,14 @@ struct QTLyricsSourceMenu: View {
         }
         .disabled(id.isEmpty)
         .accessibilityIdentifier("qt.lyrics.sourceNone")
+        Divider()
+        Button(QTLoc.tr("Import Lyrics…", table: .lyrics)) { QTLyricsImport.choose(model) }
+            .disabled(!QTLyricsImport.canImport(model))
+            .accessibilityIdentifier("qt.lyrics.sourceImport")
+        if model.lyricsSession?.hasImportedLyrics == true {
+            Button(QTLoc.tr("Remove Imported Lyrics", table: .lyrics)) { model.lyricsSession?.removeImportedLyrics() }
+                .accessibilityIdentifier("qt.lyrics.sourceRemoveImported")
+        }
         if includesReport {
             Divider()
             Button(QTLoc.tr("Report Wrong Lyrics", table: .lyrics)) { Self.report(model) }
@@ -67,7 +76,7 @@ struct QTLyricsSourceMenu: View {
         return ids
     }
 
-    private static let knownSources: [QTLyricsSource] = [.youtubeMusic, .amll, .lrclib, .netease, .kugou, .qq]
+    private static let knownSources: [QTLyricsSource] = [.youtubeMusic, .amll, .lrclib, .netease, .kugou, .qq, .imported]
 
     /// Lyrics are showing and they are one of the versions found (not the bundled demo lyrics).
     static func canReport(_ model: QTAppModel) -> Bool {

@@ -639,6 +639,16 @@
         }
       }
     },
+    "Imported" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已导入"
+          }
+        }
+      }
+    },
     "Instrumental" : {
       "localizations" : {
         "zh-Hans" : {

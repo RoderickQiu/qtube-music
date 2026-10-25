@@ -348,6 +348,27 @@ public final class QTLyricsSession {
         }
     }
 
+    /// A file was imported for this track ("Remove Imported Lyrics").
+    public var hasImportedLyrics: Bool { versions.contains { $0.source == .imported } }
+
+    /// "Import Lyrics…" / a lyrics file dropped on the lyrics: shows the file's lyrics for this track from now on
+    /// (pinned, kept on this Mac). False when there is no track or the file holds no lyrics.
+    public func importLyrics(_ file: QTImportedLyrics) -> Bool {
+        guard let track, engine == .live, file.parsed != nil else { return false }
+        run(for: track, holdsReadiness: false) { resolver, query, config in
+            if let r = await resolver.importLyrics(file, for: query, configuration: config) { return r }
+            return await resolver.resolve(query, configuration: config)
+        }
+        return true
+    }
+
+    public func removeImportedLyrics() {
+        guard let track, engine == .live else { return }
+        run(for: track, holdsReadiness: false) { resolver, query, config in
+            await resolver.removeImportedLyrics(for: query, configuration: config)
+        }
+    }
+
     /// "Report Wrong Lyrics" (the version showing by default): never chosen for this track again — remembered on this
     /// Mac, never sent anywhere — and the next best version replaces it at once. False when there is nothing to
     /// report (no version showing, the bundled demo lyrics).
@@ -649,7 +670,8 @@ public final class QTLyricsSession {
                             translationLanguage: v.translationLanguage, confidence: v.score,
                             durationDelta: length > 0 ? v.duration.map { $0 - length } : nil,
                             isPossibleMismatch: v.isPossibleMismatch, isReported: v.isReported == true,
-                            matchedName: v.candidate.nameDiffering(fromTitle: track.title, artists: track.artists.map(\.name)),
+                            matchedName: v.source == .imported ? v.candidate.title
+                                : v.candidate.nameDiffering(fromTitle: track.title, artists: track.artists.map(\.name)),
                             length: v.duration, album: v.candidate.album.flatMap { $0.isEmpty ? nil : $0 },
                             textFingerprint: v.textFingerprint)
         }

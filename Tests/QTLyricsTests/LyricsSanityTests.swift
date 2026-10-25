@@ -290,6 +290,56 @@ struct QTTwinWordsElsewhereProvider: QTLyricsSourceProvider {
         #expect(back.document != nil)
     }
 
+    // MARK: Imported lyrics
+
+    @Test func importedLyricsShowPinnedPersistAndCanBeRemoved() async throws {
+        let url = Self.tempCacheURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let q = Self.query("vidI", "Quiet Orchard")
+        let resolver = QTLyricsResolver(providers: [QTHonestLyricsProvider()], cache: try QTLyricsCache(url: url))
+        let automatic = await resolver.resolve(q)
+        let lrc = "[ti:Quiet Orchard]\n[00:01.00]First imported line\n[00:04.50]Second imported line\n"
+        let file = try #require(QTImportedLyrics(fileName: "Quiet Orchard.lrc", data: Data(lrc.utf8)))
+
+        let r = try #require(await resolver.importLyrics(file, for: q))
+        #expect(r.document?.source == .imported)
+        #expect(r.document?.syncKind == .line)
+        #expect(r.document?.lines.map(\.text) == ["First imported line", "Second imported line"])
+        #expect(r.chosenID == QTImportedLyrics.versionID)
+        #expect(r.pinnedID == QTImportedLyrics.versionID)
+        #expect(r.versions.first?.id == QTImportedLyrics.versionID)
+        #expect(r.versions.count == automatic.versions.count + 1, "the sources' versions stay listed")
+
+        // Kept across launches, with its own offset.
+        let relaunched = QTLyricsResolver(providers: [QTHonestLyricsProvider()], cache: try QTLyricsCache(url: url))
+        await relaunched.setOffset(0.5, for: q.videoId, version: QTImportedLyrics.versionID)
+        let again = await relaunched.resolve(q)
+        #expect(again.document?.source == .imported)
+        #expect(again.document?.offset == 0.5)
+
+        // Automatic shows the sources' pick; the file stays listed to pick again.
+        let auto = await relaunched.unpin(for: q)
+        #expect(auto.chosenID == automatic.chosenID)
+        #expect(auto.versions.first?.id == QTImportedLyrics.versionID)
+        #expect(await relaunched.pin(versionID: QTImportedLyrics.versionID, for: q).document?.source == .imported)
+
+        let removed = await relaunched.removeImportedLyrics(for: q)
+        #expect(removed.document?.source == .lrclib)
+        #expect(!removed.versions.contains { $0.source == .imported })
+        #expect(await relaunched.pinnedVersionID(for: q.videoId) == nil)
+    }
+
+    @Test func importedFilesAreReadInTheirEncodingAndRejectedWhenEmpty() throws {
+        let gbk = CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue))
+        let data = try #require("[00:01.00]冬眠\n[00:03.00]司南".data(using: String.Encoding(rawValue: gbk)))
+        #expect(QTImportedLyrics(fileName: "a.lrc", data: data)?.parsed?.lines.map(\.text) == ["冬眠", "司南"])
+        let plain = QTImportedLyrics(fileName: "a.txt", data: Data("\u{FEFF}Line one\nLine two".utf8))
+        #expect(plain?.parsed?.syncKind == .plain)
+        #expect(plain?.parsed?.lines.first?.text == "Line one")
+        #expect(QTImportedLyrics(fileName: "e.lrc", data: Data("  \n\n".utf8)) == nil)
+        #expect(QTImportedLyrics(fileName: "x.png", data: Data([0x89, 0x50, 0x4E, 0x47, 0x00, 0x00, 0xFF, 0xD8])) == nil)
+    }
+
     // MARK: Script, gibberish, coverage
 
     static let mash = ["Xkq vbrz plo mnyt qwe dazz", "Zzlp fruk ghanto wxv krrt", "Blorp quazzle frim opu vlinx",

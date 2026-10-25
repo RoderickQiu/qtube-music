@@ -11,7 +11,7 @@ public enum QTLyricsSyncKind: String, Codable, Sendable, Hashable, Comparable, C
 /// Where lyrics (or a translation lane) came from.
 public struct QTLyricsSource: Codable, Sendable, Hashable {
     /// Stable provider id: `youtubeMusic`, `lrclib`, `amll`, `netease`, `kugou`, `qq`, `appleIntelligence`,
-    /// `translationFramework`, `mock`.
+    /// `translationFramework`, `mock`, `imported` (a file the user imported for the song).
     public var id: String
     /// Display name; provider brand names are not translated except where the shared table has a key ("NetEase").
     public var name: String
@@ -30,6 +30,8 @@ public struct QTLyricsSource: Codable, Sendable, Hashable {
     public static let netease = QTLyricsSource(id: "netease", name: "NetEase", isUnofficial: true)
     public static let kugou = QTLyricsSource(id: "kugou", name: "Kugou", isUnofficial: true)
     public static let qq = QTLyricsSource(id: "qq", name: "QQ Music", isUnofficial: true)
+    /// Lyrics the user imported from a file for one song ("Import Lyrics…").
+    public static let imported = QTLyricsSource(id: "imported", name: "Imported")
 }
 
 public struct QTLyricsWord: Codable, Sendable, Hashable {

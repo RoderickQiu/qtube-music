@@ -290,6 +290,14 @@ struct QTLyricsUnavailableView: View {
                 .padding(.top, 2)
                 .accessibilityIdentifier("qt.lyrics.retry")
             }
+            if kind == .none, let model, QTLyricsImport.canImport(model) {
+                Button(QTLoc.tr("Import Lyrics…", table: .lyrics)) { QTLyricsImport.choose(model) }
+                    .buttonStyle(.borderless)
+                    .controlSize(style == .panel ? .small : .regular)
+                    .foregroundStyle(style.isOverArt ? AnyShapeStyle(QTTheme.Colors.onArtSecondary) : AnyShapeStyle(.secondary))
+                    .padding(.top, 2)
+                    .accessibilityIdentifier("qt.lyrics.import")
+            }
         }
         .foregroundStyle(style.isOverArt ? AnyShapeStyle(QTTheme.Colors.onArtTertiary) : AnyShapeStyle(.tertiary))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: style.isCentered || style == .panel ? .center : .leading)
