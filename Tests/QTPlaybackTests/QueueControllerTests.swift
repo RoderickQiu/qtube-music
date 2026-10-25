@@ -233,6 +233,49 @@ import Testing
         #expect(rig.nowID == "t1", "Autoplay off: nothing after Up Next")
     }
 
+    @Test func aLoadingRemainderJoinsTheContextAheadOfTheRadio() async {
+        let rig = Rig()
+        rig.controller.autoplayContinuation = { _ in [PB.track("r1"), PB.track("r2")] }
+        let (arrived, arrive) = AsyncStream<Void>.makeStream()
+        let artist = QTQueueSource(kind: .artist, id: "UC1", title: .verbatim("Artist"))
+        await rig.controller.play(PB.tracks(2), source: artist, remainder: {
+            for await _ in arrived { break }
+            return [PB.track("t2"), PB.track("t3"), PB.track("locked", playable: false), PB.track("t4")]
+        })
+        await rig.settle()
+        #expect(rig.autoplayIDs == ["t2", "r1", "r2"], "the radio came first")
+        arrive.yield()
+        await rig.settle()
+        #expect(rig.autoplayIDs == ["t2", "t3", "t4", "r1", "r2"], "the rest of the list plays before the radio")
+
+        rig.controller.setShuffle(true)
+        rig.controller.setShuffle(false)
+        #expect(rig.autoplayIDs == ["t2", "t3", "t4", "r1", "r2"], "the context keeps the list's order")
+    }
+
+    @Test func aRemainderForAReplacedContextIsDropped() async {
+        let rig = Rig()
+        let (arrived, arrive) = AsyncStream<Void>.makeStream()
+        await rig.controller.play(PB.tracks(5), remainder: {
+            for await _ in arrived { break }
+            return [PB.track("late")]
+        })
+        await rig.controller.play(PB.tracks(5, prefix: "a"))
+        arrive.yield()
+        await rig.settle()
+        #expect(rig.autoplayIDs == ["a2", "a3", "a4", "a5"])
+    }
+
+    @Test func aShuffledRemainderIsScatteredAmongTheTracksToCome() async {
+        let rig = Rig()
+        await rig.controller.shuffle(PB.tracks(5), remainder: { PB.tracks(40, prefix: "m") })
+        await rig.settle()
+        let ids = rig.autoplayIDs
+        #expect(ids.count == 44)
+        #expect(Set(ids).isSuperset(of: PB.tracks(40, prefix: "m").map(\.videoId)))
+        #expect(!ids.prefix(4).allSatisfy { $0.hasPrefix("t") }, "scattered, not appended")
+    }
+
     @Test func endOfQueueWaitsForTheContinuation() async {
         let rig = Rig()
         await rig.controller.play(PB.tracks(1))

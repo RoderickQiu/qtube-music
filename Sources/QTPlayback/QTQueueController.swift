@@ -31,6 +31,9 @@ public struct QTPlaybackFailureEvent: Sendable, Hashable {
 /// Fetches more Autoplay tracks (InnerTube `next` radio, M3). Injected by the app; nil = no continuation.
 public typealias QTAutoplayContinuation = @MainActor (QTAutoplayRequest) async throws -> [QTTrack]
 
+/// The rest of a context that's still loading (an artist's full song list behind the top songs that start at once).
+public typealias QTContextRemainder = @MainActor () async -> [QTTrack]
+
 /// The single owner of the play queue and of "what plays next".
 ///
 /// Owns the `QTQueue` (Now Playing · Up Next · Autoplay), the playing context (for shuffle and Repeat All),
@@ -187,10 +190,11 @@ public final class QTQueueController {
     // MARK: Starting playback
 
     /// Plays `tracks[index]`; the playable rest of `tracks` continues as Autoplay from `source` (shuffled when
-    /// shuffle is on). Up Next is kept.
+    /// shuffle is on). Up Next is kept. `remainder` joins the context when it arrives (`extendContext`).
     /// `mode` nil = `preferredMode`.
     public func play(_ tracks: [QTTrack], startingAt index: Int = 0, source: QTQueueSource? = nil,
-                     startTime: TimeInterval = 0, autoplay: Bool = true, mode: QTPlaybackMode? = nil) async {
+                     startTime: TimeInterval = 0, autoplay: Bool = true, mode: QTPlaybackMode? = nil,
+                     remainder: QTContextRemainder? = nil) async {
         guard tracks.indices.contains(index), tracks[index].availability.isPlayable else { return }
         var items: [QTQueueItem] = []
         var current: QTQueueItem?
@@ -205,13 +209,14 @@ public final class QTQueueController {
         let rest = items.filter { $0.id != current.id }
         let after = Array(items.drop { $0.id != current.id }.dropFirst())
         queue.autoplay = isShuffleOn ? shuffled(rest, avoidingFirst: current.track.videoId) : after
+        extendContext(with: remainder)
         if let mode { preferredMode = mode }
         await loadCurrent(startTime: startTime, autoplay: autoplay, mode: preferredMode)
     }
 
     /// "Shuffle" on a playlist/album/artist, and "Shuffle entire library": turns shuffle on and starts from a
     /// random track.
-    public func shuffle(_ tracks: [QTTrack], source: QTQueueSource? = nil) async {
+    public func shuffle(_ tracks: [QTTrack], source: QTQueueSource? = nil, remainder: QTContextRemainder? = nil) async {
         let items = tracks.filter(\.availability.isPlayable).map { QTQueueItem(track: $0) }
         guard !items.isEmpty else { return }
         isShuffleOn = true
@@ -219,6 +224,7 @@ public final class QTQueueController {
         replaceContext(items, source: source)
         becomeCurrent(order[0], from: .autoplay)
         queue.autoplay = Array(order.dropFirst())
+        extendContext(with: remainder)
         await loadCurrent(startTime: 0, autoplay: true, mode: preferredMode)
     }
 
@@ -638,6 +644,35 @@ public final class QTQueueController {
         playSerial += 1
         origins[item.id] = section
         if section == .autoplay, let i = context.firstIndex(where: { $0.id == item.id }) { contextCursor = i }
+    }
+
+    /// Adds the rest of a loading context once it arrives: new tracks join the context's own part of Autoplay, ahead
+    /// of any radio continuation (in order, or scattered among the tracks still to come when shuffle is on). Dropped
+    /// when another context replaced this one meanwhile.
+    private func extendContext(with remainder: QTContextRemainder?) {
+        guard let remainder else { return }
+        let generation = contextGeneration
+        let own = context.count
+        Task { @MainActor [weak self] in
+            let tracks = await remainder()
+            guard let self, generation == contextGeneration else { return }
+            let base = min(own, context.count)
+            var seen = Set(context.map(\.track.videoId))
+            let items = tracks.filter { $0.availability.isPlayable && seen.insert($0.videoId).inserted }
+                .map { QTQueueItem(track: $0) }
+            guard !items.isEmpty else { return }
+            let radio = Set(context[base...].map(\.id))
+            let end = queue.autoplay.firstIndex { radio.contains($0.id) } ?? queue.autoplay.count
+            if isShuffleOn {
+                var spots = queue.autoplay[..<end]
+                for item in items { spots.insert(item, at: Int.random(in: 0...spots.count, using: &random)) }
+                queue.autoplay.replaceSubrange(..<end, with: spots)
+            } else {
+                queue.autoplay.insert(contentsOf: items, at: end)
+            }
+            context.insert(contentsOf: items, at: base)
+            scheduleSave()
+        }
     }
 
     private func replaceContext(_ items: [QTQueueItem], source: QTQueueSource?) {

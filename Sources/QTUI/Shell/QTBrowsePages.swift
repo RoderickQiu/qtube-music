@@ -1,5 +1,8 @@
+import OSLog
 import QTCore
 import QTInnerTube
+import QTLyrics
+import QTPlayback
 import SwiftUI
 
 // Owner: builder "window". The ONE set of browse pages of the content column, for the demo catalog and the live
@@ -515,12 +518,12 @@ struct QTArtistPageContent: View {
         .accessibilityIdentifier("qt.artist.header")
     }
 
-    /// Play / Shuffle the artist's songs (draft §7 "Shuffle works everywhere").
+    /// Play / Shuffle all the artist's songs (draft §7 "Shuffle works everywhere").
     private var actions: some View {
         let songs = page.songs
         return HStack(spacing: 10) {
             Button {
-                if let i = songs.firstIndex(where: \.availability.isPlayable) { QTTrackActions.play(songs, at: i, source: source) }
+                QTBrowseActions.playArtist(page)
             } label: {
                 Label(QTLoc.tr("Play"), systemImage: QTIcon.play.systemName)
             }
@@ -528,7 +531,7 @@ struct QTArtistPageContent: View {
             .accessibilityIdentifier("qt.artist.play")
             .disabled(!songs.contains(where: \.availability.isPlayable))
             Button {
-                QTTrackActions.shuffle(songs, source: source)
+                QTBrowseActions.playArtist(page, shuffled: true)
             } label: {
                 Label(QTLoc.tr("Shuffle"), systemImage: QTIcon.shuffle.systemName)
             }
@@ -578,6 +581,8 @@ struct QTArtistPageContent: View {
 /// Playing a browse item that may need its page first (an album card, a search top result).
 @MainActor
 enum QTBrowseActions {
+    private static let log = Logger(subsystem: "com.roderickqiu.qtube", category: "browse")
+
     static func playAlbum(_ album: QTAlbum, shuffled: Bool = false) {
         let source = QTQueueSource(kind: .album, id: album.id, title: .verbatim(album.title))
         if let tracks = album.tracks, !tracks.isEmpty { start(tracks, source: source, shuffled: shuffled); return }
@@ -588,11 +593,48 @@ enum QTBrowseActions {
     }
 
     static func playArtist(_ artist: QTArtist, shuffled: Bool = false) {
-        let source = QTQueueSource(kind: .artist, id: artist.id, title: .verbatim(artist.name))
         Task { @MainActor in
-            guard let songs = try? await QTBrowse.service.artist(artist.id)?.songs else { return }
-            start(songs, source: source, shuffled: shuffled)
+            guard let page = try? await QTBrowse.service.artist(artist.id) else { return }
+            playArtist(page, shuffled: shuffled)
         }
+    }
+
+    /// Play / Shuffle on an artist: the top songs start at once and the artist's full song list joins them once it
+    /// loads. Backing tracks (伴奏, instrumental, karaoke versions) are left out.
+    static func playArtist(_ page: QTArtistPage, shuffled: Bool = false, model: QTAppModel = .shared) {
+        let source = QTQueueSource(kind: .artist, id: page.artist.id, title: .verbatim(page.artist.name))
+        let top = withoutBackingTracks(page.songs).filter(\.availability.isPlayable)
+        guard !top.isEmpty else { return }
+        var remainder: QTContextRemainder?
+        let store = QTLiveCatalogStore.shared
+        if store.isLive, let id = page.songsPlaylistId {
+            remainder = {
+                await store.loadPlaylist(id)
+                let all = store.playlist(id)?.tracks ?? []
+                let kept = withoutBackingTracks(all)
+                log.debug("artist \(page.artist.id, privacy: .public): \(kept.count) songs, \(all.count - kept.count) backing tracks left out")
+                return kept
+            }
+        }
+        if shuffled { model.player.isShuffleOn = true }
+        Task {
+            if shuffled {
+                await model.player.shuffle(top, source: source, remainder: remainder)
+            } else {
+                await model.player.play(top, source: source, mode: .song, remainder: remainder)
+            }
+        }
+    }
+
+    /// The list without its backing-track versions ("冬眠 (伴奏)", "… (Instrumental)", "Off Vocal", karaoke), unless
+    /// that would leave nothing.
+    static func withoutBackingTracks(_ tracks: [QTTrack]) -> [QTTrack] {
+        let kept = tracks.filter { !isBackingTrack($0) }
+        return kept.isEmpty ? tracks : kept
+    }
+
+    static func isBackingTrack(_ track: QTTrack) -> Bool {
+        track.title.contains("伴奏") || !QTTitleCleaner.clean(track.title).tags.isDisjoint(with: [.instrumental, .karaoke])
     }
 
     static func playPlaylist(_ playlist: QTPlaylist, shuffled: Bool = false) {

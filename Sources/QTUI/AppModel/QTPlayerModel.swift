@@ -79,15 +79,18 @@ public final class QTPlayerModel {
 
     // MARK: Starting playback
 
-    /// Plays `tracks[index]`; the rest of the list continues as Autoplay from `source`.
+    /// Plays `tracks[index]`; the rest of the list continues as Autoplay from `source`, and `remainder` (the rest of a
+    /// list still loading) joins it when it arrives.
     public func play(_ tracks: [QTTrack], startingAt index: Int = 0, source: QTQueueSource? = nil,
-                     startTime: TimeInterval = 0, autoplay: Bool = true, mode: QTPlaybackMode? = nil) async {
-        await playback.play(tracks, startingAt: index, source: source, startTime: startTime, autoplay: autoplay, mode: mode)
+                     startTime: TimeInterval = 0, autoplay: Bool = true, mode: QTPlaybackMode? = nil,
+                     remainder: QTContextRemainder? = nil) async {
+        await playback.play(tracks, startingAt: index, source: source, startTime: startTime, autoplay: autoplay, mode: mode,
+                            remainder: remainder)
     }
 
     /// Shuffle a playlist/album/artist or the entire library: shuffle on, random first track.
-    public func shuffle(_ tracks: [QTTrack], source: QTQueueSource? = nil) async {
-        await playback.shuffle(tracks, source: source)
+    public func shuffle(_ tracks: [QTTrack], source: QTQueueSource? = nil, remainder: QTContextRemainder? = nil) async {
+        await playback.shuffle(tracks, source: source, remainder: remainder)
     }
 
     public func togglePlayPause() { playback.togglePlayPause() }

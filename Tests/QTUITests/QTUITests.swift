@@ -73,3 +73,22 @@ import Testing
         #expect(Set(QTWindowID.allCases.map(\.captureTitle)).count == QTWindowID.allCases.count)
     }
 }
+
+@MainActor
+@Suite struct ArtistPlayAllTests {
+    private func track(_ title: String) -> QTTrack {
+        QTTrack(videoId: title, title: title, artists: [QTArtistRef(name: "司南")], album: nil, duration: 200)
+    }
+
+    @Test func backingTracksAreLeftOut() {
+        let titles = ["冬眠", "冬眠 (伴奏)", "吹灭小山河（伴奏版）", "春三月 伴奏", "Karaoke", "Song (Instrumental)",
+                      "Song - Inst.", "Song (Off Vocal)", "Song (Karaoke Version)", "Song (Live)", "星星在唱歌 (官方女声版)"]
+        let kept = QTBrowseActions.withoutBackingTracks(titles.map(track)).map(\.title)
+        #expect(kept == ["冬眠", "Karaoke", "Song (Live)", "星星在唱歌 (官方女声版)"])
+    }
+
+    @Test func aListOfOnlyBackingTracksIsKept() {
+        let list = [track("A (伴奏)"), track("B (Instrumental)")]
+        #expect(QTBrowseActions.withoutBackingTracks(list) == list)
+    }
+}
