@@ -148,6 +148,9 @@ public struct QTDesktopLyricsView: View {
             }
         }
         .background(QTHoverTracking { isHovering = $0 })
+        // Unlocked, the whole overlay drags (the panel's movable background never sees a SwiftUI drag).
+        .contentShape(Rectangle())
+        .gesture(WindowDragGesture(), isEnabled: !prefs.isLocked)
         .environment(\.colorScheme, .dark)
         .animation(QTTheme.Motion.ui, value: prefs.isLocked)
         .accessibilityElement(children: .contain)
