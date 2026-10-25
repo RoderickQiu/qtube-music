@@ -74,12 +74,50 @@ final class QTTrackRowView: NSTableRowView {
         tracking = t
     }
 
-    override func mouseEntered(with event: NSEvent) { isHovered = true; needsDisplay = true }
-    override func mouseExited(with event: NSEvent) { isHovered = false; needsDisplay = true }
+    override func mouseEntered(with event: NSEvent) { Self.hover(self) }
+    override func mouseExited(with event: NSEvent) { if Self.hovered === self { Self.hover(nil) } }
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        if Self.hovered === self { Self.hover(nil) }
         isHovered = false
+    }
+
+    // Hover has one owner: AppKit drops a row's mouse-exited when the window loses key, when the list scrolls under a
+    // still pointer, or while a menu tracks, which left rows lit after the pointer had gone. At most one row is
+    // hovered; it's cleared when its window stops being key and rechecked against the pointer after a scroll.
+    private static weak var hovered: QTTrackRowView?
+    private static var observers: [NSObjectProtocol] = []
+
+    private static func hover(_ row: QTTrackRowView?) {
+        if hovered !== row { hovered?.isHovered = false }
+        hovered = row
+        row?.isHovered = true
+        guard observers.isEmpty else { return }
+        let center = NotificationCenter.default
+        observers = [
+            center.addObserver(forName: NSWindow.didResignKeyNotification, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { if hovered?.window?.isKeyWindow != true { hover(nil) } }
+            },
+            center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { hover(nil) }
+            },
+            center.addObserver(forName: NSView.boundsDidChangeNotification, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { recheckHover() }
+            },
+        ]
+    }
+
+    /// After a scroll: the hover moves to the row now under the pointer (none when it's outside the list).
+    private static func recheckHover() {
+        guard let row = hovered else { return }
+        guard let table = row.superview as? NSTableView, let window = table.window, window.isKeyWindow else {
+            hover(nil)
+            return
+        }
+        let point = table.convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        let index = table.visibleRect.contains(point) ? table.row(at: point) : -1
+        hover(index < 0 ? nil : table.rowView(atRow: index, makeIfNecessary: false) as? QTTrackRowView)
     }
 }
 
