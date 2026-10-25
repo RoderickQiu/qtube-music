@@ -102,8 +102,14 @@ public struct QTQueueList: View {
 
         switch style {
         case .panel:
-            // Rows scroll under the footer's bar material, like Music's queue.
-            list.safeAreaInset(edge: .bottom, spacing: 0) { footer }
+            // Rows scroll under the footer's bar material, like Music's queue. The docked panel runs under the
+            // window's floating player bar (an inspector column gets no safe-area inset from it), so the footer —
+            // and with it the last rows and the scroller — stops above the bar.
+            list.safeAreaInset(edge: .bottom, spacing: 0) {
+                footer
+                    .padding(.bottom, QTTheme.Metrics.playerBarHeight + QTTheme.Metrics.playerBarInset)
+                    .background(.bar)
+            }
         case .stageDrawer:
             // The footer sits on the drawer's glass with no fill of its own, so it goes below the list rather
             // than over it (rows must not show through).
@@ -132,8 +138,10 @@ public struct QTQueueList: View {
                     saveAsPlaylist(tracks)
                 } label: {
                     Label(QTLoc.tr("Save Queue as Playlist", table: .player), systemImage: "text.badge.plus")
+                        .lineLimit(1)
                 }
                 .buttonStyle(.borderless)
+                .layoutPriority(1)
                 .disabled(tracks.isEmpty)
                 .accessibilityIdentifier("qt.player.queue.save")
                 Spacer(minLength: 0)
@@ -146,7 +154,6 @@ public struct QTQueueList: View {
             .padding(.horizontal, 20)
             .frame(height: 40)
         }
-        .background(style == .panel ? AnyShapeStyle(.bar) : AnyShapeStyle(.clear))
     }
 
     @ViewBuilder
