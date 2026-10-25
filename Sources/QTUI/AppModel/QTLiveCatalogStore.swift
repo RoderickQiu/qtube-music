@@ -161,6 +161,11 @@ public final class QTLiveCatalogStore {
     /// Writes YouTube confirmed while a playlist's later pages were still loading, merged into each page as it
     /// arrives (`loadPlaylist`): rows added at the end, entry ids removed.
     @ObservationIgnored private var pagingConfirmed: [String: (added: [QTTrack], removed: Set<String>)] = [:]
+    /// Playlists YouTube made at the user's request, and when. For a second or two its library list leaves a new
+    /// one out and its page reads as nothing, so it stays in the sidebar until the list has it (or a while has
+    /// passed) and its page is asked again.
+    @ObservationIgnored private var freshlyMade: [String: Date] = [:]
+    static let freshPlaylistGrace: TimeInterval = 600
 
     /// UserDefaults key earlier builds set when the user picked "Use Demo Library" on the signed-out screen. Guest
     /// mode replaced the demo library; the key is removed at launch and never read.
@@ -617,7 +622,7 @@ public final class QTLiveCatalogStore {
         songsPhase = .idle; librarySongs = []; albumsPhase = .idle; libraryAlbums = []
         artistsPhase = .idle; libraryArtists = []
         uploads = .empty; uploadPhases = [:]
-        otherPlaylists = [:]; playlistPhases = [:]; reportedTrackCounts = [:]; albumPages = [:]; albumPhases = [:]
+        otherPlaylists = [:]; playlistPhases = [:]; reportedTrackCounts = [:]; freshlyMade = [:]; albumPages = [:]; albumPhases = [:]
         artistPages = [:]; artistPhases = [:]; explore = nil; explorePhase = .idle
         exploreSections = [:]; exploreSectionPhases = [:]; moodsPage = nil
         searchResults = [:]; searchPhases = [:]; resolvedKeys = [:]
@@ -757,10 +762,14 @@ public final class QTLiveCatalogStore {
                 // The account's own playlists name it as their owner (a hint until a page or YouTube's
                 // add-to-playlist list says for sure).
                 let me = Set([auth.account?.name, auth.account?.handle].compactMap { $0 }.filter { !$0.isEmpty })
+                let listed = Set(lists.map(\.id))
+                freshlyMade = freshlyMade.filter { !listed.contains($0.key) && -$0.value.timeIntervalSinceNow < Self.freshPlaylistGrace }
                 updateCatalog { c in
                     // Keep tracks (and what pages said) of playlists already opened.
                     let opened = Dictionary(c.playlists.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-                    c.playlists = lists.map { p in
+                    // Made moments ago and not listed yet: kept at the top, as made.
+                    let fresh = c.playlists.filter { freshlyMade[$0.id] != nil }
+                    c.playlists = fresh + lists.map { p in
                         var p = p
                         if let known = opened[p.id] {
                             if p.tracks == nil { p.tracks = known.tracks }
@@ -926,7 +935,7 @@ public final class QTLiveCatalogStore {
             do {
                 let first: QTPlaylistPage
                 do {
-                    first = try await client.playlist(id)
+                    first = try await firstPage(id)
                 } catch {
                     // Radios and mixes ("RD…") have no browse page: their tracks come from `next`.
                     guard known?.kind == .mix || id.hasPrefix("VLRD") || id.hasPrefix("RD") else { throw error }
@@ -966,6 +975,23 @@ public final class QTLiveCatalogStore {
                 remember(tracks)
             } catch {
                 playlistPhases[id] = .failure(error)
+            }
+        }
+    }
+
+    /// A playlist's first page. One made moments ago may not be served yet, so it is asked again a few times
+    /// (1, 2, then 4 s apart) before the page says it couldn't load.
+    private func firstPage(_ id: String) async throws -> QTPlaylistPage {
+        var delay: Double = 1
+        while true {
+            do {
+                return try await client.playlist(id)
+            } catch {
+                guard let made = freshlyMade[id], -made.timeIntervalSinceNow < Self.freshPlaylistGrace, delay <= 4 else {
+                    throw error
+                }
+                try await Task.sleep(for: .seconds(delay))
+                delay *= 2
             }
         }
     }
@@ -1055,6 +1081,7 @@ public final class QTLiveCatalogStore {
     }
 
     func confirmDelete(_ id: String) {
+        freshlyMade[id] = nil
         updateCatalog { $0.playlists.removeAll { $0.id == id } }
         otherPlaylists[id] = nil
         playlistPhases[id] = nil
@@ -1071,6 +1098,7 @@ public final class QTLiveCatalogStore {
             c.playlists.insert(p, at: 0)
         }
         playlistPhases[p.id] = .idle
+        freshlyMade[p.id] = Date()
         QTNavigator.shared.replacePlaylist(placeholder, with: p.id)
         Task { await loadLibraryPlaylists(force: true) }
     }

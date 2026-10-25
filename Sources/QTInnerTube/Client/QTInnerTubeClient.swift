@@ -458,6 +458,8 @@ public actor QTInnerTubeClient {
         let json = try await browse(browseId, ttl: browseId == QTInnerTube.likedSongsBrowseId ? QTCacheTTL.library
                                         : QTCacheTTL.playlist)
         guard let page = QTInnerTubeParser.playlist(json, browseId: browseId) else {
+            // An unreadable answer isn't kept: a playlist made moments ago reads as nothing for a second or two.
+            cache.removeAll { $0.contains(browseId) }
             throw QTInnerTubeError.parse("playlist")
         }
         return page

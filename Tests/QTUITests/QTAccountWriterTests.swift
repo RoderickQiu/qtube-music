@@ -371,6 +371,40 @@ import WebKit
         #expect(h.edits.playlists(h.model.catalog.playlists).map(\.id).first == "VLPLcreated")
     }
 
+    /// The library's playlists as `FEmusic_liked_playlists` answers (grid of two-row items).
+    static func libraryPage(_ playlists: [(id: String, title: String)]) -> Data {
+        let items = playlists.map { p in
+            #"{"musicTwoRowItemRenderer":{"title":{"runs":[{"text":"\#(p.title)"}]},"navigationEndpoint":{"browseEndpoint":{"browseId":"\#(p.id)","browseEndpointContextSupportedConfigs":{"browseEndpointContextMusicConfig":{"pageType":"MUSIC_PAGE_TYPE_PLAYLIST"}}}}}}"#
+        }.joined(separator: ",")
+        return Data(#"{"contents":{"singleColumnBrowseResultsRenderer":{"tabs":[{"tabRenderer":{"content":{"sectionListRenderer":{"contents":[{"gridRenderer":{"items":[\#(items)]}}]}}}}]}}}"#.utf8)
+    }
+
+    @Test func aNewPlaylistStaysWhileYouTubeCatchesUp() async throws {
+        let h = try await Self.makeHarness()
+        // Moments after the create, YouTube's library list leaves the new playlist out and its page reads as nothing.
+        h.transport.enqueue("/browse", .init(body: Self.libraryPage([("VLPLowned", "Owned")])))
+        h.writer.create(title: "Queue · Oct 24", description: "", privacy: .private, tracks: [Self.newSong], opens: false)
+        await h.writer.idle()
+        await Self.waitUntil("library reload") { h.store.libraryPhase == .loaded }
+        #expect(h.model.catalog.playlists.map(\.id) == ["VLPLcreated", "VLPLowned"], "kept at the top")
+
+        h.transport.enqueue("/browse", .init(body: Data("{}".utf8)))
+        h.transport.enqueue("/browse", .init(body: Self.fixture("handbuilt-playlist-owned")))
+        await h.store.loadPlaylist("VLPLcreated")
+        #expect(h.store.playlistPhase("VLPLcreated") == .loaded, "its page is asked again")
+        #expect(h.store.playlist("VLPLcreated")?.tracks?.isEmpty == false)
+
+        // Listed: nothing holds it any more, so a list without it (deleted elsewhere) drops it.
+        h.transport.enqueue("/browse", .init(body: Self.libraryPage([("VLPLcreated", "Queue · Oct 24"), ("VLPLowned", "Owned")])))
+        await h.store.client.clearCache()
+        await h.store.loadLibraryPlaylists(force: true)
+        #expect(h.model.catalog.playlists.map(\.id) == ["VLPLcreated", "VLPLowned"])
+        h.transport.enqueue("/browse", .init(body: Self.libraryPage([("VLPLowned", "Owned")])))
+        await h.store.client.clearCache()
+        await h.store.loadLibraryPlaylists(force: true)
+        #expect(h.model.catalog.playlists.map(\.id) == ["VLPLowned"])
+    }
+
     @Test func renameAndDelete() async throws {
         let h = try await Self.makeHarness()
         await h.store.loadPlaylist("VLPLowned")

@@ -18,6 +18,8 @@ Whole artists, your own lyrics, and fixes.
   you switched to another app.
 - **The end of the queue is reachable.** Its last songs and Save Queue as Playlist no longer sit under the player
   bar.
+- **New playlists stay.** A playlist you make (New Playlist or Save Queue as Playlist) no longer disappears from the
+  sidebar a moment later, and its page opens instead of saying it couldn't load.
 
 ## 0.2.0
 
