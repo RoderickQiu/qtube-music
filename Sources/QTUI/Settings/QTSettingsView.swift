@@ -153,6 +153,7 @@ struct QTGeneralSettings: View {
                     Text(QTLoc.tr("Quit QTube Music", table: .desktop)).tag(false)
                 }
             }
+            QTUpdateSettingsSection()
         }
         .formStyle(.grouped)
     }

@@ -3,6 +3,14 @@
 All notable changes to QTube Music. Versions follow [Semantic Versioning](https://semver.org); `Scripts/release.sh`
 uses the section for a version as its release notes.
 
+## Unreleased
+
+- **Automatic updates.** QTube Music now checks for new versions once a day and shows what's new, with Install
+  Update right there. QTube Music › Check for Updates… checks at once. Settings › General › Updates has the current
+  version, when it last checked, and an option to download and install updates in the background (they're applied
+  when you quit). Every update is verified against the project's signing key before it's installed. This is the
+  last version you need to download by hand.
+
 ## 0.3.0
 
 Whole artists, your own lyrics, and fixes.

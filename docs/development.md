@@ -108,7 +108,7 @@ All modules are SwiftPM targets. Ownership, frozen APIs, the privacy audit and t
 | `QTLyrics` | Lyrics: providers (YouTube Music, LRCLIB, AMLL; opt-in NetEase, Kugou and QQ), LRC/YRC/QRC/KRC/TTML parsers, matcher, SQLite cache, translation engines. |
 | `QTIntegrations` | Last.fm, ListenBrainz and Discord Rich Presence, all off by default. |
 | `QTUI` | SwiftUI and AppKit: window, library tables, inspector, player bar, Stage, karaoke renderer, mini player, menu bar, desktop lyrics, Settings. |
-| `QTubeMusicApp` | `@main` app, menus, App Intents, AppleScript, Sparkle (dormant). |
+| `QTubeMusicApp` | `@main` app, menus, App Intents, AppleScript, Sparkle updates (`QTUpdater`). |
 | `QTPlaybackLab`, `QTDevSession`, `QTNativeSpike` | Dev-only executables. |
 
 ## Status
@@ -122,7 +122,7 @@ The milestones follow the build plan. The spec's §13 groups the same work sligh
 | **M3** | Real library: Home, Liked, playlists, library, Explore, search, album and artist pages; sign-in | Done with the imported dev session, read-only. The in-app Google login is built but not yet tested by the owner (see below). |
 | **M4** | Web engine, queue, Now Playing, ads, errors, offline recovery | Done. Latest signed-in Premium acceptance run (R5): all 20 checks passed. 10 of 10 tracks in a row, no stall and no ads; exactly one Now Playing entry with none from WebKit, elapsed drift ≤ 0.26 s; system remote commands worked; the queue survived a relaunch; page media volume 0. CPU playing: app 0.7 %, WebContent 2.4 %; paused: app 0.25 %, WebContent 0.05 %. A song that ends or fails during a Song⇄Video switch still advances or skips the queue (covered by `ModeSwitchTests`). With ads (anonymous / free pages) the countdown runs through a whole pod (skippable ones offer Skip) and hands back to the song; an ad that stops counting reloads the item once (R6, `QTBridgeAdTests`). |
 | **M5** | Song⇄Video at the same position, PiP, native-engine spike | Song⇄Video and PiP are done. On Premium and signed-out pages the switch is seamless: the other version preloads on a muted standby page and crossfades in, with offset ≤ 0.07 s and a hand-over of 1.3–1.9 s in the lab (about 2.4 s signed in). Signed-in free accounts switch inside the page instead, so a hidden standby never plays an ad or reports an extra play. When the video is another cut than the song (the hero's MV is 5:39 against a 4:17 song), the lyrics are looked up again for the video's own length; without a version for that cut they show unsynced, never drifting. When both timings line up at one shift, the switch carries the position across it (R6). The native engine is a spike only and needs a decision (below). |
-| **M6** | Lyric translation (Translation framework and Apple Intelligence), Last.fm, Discord, Sparkle, App Intents, AppleScript | Built. On-device translation is shown in `r4-acceptance-translate-{en,ko}`. A missing language model shows a quiet "Translate to English" cue under the lyrics; clicking it opens the system's download sheet. Chinese→English (Simplified) and English were downloaded on this Mac in R6 (`r6-lyrics-zh-translated`); Traditional lyrics reuse the Simplified model. Pinyin shows only without a translation line unless Pronunciation is switched on in the lyrics options. The Apple Intelligence path has not run on this Mac (below). Last.fm and Discord work only with the user's own credentials. Sparkle is linked but dormant. |
+| **M6** | Lyric translation (Translation framework and Apple Intelligence), Last.fm, Discord, Sparkle, App Intents, AppleScript | Built. On-device translation is shown in `r4-acceptance-translate-{en,ko}`. A missing language model shows a quiet "Translate to English" cue under the lyrics; clicking it opens the system's download sheet. Chinese→English (Simplified) and English were downloaded on this Mac in R6 (`r6-lyrics-zh-translated`); Traditional lyrics reuse the Simplified model. Pinyin shows only without a translation line unless Pronunciation is switched on in the lyrics options. The Apple Intelligence path has not run on this Mac (below). Last.fm and Discord work only with the user's own credentials. Sparkle updates are on from 0.4.0 (architecture.md › Updates). |
 
 **CPU** (spec §9 budgets; `docs/perf.md`, after the R6 integration, 30 s each, debug build; the video row is from R4):
 
@@ -163,9 +163,10 @@ None of these has been done. Each one needs the owner's yes.
    them on this Mac. Still open: one signed-in run against a real account. Every write path is tested only against
    hand-built fixtures (shapes from ytmusicapi / Kaset), and the brand switch's `DATASYNC_ID` check against a fake
    switcher.
-8. **Developer ID, notarization and a Sparkle feed.** Builds are ad-hoc signed, and Sparkle has no `SUFeedURL` or
-   EdDSA key, so Check for Updates… is disabled. A Developer ID / Team ID build would also give dev builds a
-   stable Keychain partition.
+8. **Developer ID and notarization.** Builds are ad-hoc signed, so the first launch needs Open Anyway and, after
+   each update, macOS asks once before the new build may read the saved session (the Keychain keys an item's access
+   to the cdhash unless an Apple-issued team ID signs the app; a self-signed certificate doesn't help, checked
+   2026-11-01). A Developer ID ends both and would also give dev builds a stable Keychain partition.
 
 ## Licenses and attribution
 

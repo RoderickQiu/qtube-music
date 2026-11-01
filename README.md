@@ -82,8 +82,10 @@ silicon).
    xattr -dr com.apple.quarantine "/Applications/QTube Music.app"
    ```
 
-There are no automatic updates yet. To update, download the new version and replace the app. After an update,
-macOS may ask once whether QTube Music can use its Keychain item. Click **Always Allow** so you stay signed in.
+From 0.4.0 the app updates itself: it checks once a day and shows what's new (**QTube Music › Check for
+Updates…** checks now; Settings › General › Updates can install updates in the background). Updates are verified
+with the release's signing key. Coming from 0.3.0 or earlier, download 0.4.0 once by hand. After each update, macOS
+may ask once whether QTube Music can use its Keychain item. Click **Always Allow** so you stay signed in.
 
 ## Sign-in and privacy
 
@@ -108,6 +110,8 @@ macOS may ask once whether QTube Music can use its Keychain item. Click **Always
   change at a time. Turn off **Settings › Account › Sync likes and playlists to YouTube Music** to keep them on this
   Mac only. Brand accounts (channels) can be switched in Settings › Account or the Account menu.
 - **No analytics.** No tracking, no telemetry, no crash reporting service. Translation runs on your Mac.
+- **Update checks.** Once a day the app downloads a small update feed from this repository's GitHub Releases. It
+  sends no system profile, and Settings › General › Updates turns the checks off.
 
 <img src="docs/images/lyrics.jpg" width="400" alt="Lyrics options: a Traditional Chinese song shown in Simplified characters">
 

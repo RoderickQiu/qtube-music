@@ -1220,11 +1220,29 @@ and **Open GitHub Issue…** (⌘↩). The app never sends anything: the browser
 
 ## Updates (Sparkle)
 
-Sparkle 2 is linked (app target only) and embedded, but **dormant** until there is a Developer ID: Info.plist has no
-`SUFeedURL` and no `SUPublicEDKey`; `SUEnableAutomaticChecks` / `SUAutomaticallyUpdate` / `SUAllowsAutomaticUpdates`
-are NO; `QTUpdater` never starts the updater without a feed, and the app menu's **Check for Updates…** stays
-disabled. Without an EdDSA key Sparkle would refuse unsigned updates anyway. Turning it on (user-gated): Developer ID
-signing + notarization, an appcast URL in `SUFeedURL`, `SUPublicEDKey` from Sparkle's `generate_keys`, signed archives.
+Sparkle 2 (app target only, embedded in Contents/Frameworks), on from 0.4.0. Builds are still ad-hoc signed: Sparkle
+trusts an update by its EdDSA signature, not by Apple code signing.
+
+- **Feed:** release builds of the main app (`QT_CONFIG=release`, no variant) carry `SUFeedURL` =
+  `https://github.com/RoderickQiu/qtube-music/releases/latest/download/appcast.xml`, so the feed is whatever release
+  GitHub marks Latest. Dev builds and variants have no feed (`QT_FEED_URL` sets one for a local update test), so
+  `QTUpdater` never starts there: **Check for Updates…** stays disabled and Settings › General › Updates is hidden.
+- **Signing:** `SUPublicEDKey` is in `Scripts/build-app.sh`; the private key is in the login keychain under the
+  account `qtube-music` (`.build/artifacts/sparkle/Sparkle/bin/generate_keys --account qtube-music`). Back it up
+  with `-x <file>`; losing it means installed copies can never update again (key rotation needs a Developer ID).
+  `SURequireSignedFeed` (the appcast is signed too) and `SUVerifyUpdateBeforeExtraction` are on.
+- **Release:** `Scripts/release.sh` runs `generate_appcast` over the release zip with the CHANGELOG section as
+  Markdown release notes, checks the keychain key matches the app's, and uploads `appcast.xml` with the release.
+- **Behaviour:** checks daily, from the first launch (no permission prompt; `SUEnableSystemProfiling` off, so the
+  request carries no system profile). A found update shows Sparkle's window with the notes; "Download and install
+  updates automatically" (off by default) installs in the background when the app quits. Settings › General ›
+  Updates (`QTUpdateSettings` in QTUI; `QTUpdater` attaches as its `QTUpdateBackend`) shows the version, the last
+  check, both toggles and Check Now.
+- **Keychain:** an ad-hoc build's Keychain access is keyed to its cdhash, so the first launch after each update asks
+  once (Always Allow) before it can read the saved session; Deny leaves the app signed out. Only a Developer ID
+  (Apple-issued team ID) removes that prompt; a self-signed certificate doesn't.
+- **Tested 2026-11-01:** an older test build in /Applications found a newer one on a local signed feed, downloaded
+  and verified it, and replaced itself on quit (no App Management prompt, no quarantine on the new copy).
 
 ## Rules for every builder
 

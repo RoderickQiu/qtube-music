@@ -2,14 +2,16 @@
 # Build, check and package a QTube Music release; publish it to GitHub only when asked.
 #
 #   Scripts/release.sh 0.1.0               → dry run: everything local (tests, universal release build, bundle checks,
-#                                            .dmg + .zip + SHA-256 sums in .build/release/0.1.0/, release notes from
+#                                            .dmg + .zip + SHA-256 sums + the signed Sparkle appcast.xml in
+#                                            .build/release/0.1.0/, release notes from
 #                                            CHANGELOG.md, local commit "Release 0.1.0" + tag v0.1.0). Nothing leaves
 #                                            the machine.
 #   Scripts/release.sh 0.1.0 --publish     → the same if it hasn't run yet (or reuses its artifacts when tag v0.1.0
 #                                            and .build/release/0.1.0/ already exist), then: creates the public repo
 #                                            RoderickQiu/qtube-music if there is no `origin` (asks you to type
 #                                            "publish" first), pushes main and the tag, and creates the GitHub Release
-#                                            with the .dmg, .zip and sums.
+#                                            with the .dmg, .zip, sums and appcast.xml. Installed copies find the
+#                                            update through releases/latest/download/appcast.xml.
 #
 # Options:
 #   --no-commit      package without committing, tagging or keeping the VERSION bump (for trying the script out)
@@ -18,14 +20,18 @@
 #   --developer-id   not available yet: prints what signing with a Developer ID needs, and stops
 #
 # Test-only environment (refused with --publish): QT_RELEASE_ANY_BRANCH=1 (run from a branch other than main),
-# QT_RELEASE_ALLOW_MOCK=1 (don't fail on the demo catalog in the bundle — for trying the script before guest mode).
+# QT_RELEASE_ALLOW_MOCK=1 (don't fail on the demo catalog in the bundle — for trying the script before guest mode),
+# QT_FEED_URL=<url> and QT_FEED_DOWNLOAD_PREFIX=<url/> (another appcast URL baked into the app and another download
+# location in the appcast, for an end-to-end update test against a local feed).
 #
 # Before running: write the version's section in CHANGELOG.md ("## 0.1.0") and commit it; be on main with a clean
 # tree. Needs Xcode 27, and `gh` signed in for --publish.
 #
 # Signing: builds are ad-hoc signed (no Apple Developer ID yet), so users open the app once through System Settings ›
-# Privacy & Security › Open Anyway (README › Install). Sparkle stays dormant: no SUFeedURL / SUPublicEDKey, automatic
-# checks off — an ad-hoc app can't be updated safely. See `--developer-id` for the switch-over.
+# Privacy & Security › Open Anyway (README › Install), and after each update macOS asks once before the new build may
+# read the saved session from the Keychain. Updates come through Sparkle: the zip and the appcast are EdDSA-signed
+# with the key in the login keychain (account "qtube-music"; Sparkle's generate_keys). See `--developer-id` for the
+# switch-over.
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 
@@ -54,11 +60,9 @@ Developer ID signing isn't set up yet. To switch over:
        xcrun notarytool store-credentials qtube --apple-id <id> --team-id <TEAMID>
        xcrun notarytool submit "QTube-Music-<v>.dmg" --keychain-profile qtube --wait
        xcrun stapler staple "QTube-Music-<v>.dmg"
-  4. Turn Sparkle on: generate an EdDSA key with Sparkle's generate_keys, put SUPublicEDKey and
-     SUFeedURL (https://github.com/RoderickQiu/qtube-music/releases/latest/download/appcast.xml) in Info.plist,
-     set SUEnableAutomaticChecks to true, and add an appcast step here (Sparkle's generate_appcast over
-     .build/release/<v>/, uploaded with the release).
-  5. Drop the "Open Anyway" step from README › Install.
+  4. Keep the same EdDSA key (SUPublicEDKey) so installed copies accept the first Developer ID build. From then on
+     the Keychain item's access follows the team ID, so updates stop asking for the saved session.
+  5. Drop the "Open Anyway" step from README › Install and the release notes.
 EOF
       exit 2 ;;
     -h|--help) usage ;;
@@ -71,8 +75,9 @@ done
 (( PUBLISH == 0 || TESTS == 1 )) || { echo "error: --publish always runs the tests" >&2; exit 2; }
 (( PUBLISH == 0 || COMMIT == 1 )) || { echo "error: --publish needs the release commit and tag" >&2; exit 2; }
 ANY_BRANCH="${QT_RELEASE_ANY_BRANCH:-0}"; ALLOW_MOCK="${QT_RELEASE_ALLOW_MOCK:-0}"
-if (( PUBLISH == 1 )) && [[ "$ANY_BRANCH" == 1 || "$ALLOW_MOCK" == 1 ]]; then
-  echo "error: QT_RELEASE_ANY_BRANCH / QT_RELEASE_ALLOW_MOCK are for local tries only, not with --publish" >&2; exit 2
+if (( PUBLISH == 1 )) && [[ "$ANY_BRANCH" == 1 || "$ALLOW_MOCK" == 1 || -n "${QT_FEED_URL:-}${QT_FEED_DOWNLOAD_PREFIX:-}" ]]; then
+  echo "error: QT_RELEASE_ANY_BRANCH / QT_RELEASE_ALLOW_MOCK / QT_FEED_URL / QT_FEED_DOWNLOAD_PREFIX are for local tries only, not with --publish" >&2
+  exit 2
 fi
 
 cd "$QT_REPO"
@@ -81,6 +86,10 @@ OUT="$QT_REPO/.build/release/$VERSION"
 DMG="$OUT/QTube-Music-$VERSION.dmg"
 ZIP="$OUT/QTube-Music-$VERSION.zip"
 SUMS="$OUT/SHA256SUMS.txt"
+APPCAST="$OUT/appcast.xml"
+SPARKLE_BIN="$QT_REPO/.build/artifacts/sparkle/Sparkle/bin"
+SPARKLE_ACCOUNT="qtube-music"
+FEED_URL="${QT_FEED_URL:-https://github.com/$REPO_SLUG/releases/latest/download/appcast.xml}"
 NOTES="$OUT/RELEASE_NOTES.md"
 APP="$QT_REPO/.build/apps/$APP_NAME.app"
 
@@ -91,7 +100,7 @@ fail() { echo "error: $*" >&2; exit 1; }
 
 ALREADY_BUILT=0
 if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
-  if (( PUBLISH == 1 )) && [[ -f "$DMG" && -f "$ZIP" && -f "$SUMS" && -f "$NOTES" ]]; then
+  if (( PUBLISH == 1 )) && [[ -f "$DMG" && -f "$ZIP" && -f "$SUMS" && -f "$NOTES" && -f "$APPCAST" ]]; then
     ALREADY_BUILT=1
     step "Tag $TAG and its artifacts exist; publishing them"
     (cd "$OUT" && shasum -a 256 -c "$SUMS") || fail "artifacts in $OUT don't match SHA256SUMS.txt; rebuild"
@@ -109,6 +118,11 @@ if (( ALREADY_BUILT == 0 )); then
   [[ -z "$(git status --porcelain)" ]] || fail "the working tree isn't clean; commit or stash first"
   grep -q "^## $VERSION\$" CHANGELOG.md || fail "CHANGELOG.md has no '## $VERSION' section"
   [[ -f LICENSE && -f THIRD_PARTY_NOTICES.md ]] || fail "LICENSE or THIRD_PARTY_NOTICES.md missing"
+  [[ -x "$SPARKLE_BIN/generate_appcast" ]] || fail "Sparkle's tools are missing from $SPARKLE_BIN (run swift package resolve)"
+  ED_PUBLIC="$("$SPARKLE_BIN/generate_keys" --account "$SPARKLE_ACCOUNT" -p 2>/dev/null)" \
+    || fail "no Sparkle EdDSA key for account $SPARKLE_ACCOUNT in the login keychain (import the backup: generate_keys --account $SPARKLE_ACCOUNT -f <file>)"
+  grep -qF "SPARKLE_PUBLIC_KEY=\"$ED_PUBLIC\"" Scripts/build-app.sh \
+    || fail "the keychain's EdDSA public key ($ED_PUBLIC) isn't the one in Scripts/build-app.sh; updates would be refused"
 
   if (( TESTS == 1 )); then
     step "Running the tests"
@@ -128,7 +142,7 @@ if (( ALREADY_BUILT == 0 )); then
   ARCHS="arm64"; KIND="release, arm64"
   if (( UNIVERSAL == 1 )); then ARCHS="arm64 x86_64"; KIND="release, universal"; fi
   step "Building $APP_NAME $VERSION ($KIND)"
-  QT_VARIANT="" QT_CONFIG=release QT_ARCHS="$ARCHS" QT_SCRATCH="$QT_REPO/.build/release-scratch" \
+  QT_VARIANT="" QT_CONFIG=release QT_ARCHS="$ARCHS" QT_SCRATCH="$QT_REPO/.build/release-scratch" QT_FEED_URL="$FEED_URL" \
     "$QT_REPO/Scripts/build-app.sh" >"$QT_REPO/.build/release-build.log" 2>&1 \
     || { tail -30 "$QT_REPO/.build/release-build.log" >&2; fail "build failed (log: .build/release-build.log)"; }
   # build-app.sh warnings that mean an incomplete bundle (Shortcuts actions, updates framework, icon, strings).
@@ -147,6 +161,8 @@ if (( ALREADY_BUILT == 0 )); then
   [[ "$(plist CFBundleShortVersionString)" == "$VERSION" ]] || fail "Info.plist version isn't $VERSION"
   [[ "$(plist CFBundleIdentifier)" == "com.roderickqiu.qtube" ]] || fail "bundle id isn't com.roderickqiu.qtube"
   codesign --verify --deep --strict "$APP" || fail "codesign --verify failed"
+  [[ "$(plist SUFeedURL)" == "$FEED_URL" ]] || fail "Info.plist SUFeedURL isn't $FEED_URL"
+  [[ "$(plist SUPublicEDKey)" == "$ED_PUBLIC" ]] || fail "Info.plist SUPublicEDKey doesn't match the signing key"
   for a in $ARCHS; do
     lipo -archs "$EXE" | tr ' ' '\n' | grep -qx "$a" || fail "the executable has no $a slice"
   done
@@ -190,6 +206,21 @@ if (( ALREADY_BUILT == 0 )); then
   ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
   (cd "$OUT" && shasum -a 256 "$(basename "$DMG")" "$(basename "$ZIP")") > "$SUMS"
 
+  # Sparkle appcast: one item (this version) pointing at the release's zip, EdDSA-signed along with the feed itself
+  # (SURequireSignedFeed). Release notes are the CHANGELOG section, embedded as Markdown.
+  FEED_DIR="$(mktemp -d -t qtappcast)"
+  cp "$ZIP" "$FEED_DIR/"
+  awk -v v="## $VERSION" '$0 == v {on = 1; next} on && /^## / {exit} on' CHANGELOG.md | sed -e '/./,$!d' \
+    > "$FEED_DIR/$(basename "$ZIP" .zip).md"
+  "$SPARKLE_BIN/generate_appcast" --account "$SPARKLE_ACCOUNT" --embed-release-notes \
+    --download-url-prefix "${QT_FEED_DOWNLOAD_PREFIX:-https://github.com/$REPO_SLUG/releases/download/$TAG/}" \
+    --link "https://github.com/$REPO_SLUG" -o "$FEED_DIR/appcast.xml" "$FEED_DIR" >/dev/null \
+    || fail "generate_appcast failed"
+  cp "$FEED_DIR/appcast.xml" "$APPCAST"
+  rm -rf "$FEED_DIR"
+  grep -q 'sparkle:edSignature=' "$APPCAST" || fail "the appcast item has no EdDSA signature"
+  grep -q "<sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>" "$APPCAST" || fail "the appcast isn't for $VERSION"
+
   # Release notes: the CHANGELOG section, plus how to open an unsigned app.
   {
     awk -v v="## $VERSION" '$0 == v {on = 1; next} on && /^## / {exit} on' CHANGELOG.md | sed -e '/./,$!d'
@@ -200,7 +231,8 @@ if (( ALREADY_BUILT == 0 )); then
 Requires macOS 15 or later ($( (( UNIVERSAL == 1 )) && echo "Apple silicon and Intel" || echo "Apple silicon")).
 Download \`$(basename "$DMG")\`, open it and drag **$APP_NAME** to Applications. The app isn't notarized: the first
 time, open **System Settings › Privacy & Security** and click **Open Anyway** (or run
-\`xattr -dr com.apple.quarantine "/Applications/$APP_NAME.app"\`).
+\`xattr -dr com.apple.quarantine "/Applications/$APP_NAME.app"\`). After that, the app updates itself
+(**QTube Music › Check for Updates…**).
 
 SHA-256:
 \`\`\`
@@ -257,5 +289,5 @@ git push origin "$TAG"
 # website never names a version.
 LATEST_DMG="$(dirname "$DMG")/QTube-Music.dmg"
 cp "$DMG" "$LATEST_DMG"
-gh release create "$TAG" "$DMG" "$LATEST_DMG" "$ZIP" "$SUMS" --repo "$REPO_SLUG" --title "$APP_NAME $VERSION" --notes-file "$NOTES"
+gh release create "$TAG" "$DMG" "$LATEST_DMG" "$ZIP" "$SUMS" "$APPCAST" --repo "$REPO_SLUG" --title "$APP_NAME $VERSION" --notes-file "$NOTES"
 echo "Published: https://github.com/$REPO_SLUG/releases/tag/$TAG"

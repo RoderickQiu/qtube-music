@@ -68,19 +68,32 @@ import Testing
     }
 }
 
-/// Sparkle stays dormant until the user turns updates on (signing + an appcast, user-gated): the bundle has no feed
-/// or key and no automatic checks, and `QTUpdater` never starts an updater without a feed.
-@Suite struct QTUpdaterDormancyTests {
-    @Test func noFeedNoKeyNoAutomaticChecks() throws {
+/// Sparkle updates (docs/architecture.md › Updates): only release builds of the main app get the GitHub appcast; every
+/// update and the feed must be EdDSA-signed; checks are on, background installing is opt-in, no system profiling; and
+/// `QTUpdater` never starts an updater without a feed (dev builds).
+@Suite struct QTUpdaterConfigurationTests {
+    @Test func signedFeedForReleaseBuildsOnly() throws {
         let script = try String(contentsOf: Fixture.repoRoot.appendingPathComponent("Scripts/build-app.sh"), encoding: .utf8)
-        #expect(!script.contains("<key>SUFeedURL</key>"))
-        #expect(!script.contains("<key>SUPublicEDKey</key>"))
-        for key in ["SUEnableAutomaticChecks", "SUAutomaticallyUpdate", "SUAllowsAutomaticUpdates"] {
-            #expect(script.contains("<key>\(key)</key><false/>"), "\(key) must be NO")
+        #expect(script.contains(#"if [[ -z "$FEED_URL" && "$CONFIG" == release && -z "${QT_VARIANT:-}" ]]; then"#))
+        #expect(script.contains("https://github.com/RoderickQiu/qtube-music/releases/latest/download/appcast.xml"))
+        #expect(script.contains(#"<key>SUPublicEDKey</key><string>$SPARKLE_PUBLIC_KEY</string>"#))
+        #expect(script.contains(#"SPARKLE_PUBLIC_KEY="cq8qdfhWlsGhht4r6pb1cncUu5oIHcAdcjAhMVtbGok=""#))
+        for (key, value) in [("SURequireSignedFeed", true), ("SUVerifyUpdateBeforeExtraction", true),
+                             ("SUEnableAutomaticChecks", true), ("SUAllowsAutomaticUpdates", true),
+                             ("SUAutomaticallyUpdate", false), ("SUEnableSystemProfiling", false)] {
+            #expect(script.contains("<key>\(key)</key><\(value)/>"), "\(key) must be \(value)")
         }
         let updater = try String(contentsOf: Fixture.repoRoot.appendingPathComponent("Sources/QTubeMusicApp/QTUpdater.swift"),
                                  encoding: .utf8)
         #expect(updater.contains("guard controller == nil, Self.feedURL != nil else { return }"))
         #expect(updater.contains(".disabled(!updater.canCheckForUpdates)"))
     }
+
+    @Test func releaseScriptPublishesTheSignedAppcast() throws {
+        let script = try String(contentsOf: Fixture.repoRoot.appendingPathComponent("Scripts/release.sh"), encoding: .utf8)
+        #expect(script.contains(#"generate_appcast" --account "$SPARKLE_ACCOUNT""#))
+        #expect(script.contains(#""$SUMS" "$APPCAST" --repo"#))
+        #expect(script.contains("updates would be refused"))
+    }
 }
+

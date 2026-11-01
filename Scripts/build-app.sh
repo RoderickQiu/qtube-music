@@ -7,7 +7,11 @@
 #
 # Env: QT_VARIANT (letters, digits, '-'), QT_CONFIG=debug|release (default debug),
 #      QT_SCRATCH (SwiftPM scratch path, default .build/<variant or "default">),
-#      QT_ARCHS ("arm64 x86_64" for a universal binary; default: the host architecture only).
+#      QT_ARCHS ("arm64 x86_64" for a universal binary; default: the host architecture only),
+#      QT_FEED_URL (Sparkle appcast URL; release builds of the main app default to the GitHub one, every other build
+#      has none, so dev builds never offer to "update" themselves to a release),
+#      QT_BUILD_NUMBER (CFBundleVersion; default the commit count — set it to make an "older" or "newer" build for an
+#      update test).
 # The marketing version comes from VERSION at the repo root; the build number is the commit count.
 # Works from a git worktree: git-ignored inputs (mock catalog) come from the main checkout.
 set -euo pipefail
@@ -157,7 +161,16 @@ if [[ -d "$QT_REPO/Assets/AppIcon.icon" ]]; then
   rm -rf "$ICON_WORK"
 fi
 
-BUILD_NUMBER="$(git -C "$QT_REPO" rev-list --count HEAD 2>/dev/null || echo 1)"
+BUILD_NUMBER="${QT_BUILD_NUMBER:-$(git -C "$QT_REPO" rev-list --count HEAD 2>/dev/null || echo 1)}"
+# Sparkle's EdDSA public key; the private half is in the login keychain under the account "qtube-music"
+# (Sparkle's generate_keys --account qtube-music). Back it up: generate_keys --account qtube-music -x <file>.
+SPARKLE_PUBLIC_KEY="cq8qdfhWlsGhht4r6pb1cncUu5oIHcAdcjAhMVtbGok="
+FEED_URL="${QT_FEED_URL:-}"
+if [[ -z "$FEED_URL" && "$CONFIG" == release && -z "${QT_VARIANT:-}" ]]; then
+  FEED_URL="https://github.com/RoderickQiu/qtube-music/releases/latest/download/appcast.xml"
+fi
+FEED_KEYS=""
+[[ -n "$FEED_URL" ]] && FEED_KEYS="<key>SUFeedURL</key><string>$FEED_URL</string>"
 # The commit, for Help › Report a Problem…'s diagnostics ("+": built with uncommitted changes).
 GIT_COMMIT="$(git -C "$QT_REPO" rev-parse --short=10 HEAD 2>/dev/null || echo unknown)"
 git -C "$QT_REPO" diff --quiet HEAD 2>/dev/null || GIT_COMMIT="$GIT_COMMIT+"
@@ -185,11 +198,15 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>NSHumanReadableCopyright</key><string>© 2026 Tianrun Qiu</string>
   <key>NSAppleScriptEnabled</key><true/>
   <key>OSAScriptingDefinition</key><string>QTubeMusic.sdef</string>
-  <!-- Sparkle: dormant until there is a Developer ID (no SUFeedURL, no SUPublicEDKey → never checks, and would
-       refuse unsigned updates). See docs/architecture.md › Updates. -->
-  <key>SUEnableAutomaticChecks</key><false/>
+  <!-- Sparkle (docs/architecture.md › Updates): daily checks of the appcast on GitHub Releases; every archive and the
+       feed itself must carry the EdDSA signature of SUPublicEDKey. Installing in the background is a Settings choice. -->
+  $FEED_KEYS
+  <key>SUPublicEDKey</key><string>$SPARKLE_PUBLIC_KEY</string>
+  <key>SURequireSignedFeed</key><true/>
+  <key>SUVerifyUpdateBeforeExtraction</key><true/>
+  <key>SUEnableAutomaticChecks</key><true/>
+  <key>SUAllowsAutomaticUpdates</key><true/>
   <key>SUAutomaticallyUpdate</key><false/>
-  <key>SUAllowsAutomaticUpdates</key><false/>
   <key>SUEnableSystemProfiling</key><false/>
   $ICON_KEY
 </dict>
@@ -198,14 +215,17 @@ PLIST
 plutil -lint "$APP/Contents/Info.plist" >/dev/null
 
 # Ad-hoc signing, inside out: Sparkle's helpers (XPC services, Autoupdate, Updater.app), the framework, the app.
+# (A self-signed certificate wouldn't help: without an Apple-issued team ID the Keychain still keys an item's access
+# to the build's cdhash, so only a Developer ID ends the one Keychain prompt after each update.)
+SIGN_ID="-"
 if [[ -d "$APP/Contents/Frameworks/Sparkle.framework" ]]; then
   FW="$APP/Contents/Frameworks/Sparkle.framework/Versions/B"
   for nested in "$FW"/XPCServices/*.xpc "$FW/Autoupdate" "$FW/Updater.app"; do
-    [[ -e "$nested" ]] && codesign --force -s - "$nested" >&2
+    [[ -e "$nested" ]] && codesign --force -s "$SIGN_ID" "$nested" >&2
   done
-  codesign --force -s - "$APP/Contents/Frameworks/Sparkle.framework" >&2
+  codesign --force -s "$SIGN_ID" "$APP/Contents/Frameworks/Sparkle.framework" >&2
 fi
-codesign --force -s - "$APP" >&2
+codesign --force -s "$SIGN_ID" "$APP" >&2
 # Old agents' scratch folders and variant apps (see the script); never fails the build.
 "$QT_REPO/Scripts/prune-build.sh" || true
 echo "$APP"
