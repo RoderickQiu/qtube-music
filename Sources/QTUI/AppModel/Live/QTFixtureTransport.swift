@@ -52,6 +52,10 @@ struct QTFixtureTransport: QTHTTPTransport {
             if query.contains("晴天") { return json["params"] == nil ? "search-qingtian-zh" : "search-qingtian-albums-zh" }
             return json["params"] == nil ? "search-trumua-en" : "search-trumua-songs-en"
         case "next":
+            // A song's radio (Start Radio, Autoplay) is the recorded Trú Mưa radio; Start Radio on anything else has
+            // no recording (offline: its failure toast).
+            if (json["playlistId"] as? String)?.hasPrefix("RDAMVM") == true { return "next-radio-trumua-en" }
+            if json["params"] as? String == QTRadioRequest.radioParams { return nil }
             return "next-trumua-en"
         default:
             return nil

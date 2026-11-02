@@ -91,7 +91,7 @@ public final class QTLiveCatalogStore {
     public let client: QTInnerTubeClient
     public let auth: QTAuthController
     @ObservationIgnored let service: QTInnerTubeCatalog
-    @ObservationIgnored private weak var model: QTAppModel?
+    @ObservationIgnored private(set) weak var model: QTAppModel?
     @ObservationIgnored private var hl: String
     @ObservationIgnored private var didApplyLaunchPlayback = false
     @ObservationIgnored private var tasks: [String: (id: UUID, task: Task<Void, Never>)] = [:]
@@ -135,6 +135,11 @@ public final class QTLiveCatalogStore {
     public private(set) var moodsPage: QTMoodsPage?
     public private(set) var searchResults: [String: QTSearchResults] = [:]
     public private(set) var searchPhases: [String: QTLivePhase] = [:]
+    /// Where each radio started here goes on (its `next` continuation), by the radio's playlist id — the queue's
+    /// Autoplay source id. Autoplay asks for the station's own next page, not a new radio of its last song.
+    @ObservationIgnored var radioContinuations: [String: QTContinuation] = [:]
+    /// DEBUG `-qt.live.radio` starts its radio once, not again when the mode changes.
+    @ObservationIgnored var didApplyLaunchRadio = false
     /// Album/artist keys (titles or names from the mock-era navigation API) resolved to browse ids.
     @ObservationIgnored private var resolvedKeys: [String: String] = [:]
     /// Saved-to-library state of albums (their `OLAK…` id) and other people's playlists, as their pages said.
@@ -396,6 +401,8 @@ public final class QTLiveCatalogStore {
             // An upload has no radio (it isn't in YouTube's catalog): the queue ends with it.
             guard let self, self.mode.browsesYouTube, let seed = request.seed, seed.videoId.count == 11,
                   !seed.isPrivatelyOwned else { return [] }
+            // A station started here goes on with its own next page (QTLiveCatalogStore+Radio.swift).
+            if let more = try await self.radioContinuation(for: request) { return more }
             let page = try await client.next(videoId: seed.videoId, playlistId: "RDAMVM" + seed.videoId)
             return page.tracks.filter { $0.videoId != seed.videoId && !request.excludingVideoIDs.contains($0.videoId) }
         }
@@ -404,6 +411,9 @@ public final class QTLiveCatalogStore {
     /// `-qt.live.open album:<id|title>` / `artist:<id|name>` / `playlist:<id>` opens that page at launch;
     /// `-qt.live.state skeleton|offline|unavailable|expired` pins a page state (screenshots).
     private func applyLaunchDestination() {
+        #if DEBUG
+        applyLaunchRadio()
+        #endif
         guard let model, let open = model.launch.string("qt.live.open") else { return }
         let parts = open.split(separator: ":", maxSplits: 1).map(String.init)
         guard parts.count == 2 else { return }
@@ -657,7 +667,7 @@ public final class QTLiveCatalogStore {
     }
 
     /// Every track the app has seen goes into `catalog.tracks` (drag and drop, album/artist lookups by title).
-    private func remember(_ tracks: [QTTrack]) {
+    func remember(_ tracks: [QTTrack]) {
         guard !tracks.isEmpty else { return }
         if mode == .live { writer.noteLikeStatus(tracks) }
         updateCatalog { c in

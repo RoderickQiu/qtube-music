@@ -306,6 +306,7 @@ public enum QTInnerTubeParser {
         let subscribe = header[path: "subscriptionButton", "subscribeButtonRenderer"]
         page.channelId = subscribe["channelId"].string
         page.isSubscribed = page.channelId == nil ? nil : subscribe["subscribed"].bool
+        page.radio = artistRadio(header)
         var albumShelves = 0
         for (index, section) in QTShelfParser.sections(response).enumerated() {
             switch section.rendererKey {
@@ -346,6 +347,19 @@ public enum QTInnerTubeParser {
             return t
         }
         return page
+    }
+
+    /// The header's radio button (`startRadioButton`, labelled "Mix" or "Radio"): a watch endpoint on the artist's
+    /// `RDEM…` mix, starting from one of their videos.
+    static func artistRadio(_ header: QTJSON) -> QTRadioRequest? {
+        switch header[path: "startRadioButton", "buttonRenderer"].navigation("navigationEndpoint") {
+        case .watch(let videoId, let playlistId?, let params, _)?:
+            QTRadioRequest(videoId: videoId, playlistId: playlistId, params: params)
+        case .watchPlaylist(let playlistId, let params)?:
+            QTRadioRequest(playlistId: playlistId, params: params)
+        default:
+            nil
+        }
     }
 
     // MARK: Library

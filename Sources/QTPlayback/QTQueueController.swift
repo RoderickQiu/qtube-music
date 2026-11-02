@@ -228,6 +228,32 @@ public final class QTQueueController {
         await loadCurrent(startTime: 0, autoplay: true, mode: preferredMode)
     }
 
+    // MARK: Radio
+
+    /// Start Radio: the station (the song it starts from first) plays from `source` the way a mix does. Up Next is
+    /// kept, and Autoplay, the section the station plays in, is switched on; its continuation keeps extending it.
+    public func playRadio(_ tracks: [QTTrack], source: QTQueueSource, autoplay: Bool = true,
+                          mode: QTPlaybackMode? = nil) async {
+        guard let start = tracks.firstIndex(where: \.availability.isPlayable) else { return }
+        queue.isAutoplayEnabled = true
+        await play(tracks, startingAt: start, source: source, autoplay: autoplay, mode: mode)
+    }
+
+    /// Start Radio on the song that's playing: it plays on, uninterrupted, and the station replaces what Autoplay had
+    /// queued after it (Up Next is kept, Autoplay switched on).
+    public func continueAsRadio(_ tracks: [QTTrack], source: QTQueueSource) {
+        guard let current = queue.nowPlaying else { return }
+        var seen: Set<String> = [current.track.videoId]
+        let items = tracks.filter { $0.availability.isPlayable && seen.insert($0.videoId).inserted }
+            .map { QTQueueItem(track: $0) }
+        replaceContext([current] + items, source: source)
+        contextCursor = 0
+        queue.isAutoplayEnabled = true
+        queue.autoplay = isShuffleOn ? shuffled(items, avoidingFirst: current.track.videoId) : items
+        scheduleSave()
+        prefetchContinuationIfNeeded()
+    }
+
     // MARK: Transport
 
     /// Plays. When the engine has lost the queue's item (stopped, failed, crashed, or playing something else) the item

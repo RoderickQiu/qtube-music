@@ -8,27 +8,37 @@ import SwiftUI
 
 extension View {
     /// The song's context menu on right-click / Control-click; every other click passes through to the card.
-    func qtTrackContextMenu(_ track: QTTrack?) -> some View {
-        overlay(QTTrackContextMenuArea(track: track))
+    /// `nowPlaying`: the song playing now (the player bar): no Play / queue items, Start Radio first.
+    func qtTrackContextMenu(_ track: QTTrack?, nowPlaying: Bool = false) -> some View {
+        overlay(QTTrackContextMenuArea(track: track, nowPlaying: nowPlaying))
     }
 }
 
 @MainActor
 enum QTTrackCardMenu {
-    static func make(for track: QTTrack, model: QTAppModel = .shared) -> NSMenu {
+    /// `nowPlaying`: the menu of the song playing now — Start Radio, then where to go and what to keep (Play, the
+    /// queue items and the video are the player's own controls there).
+    static func make(for track: QTTrack, nowPlaying: Bool = false, model: QTAppModel = .shared) -> NSMenu {
         let menu = NSMenu()
         let playable = track.availability.isPlayable
         func add(_ title: String, enabled: Bool = true, _ action: @escaping @MainActor () -> Void) {
             menu.addItem(QTClosureMenuItem(title, enabled: enabled, handler: action))
         }
-        add(QTLoc.tr("Play"), enabled: playable) { QTTrackActions.play([track], at: 0, source: nil) }
-        add(QTLoc.tr("Play Next"), enabled: playable) { QTTrackActions.playNext([track]) }
-        add(QTLoc.tr("Add to Queue"), enabled: playable) { QTTrackActions.addToQueue([track]) }
-        menu.addItem(.separator())
-        if track.hasVideo {
-            add(QTLoc.tr("Play Music Video"), enabled: playable) { QTTrackActions.play([track], at: 0, source: nil, video: true) }
+        if nowPlaying {
+            menu.addItem(QTRadioActions.menuItem(.song(track)))
         } else {
-            add(QTLoc.tr("No Music Video"), enabled: false) {}
+            add(QTLoc.tr("Play"), enabled: playable) { QTTrackActions.play([track], at: 0, source: nil) }
+            add(QTLoc.tr("Play Next"), enabled: playable) { QTTrackActions.playNext([track]) }
+            add(QTLoc.tr("Add to Queue"), enabled: playable) { QTTrackActions.addToQueue([track]) }
+            menu.addItem(QTRadioActions.menuItem(.song(track)))
+        }
+        menu.addItem(.separator())
+        if !nowPlaying {
+            if track.hasVideo {
+                add(QTLoc.tr("Play Music Video"), enabled: playable) { QTTrackActions.play([track], at: 0, source: nil, video: true) }
+            } else {
+                add(QTLoc.tr("No Music Video"), enabled: false) {}
+            }
         }
         if let album = track.album {
             add(QTLoc.tr("Go to Album · %@", album.title)) { QTNavigator.shared.go(.album(album)) }
@@ -56,18 +66,24 @@ enum QTTrackCardMenu {
 /// A transparent view over the card that only takes menu clicks.
 private struct QTTrackContextMenuArea: NSViewRepresentable {
     let track: QTTrack?
+    let nowPlaying: Bool
 
     func makeNSView(context: Context) -> MenuView {
         let v = MenuView()
         v.track = track
+        v.nowPlaying = nowPlaying
         v.setAccessibilityElement(false)
         return v
     }
 
-    func updateNSView(_ nsView: MenuView, context: Context) { nsView.track = track }
+    func updateNSView(_ nsView: MenuView, context: Context) {
+        nsView.track = track
+        nsView.nowPlaying = nowPlaying
+    }
 
     final class MenuView: NSView {
         var track: QTTrack?
+        var nowPlaying = false
 
         /// Only right-clicks and Control-clicks land here; hovering, clicks, double-clicks and drags reach the card.
         override func hitTest(_ point: NSPoint) -> NSView? {
@@ -78,7 +94,7 @@ private struct QTTrackContextMenuArea: NSViewRepresentable {
         }
 
         override func menu(for event: NSEvent) -> NSMenu? {
-            track.map { QTTrackCardMenu.make(for: $0) }
+            track.map { QTTrackCardMenu.make(for: $0, nowPlaying: nowPlaying) }
         }
 
         override func rightMouseDown(with event: NSEvent) {

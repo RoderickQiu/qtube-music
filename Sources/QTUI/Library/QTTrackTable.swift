@@ -455,6 +455,8 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
         menu.addItem(item(QTLoc.tr("Play"), #selector(menuPlay), key: "\r", enabled: first.availability.isPlayable))
         menu.addItem(item(QTLoc.tr("Play Next"), #selector(menuPlayNext), key: "\r", mods: .option, enabled: anyPlayable))
         menu.addItem(item(QTLoc.tr("Add to Queue"), #selector(menuAddToQueue), enabled: anyPlayable))
+        // The clicked song's radio (one song: a radio starts from one).
+        menu.addItem(QTRadioActions.menuItem(single ? .song(first) : nil))
         menu.addItem(.separator())
         if first.hasVideo {
             menu.addItem(item(QTLoc.tr("Play Music Video"), #selector(menuPlayVideo), key: "v", mods: [.command, .shift],

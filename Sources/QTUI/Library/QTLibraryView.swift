@@ -330,6 +330,7 @@ struct QTLibraryActions: View {
         let menu = NSMenu()
         menu.addItem(QTClosureMenuItem(QTLoc.tr("Play Next")) { QTTrackActions.playNext(playable) })
         menu.addItem(QTClosureMenuItem(QTLoc.tr("Add to Queue")) { QTTrackActions.addToQueue(playable) })
+        if let seed = collection.flatMap(QTRadioActions.seed(for:)) { menu.addItem(QTRadioActions.menuItem(seed)) }
         if let collection, !QTLiveCatalogStore.shared.isGuest {
             let add = NSMenuItem(title: QTLoc.tr("Add to Playlist"), action: nil, keyEquivalent: "")
             add.submenu = QTAddToPlaylistMenu.make(for: playable, excluding: collection.playlistID)

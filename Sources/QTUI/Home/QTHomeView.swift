@@ -384,6 +384,16 @@ struct QTHomeCard: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0; if $0 { QTLiveCatalogStore.shared.prefetch(item) } }
+        .contextMenu {
+            // The sidebar rows' Play / Shuffle (the list loads on demand), and the playlist's radio.
+            if let target = QTSidebarPlaylistTarget(item: liked ? .liked : .playlist(p.id), playlist: p) {
+                Button(QTLoc.tr("Play")) { target.play(shuffled: false) }
+                Button(QTLoc.tr("Shuffle")) { target.play(shuffled: true) }
+            }
+            if QTRadioActions.offersRadio(playlistID: p.id) {
+                QTStartRadioButton(seed: .playlist(id: p.id, title: p.title.resolved))
+            }
+        }
         .dropDestination(for: String.self) { items, _ in
             let tracks = QTTrackActions.tracks(fromDropped: items, catalog: model.catalog)
             guard !tracks.isEmpty else { return false }

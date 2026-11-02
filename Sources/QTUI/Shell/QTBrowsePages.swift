@@ -538,6 +538,17 @@ struct QTArtistPageContent: View {
             .qtGlassButton(.secondary)
             .accessibilityIdentifier("qt.artist.shuffle")
             .disabled(!songs.contains(where: \.availability.isPlayable))
+            // The artist's radio (their page's mix), like YouTube Music's button beside Shuffle.
+            let radio = QTRadioSeed.artist(id: page.artist.id, name: page.artist.name)
+            if QTRadioActions.canStart(radio) {
+                Button {
+                    QTRadioActions.startRadio(radio)
+                } label: {
+                    Label(QTLoc.tr("Start Radio", table: .live), systemImage: QTIcon.radio.systemName)
+                }
+                .qtGlassButton(.secondary)
+                .accessibilityIdentifier("qt.artist.radio")
+            }
             subscribe
         }
         .controlSize(.large)

@@ -93,6 +93,17 @@ public final class QTPlayerModel {
         await playback.shuffle(tracks, source: source, remainder: remainder)
     }
 
+    /// Start Radio: the station plays like a mix (Up Next kept), in Autoplay, which is switched on.
+    public func playRadio(_ tracks: [QTTrack], source: QTQueueSource, autoplay: Bool = true,
+                          mode: QTPlaybackMode? = nil) async {
+        await playback.playRadio(tracks, source: source, autoplay: autoplay, mode: mode)
+    }
+
+    /// Start Radio on the song playing now: it plays on and the station follows it.
+    public func continueAsRadio(_ tracks: [QTTrack], source: QTQueueSource) {
+        playback.continueAsRadio(tracks, source: source)
+    }
+
     public func togglePlayPause() { playback.togglePlayPause() }
     public func play() { playback.play() }
     public func pause() { playback.pause() }

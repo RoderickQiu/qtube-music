@@ -3,6 +3,12 @@
 All notable changes to QTube Music. Versions follow [Semantic Versioning](https://semver.org); `Scripts/release.sh`
 uses the section for a version as its release notes.
 
+## Unreleased
+
+- **Start Radio.** An endless station of similar music from any song, album, artist or playlist: right-click it, or
+  use Controls › Start Radio (also in the Dock menu) for the song that's playing, which keeps playing. Up Next
+  stays, and Autoplay keeps the station going. Works signed in and signed out.
+
 ## 0.3.0
 
 Whole artists, your own lyrics, and fixes.
