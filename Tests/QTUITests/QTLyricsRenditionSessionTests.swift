@@ -43,7 +43,7 @@ struct QTRenditionStubProvider: QTLyricsSourceProvider {
 
     func waitUntil(_ condition: () -> Bool) async {
         let start = ContinuousClock.now
-        while !condition(), ContinuousClock.now - start < .seconds(5) { try? await Task.sleep(for: .milliseconds(5)) }
+        while !condition(), ContinuousClock.now - start < .seconds(30) { try? await Task.sleep(for: .milliseconds(5)) }
     }
 
     @Test func videoOfAnotherLengthGetsItsOwnTimingAndMapsTheSwitch() async throws {

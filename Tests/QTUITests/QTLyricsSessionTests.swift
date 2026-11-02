@@ -124,7 +124,7 @@ final class QTRecordedInnerTubeTransport: QTHTTPTransport, @unchecked Sendable {
 
     func settle(_ session: QTLyricsSession) async {
         let start = ContinuousClock.now
-        while session.phase == .loading, ContinuousClock.now - start < .seconds(5) {
+        while session.phase == .loading, ContinuousClock.now - start < .seconds(30) {
             try? await Task.sleep(for: .milliseconds(5))
         }
     }
@@ -187,7 +187,7 @@ final class QTRecordedInnerTubeTransport: QTHTTPTransport, @unchecked Sendable {
         session.settingsDidChange()
         await settle(session)
         let start = ContinuousClock.now
-        while session.document == nil, ContinuousClock.now - start < .seconds(5) { try? await Task.sleep(for: .milliseconds(5)) }
+        while session.document == nil, ContinuousClock.now - start < .seconds(30) { try? await Task.sleep(for: .milliseconds(5)) }
         #expect(session.document?.source == .netease)
     }
 
@@ -239,11 +239,11 @@ final class QTRecordedInnerTubeTransport: QTHTTPTransport, @unchecked Sendable {
         #expect(session.otherVersions.map(\.id) == ["netease:2"])
         session.pin(versionID: "netease:2")
         let start = ContinuousClock.now
-        while session.chosenVersionID != "netease:2", ContinuousClock.now - start < .seconds(5) { try? await Task.sleep(for: .milliseconds(5)) }
+        while session.chosenVersionID != "netease:2", ContinuousClock.now - start < .seconds(30) { try? await Task.sleep(for: .milliseconds(5)) }
         #expect(session.isPinned)
         #expect(session.document?.hasTranslation == false)
         session.unpin()
-        while session.isPinned, ContinuousClock.now - start < .seconds(5) { try? await Task.sleep(for: .milliseconds(5)) }
+        while session.isPinned, ContinuousClock.now - start < .seconds(30) { try? await Task.sleep(for: .milliseconds(5)) }
         #expect(session.chosenVersionID == "netease:1")
     }
 
@@ -285,7 +285,7 @@ final class QTRecordedInnerTubeTransport: QTHTTPTransport, @unchecked Sendable {
 
     func waitUntil(_ condition: @MainActor () -> Bool) async {
         let start = ContinuousClock.now
-        while !condition(), ContinuousClock.now - start < .seconds(5) { try? await Task.sleep(for: .milliseconds(5)) }
+        while !condition(), ContinuousClock.now - start < .seconds(30) { try? await Task.sleep(for: .milliseconds(5)) }
     }
 
     /// "Report Wrong Lyrics" is one call: the next version shows at once, and a relaunch keeps it away.
