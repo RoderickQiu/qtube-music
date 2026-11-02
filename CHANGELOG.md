@@ -18,6 +18,9 @@ uses the section for a version as its release notes.
   that artist out. Autoplay, radio, mixes and shuffle skip them, and Home, Explore and search leave them out. Songs
   you pick yourself still play, and so do albums and playlists you play in order, where their songs show dimmed. The
   list stays on this Mac; edit it in **Settings › Playback › Blocked artists**.
+- **Start Radio.** An endless station of similar music from any song, album, artist or playlist: right-click it, or
+  use Controls › Start Radio (also in the Dock menu) for the song that's playing, which keeps playing. Up Next
+  stays, and Autoplay keeps the station going. Works signed in and signed out.
 
 ## 0.3.0
 

@@ -41,6 +41,7 @@ struct QTLiveAlbumCard: View {
         .contextMenu {
             Button(QTLoc.tr("Play")) { play() }
             Button(QTLoc.tr("Shuffle")) { QTLiveActions.playAlbum(album.id, shuffled: true) }
+            QTStartRadioButton(seed: .album(id: album.id, title: album.title))
             if let artist = album.artists.first {
                 Divider()
                 Button(QTLoc.tr("Go to Artist · %@", artist.name)) {
@@ -104,6 +105,7 @@ struct QTLiveArtistCard: View {
             if hovering { QTLiveCatalogStore.shared.prefetch(.artist(artist)) }
         }
         .contextMenu {
+            QTStartRadioButton(seed: .artist(id: artist.id, name: artist.name))
             QTArtistBlockMenuContent(artist: QTArtistRef(id: artist.id, name: artist.name))
             Divider()
             Button(QTLoc.tr("Copy Link")) { QTLiveActions.copyLink("https://music.youtube.com/channel/\(artist.id)") }

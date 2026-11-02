@@ -60,6 +60,35 @@ struct LiveTests {
         #expect(cp?.videoId == "25efj4hluVQ")
     }
 
+    /// Start Radio's request shapes (`QTRadioRequest`): a song's, its continuation, a playlist's, an album's (its
+    /// `OLAK…` list) and an artist's (the header's mix). Seven requests, retries off.
+    @Test func radiosStartFromSongsPlaylistsAlbumsAndArtists() async throws {
+        let c = QTInnerTubeClient(configuration: QTInnerTubeConfiguration(hl: "en", gl: "US"), retry: .none)
+        let song = try await c.radio(.song("AeXLsAPORb4"))
+        #expect(song.tracks.first?.videoId == "AeXLsAPORb4", "the song first")
+        #expect(song.tracks.count > 5)
+        #expect(song.playlistId == "RDAMVMAeXLsAPORb4")
+        let token = try #require(song.continuation)
+        let more = try await c.nextContinuation(token, playlistId: "RDAMVMAeXLsAPORb4")
+        #expect(!more.tracks.isEmpty)
+        // The next page repeats much of the first (2026-11-01: 19 of 48 new); Autoplay drops what's queued.
+        #expect(!Set(more.tracks.map(\.videoId)).subtracting(song.tracks.map(\.videoId)).isEmpty)
+
+        let playlist = try await c.radio(try #require(QTRadioRequest.playlist("VLPL0GvsLQil0MmYC96KEs_7dTNsLm1PS6JX")))
+        #expect(playlist.tracks.count > 5)
+        #expect(playlist.playlistId == "RDAMPLPL0GvsLQil0MmYC96KEs_7dTNsLm1PS6JX")
+
+        let album = try await c.radio(try #require(QTRadioRequest.playlist("OLAK5uy_lQix0l2y0koemYPBfk7LYrCeg8aWAPd1E")))
+        #expect(album.tracks.count > 5)
+
+        let artist = try await c.artist("UCjF7hNeaqArVJmijVgz-bjg")
+        let radio = try #require(artist.radio)
+        #expect(radio.playlistId.hasPrefix("RDEM"))
+        let mix = try await c.radio(radio)
+        #expect(mix.tracks.count > 5)
+        print("radio: song \(song.tracks.count) (+\(more.tracks.count)), playlist \(playlist.tracks.count) [\(playlist.playlistId ?? "-")], album \(album.tracks.count) [\(album.playlistId ?? "-")], artist \(mix.tracks.count) [\(radio.playlistId), first \(mix.tracks.first?.videoId ?? "-") of \(radio.videoId ?? "-")]")
+    }
+
     // MARK: Recording
 
     struct Recording {

@@ -30,6 +30,10 @@ private struct QTSidebarContextMenuModifier: ViewModifier {
                 Button(QTLoc.tr("Play")) { target.play(shuffled: false) }
                 Button(QTLoc.tr("Shuffle")) { target.play(shuffled: true) }
                 Button(QTLoc.tr("Play Next")) { target.playNext() }
+                // Liked Songs and playlists made on this Mac have no radio on YouTube.
+                if QTRadioActions.offersRadio(playlistID: target.id) {
+                    QTStartRadioButton(seed: .playlist(id: target.id, title: target.title))
+                }
                 switch target.linkState {
                 case .available:
                     Divider()

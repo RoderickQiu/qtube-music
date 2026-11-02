@@ -8,7 +8,7 @@ public enum QTIcon: String, CaseIterable, Sendable {
     case home, compass, note, album, mic, clock, list, playlist
     case search, chevL, chevR, chevD, chevU
     case expand, mini, lyrics, lyricsOptions, volume, volumeMuted, airplay, more, sidebar
-    case grip, video, check, layers, close, sparkle, pin, upload
+    case grip, video, check, layers, close, sparkle, pin, upload, radio
     case sleepTimer
 
     public var systemName: String {
@@ -56,6 +56,8 @@ public enum QTIcon: String, CaseIterable, Sendable {
         case .upload: "icloud.and.arrow.up"
         // The sleep timer's countdown (player bar, Stage, menu bar popover).
         case .sleepTimer: "moon.zzz"
+        // Start Radio (Music's station glyph).
+        case .radio: "dot.radiowaves.left.and.right"
         }
     }
 

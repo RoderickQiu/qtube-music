@@ -414,6 +414,7 @@ struct QTMiniPlayerMenu: View {
         Button(QTLoc.tr(player.isPlaybackRequested ? "Pause" : "Play")) { player.togglePlayPause() }
         if let track = player.nowPlaying {
             Button(QTLoc.tr(player.isLiked(track) ? "Remove from Liked Songs" : "Like")) { player.toggleLike(track) }
+            QTStartRadioButton(seed: player.ad == nil ? .song(track) : nil)
         }
         Menu(QTLoc.tr("Playback Speed", table: .player)) {
             QTPlaybackSpeedMenuContent(player: player, includesSteps: false)

@@ -601,6 +601,12 @@ public actor QTInnerTubeClient {
         return QTInnerTubeParser.next(try await send("next", body: body))
     }
 
+    /// A radio (Start Radio): its first tracks — the song it starts from first, for a song's or artist's — and the
+    /// continuation for more.
+    public func radio(_ request: QTRadioRequest) async throws -> QTWatchNext {
+        try await next(videoId: request.videoId, playlistId: request.playlistId, params: request.params)
+    }
+
     /// More of a radio/autoplay queue.
     public func nextContinuation(_ token: QTContinuation, playlistId: String?) async throws -> QTWatchNext {
         var extra: [String: QTJSON] = ["enablePersistentPlaylistPanel": true, "isAudioOnly": true]

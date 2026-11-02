@@ -190,6 +190,9 @@ public struct QTArtistPage: Sendable, Hashable {
     /// when the page has no subscribe button (or doesn't say, signed out).
     public var channelId: String?
     public var isSubscribed: Bool?
+    /// The artist's radio: the mix the header's radio button starts (`startRadioButton`, an `RDEM…` playlist from
+    /// one of their videos). nil when the page has none.
+    public var radio: QTRadioRequest?
 
     public init(artist: QTArtist, audience: String? = nil, description: String? = nil, songs: [QTTrack] = [],
                 songsPlaylistId: String? = nil, albums: [QTAlbum] = [], singles: [QTAlbum] = [],

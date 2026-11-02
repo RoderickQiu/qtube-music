@@ -586,6 +586,36 @@
           }
         }
       }
+    },
+    "Start Radio" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开始电台"
+          }
+        }
+      }
+    },
+    "%@ Radio" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 电台"
+          }
+        }
+      }
+    },
+    "Couldn’t start a radio for “%@”" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法为“%@”开始电台"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

@@ -34,6 +34,7 @@ enum QTDockMenuBuilder {
         if let track = player.nowPlaying {
             menu.addItem(.separator())
             menu.addItem(QTClosureMenuItem(QTLoc.tr(player.isLiked(track) ? "Remove from Liked Songs" : "Like")) { player.toggleLike(track) })
+            menu.addItem(QTRadioActions.menuItem(player.ad == nil ? .song(track) : nil))
         }
         menu.addItem(.separator())
         menu.addItem(QTClosureMenuItem(QTLoc.tr("Shuffle"), state: player.isShuffleOn) { player.isShuffleOn.toggle() })

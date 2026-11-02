@@ -164,6 +164,7 @@ public struct QTQueueList: View {
             if queue.upNext.first?.id != first.id {
                 Button(QTLoc.tr("Play Next")) { player.moveInQueue(itemID: first.id, to: .upNext, at: 0) }
             }
+            QTStartRadioButton(seed: .song(first.track))
             QTArtistBlockMenuContent(track: first.track)
             Divider()
         }

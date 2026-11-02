@@ -93,6 +93,8 @@ struct QTPlayerBarNowPlaying: View {
                 QTLikeButton(track: track)
             }
         }
+        // The song's menu (Start Radio, Go to…, Add to Playlist, Like, Copy Link) on right-click; none during an ad.
+        .qtTrackContextMenu(ad == nil ? player.nowPlaying : nil, nowPlaying: true) // Library/QTTrackCardMenu.swift
     }
 }
 

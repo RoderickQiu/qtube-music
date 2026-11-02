@@ -81,7 +81,25 @@ Everything is wired (integration of M1 polish + M2–M4):
   history. `-qt.playback.anonymous YES` opts out. Sign-in / sign-out mid-session → `QTWebPlaybackEngine.sessionDidChange()`
   (the next load navigates a fresh page; the current item reloads at its position).
 - **Autoplay:** with the live library, `QTQueueController.autoplayContinuation` is YouTube Music's radio for the
-  last track (`next` with `RDAMVM<id>`, read-only), installed by `QTLiveCatalogStore` on entering live mode.
+  last track (`next` with `RDAMVM<id>`, read-only), installed by `QTLiveCatalogStore` on entering live mode. A station
+  started with Start Radio goes on with its own `next` continuation instead (kept by its playlist id in
+  `radioContinuations`; after a relaunch, or once YouTube stops taking the token, it falls back to the last song's radio).
+- **Start Radio** (`QTLiveCatalogStore+Radio.swift`, `Library/QTRadioActions.swift`): one `QTRadioSeed` per thing a
+  radio starts from, built into a `QTRadioRequest` (QTInnerTube) the way YouTube Music's own menus send it, all with
+  `params: "wAEB"`: a song → `RDAMVM<videoId>`, that song first (the list's copy of it); a playlist → `RDAMPL<id>` (a
+  mix plays itself; Liked Music and `local:` / `pending:` lists have none, so their menus leave it out); an album →
+  `RDAMPL<OLAK5uy…>` (from the album page, fetched when not known); an artist → the page header's
+  `startRadioButton` (`QTArtistPage.radio`, an `RDEM…` mix from one of their videos), else their first top song's
+  radio. Anonymous-safe `next`, so guests and signed-in users both get it; uploads and the demo library don't
+  (`canStartRadio`; the item is dimmed). The station loads first, then `QTQueueController.playRadio` plays it like a
+  mix (Up Next kept, source kind `.radio` titled "<seed> Radio", Autoplay switched on — the station plays there); on
+  the song playing now, `continueAsRadio` keeps it playing and replaces only what follows. The latest request wins.
+  Failure is a toast like a song that couldn't play: "Couldn’t start a radio for “…”" with Try Again (network), without
+  it when YouTube has no radio; a bot check gets the playback toast (Sign In when signed out). The queue is untouched.
+  Where: track tables and song cards (after Add to Queue), the queue's rows, the player bar's now-playing item
+  (right-click: Start Radio, Go to…, Add to Playlist, Like, Copy Link), album cards, artist cards and the artist page
+  header (a button beside Shuffle), album/playlist page More menus, Home playlist cards (Play, Shuffle, Start Radio),
+  sidebar playlists, Controls (the current song), the Dock menu and the mini player's menu.
   Lyrics' `QTInnerTubeLyricsClient` follows the app client's hl / gl / visitor id (still anonymous).
 - **Keep AI music out (0.4.0): Don't Play This Artist.** The list is `QTSettings.blockedArtists`
   (`[QTBlockedArtist]`: channel id when known, name, date; this Mac only, never synced; Settings › Advanced › Reset
@@ -349,10 +367,12 @@ One coordinator, `QTAccountWriter` (AppModel/, `QTLiveCatalogStore.writer`, `QTA
   the name, Esc doesn't (`QTInPlaceRename`: ends once);
   Edit Playlist…, Delete Playlist…, Remove from Library, which always removes), the Playlists section (signed in or
   demo, also with no playlists: then a New Playlist… row; header menu New Playlist…), File › New Playlist… ⌘N, header
-  More menu and "+" Add to Library, artist Subscribe, Save Queue as Playlist → `QTPlaylistSheets.swift` (New / Edit
+  More menu (also Start Radio) and "+" Add to Library, artist Subscribe, Save Queue as Playlist → `QTPlaylistSheets.swift` (New / Edit
   sheet — Edit loads the playlist's page first when its privacy isn't known, and sends only what changed; Delete
   alert that says what deleting does). Song cards (Home, search's top result) use the tables' NSMenu
-  (`QTTrackCardMenu`, so Add to Playlist is the same `QTAddToPlaylistMenu`). Toasts say "… on this Mac" when not
+  (`QTTrackCardMenu`, so Add to Playlist is the same `QTAddToPlaylistMenu`); so does the player bar's now-playing item
+  (`nowPlaying: true`: no Play / queue items). Start Radio is one shared item in all of them (`QTRadioActions.menuItem`,
+  SwiftUI menus `QTStartRadioButton`). Toasts say "… on this Mac" when not
   syncing. Settings opens at a tab through one path, `QTSettingsNavigation.open(_:with:)`.
 - **Brand accounts** (`account/accounts_list` → `QTAccountIdentity`, picker in Settings › Account and the Account
   menu): `QTAuthController.switchIdentity(to:)` first loads YouTube's own switch link (only
@@ -395,7 +415,7 @@ are writes to the account's upload storage and stay on music.youtube.com.
   `MUSIC_VIDEO_TYPE_PRIVATELY_OWNED_TRACK` anywhere (lists, cards, queue rows) and rows whose menu can delete an upload.
   An upload has `hasVideo == false` (Song⇄Video, Play Music Video and PiP are off), no counterpart lookup (no `next`,
   no search: `counterpart(for:)` returns nil at once), no autoplay radio (the queue ends with it; the app has no other
-  Start Radio), ListenBrainz gets no `origin_url` (`QTIntegrationsCoordinator.isPrivatelyOwned`), and the app never
+  radio: Start Radio is dimmed for it), ListenBrainz gets no `origin_url` (`QTIntegrationsCoordinator.isPrivatelyOwned`), and the app never
   hands its link out: Copy Link leaves uploads out (disabled when only uploads are chosen) and a dragged upload
   carries `qtube-track:<id>` (`QTTrackActions.dragString`), which only the app's own playlists read. The web engine
   plays it through the normal watch page; the native engine falls back per item.
@@ -426,7 +446,7 @@ What the app sends on its own, and as whom:
 |---|---|---|---|
 | `search` (search field as you type, album/artist name → id, Song⇄Video search fallback) | user typing / automatic | **anonymous, always** (`search` / `searchContinuation` default) | YouTube Music keeps signed-in searches in the account's search history — an account change the user hasn't approved, and partial queries would land there too. Results are the public catalog either way. `identity: .session` exists for a future explicit opt-in. |
 | `browse`: Home, Explore, moods, album / artist / playlist pages, **hover prefetch**, library lists | navigation, hover | session | Read-only; personalised Home and the user's library need it; browsing records nothing. |
-| `next` for the **autoplay radio** (`RDAMVM<id>`) and the **counterpart** of the current + next track | playback | session | The web player's own read for what's playing (no history entry — watch history comes from the player page's playback reports); only signed-in answers carry counterparts; personalised radio. |
+| `next` for the **autoplay radio** (`RDAMVM<id>`), **Start Radio** (`QTRadioRequest`, and the station's continuation) and the **counterpart** of the current + next track | playback, Start Radio | session | The web player's own read for what's playing (no history entry — watch history comes from the player page's playback reports); only signed-in answers carry counterparts; personalised radio. |
 | `music/get_queue`, `account/account_menu`, the `ytcfg` GET (`accountContext`), the session-loss probe GET | restore / failures | session | Read-only account facts (Premium, region, name). |
 | Timed lyrics (`QTInnerTubeLyricsClient`, ANDROID_MUSIC) | track change | anonymous | Follows the client's hl / gl and anonymous visitor id only. |
 | Playback (the web engine's player page) | play | session (approved) | Plays are recorded in the user's YouTube Music history; `-qt.playback.anonymous YES` opts out. |
@@ -1023,7 +1043,7 @@ Builders add their own as `qt.<area>.<name>` (e.g. `qt.stage.chrome hidden`, `qt
 | glass | DEBUG `qt.reduceTransparency YES` (every glass primitive draws its Reduce Transparency solid) |
 | desktop | `qt.desktop.miniMode compact\|art` · `qt.desktop.miniLyric` · `qt.desktop.miniHover` · `qt.desktop.lyricsUnlocked` · `qt.desktop.menuBarScroll` · `qt.desktop.lyricsSize <pt>` · `qt.settingsTab general\|playback\|lyrics\|account\|integrations\|shortcuts\|advanced`; DEBUG: `qt.desktop.hotKeys suggested\|conflicts` (session-only suggested set; `conflicts` adds a menu clash and a ⌘-only binding), `qt.desktop.hotKeyTaken like,playPause` (those show "Used by another app"), `qt.desktop.registerHotKeys YES` (launches with `-qt.*` arguments never register global shortcuts otherwise), `qt.desktop.switchLanguage`, `qt.desktop.popUpMenu <index>` (1 = File, 3 = View, 4 = Controls), `qt.desktop.showShortcuts`, `qt.desktop.accountPreview signedIn\|premium\|signingIn\|expired\|signedOut` (Settings › Account without Keychain access), `qt.desktop.staleMenus YES` (General shows Relaunch), `qt.desktop.integrationsExpanded YES` (Integrations opens every "Use your own …" / custom-server disclosure), `qt.desktop.listenBrainzPreview connected\|failed` (ListenBrainz connected with a sample account and custom server, or a failed Connect; no Keychain, no network), `qt.desktop.importExpanded YES` (Account opens Import Session), `qt.desktop.importError incomplete\|rejected\|unreadable\|notPermitted` (pins an import error), `qt.desktop.scriptProbe <path>` (runs AppleScript against the app from inside it — no Automation prompt — and writes the results as JSON); with `-qt.show reportProblem`, DEBUG `qt.report.text <text>` (the description), `qt.report.expanded YES` (Show Diagnostics open), `qt.report.sampleLog YES` (sample log lines with a path, a key and a URL query, to show the redaction) |
 | lyrics-live | `qt.lyrics.unofficial all\|none\|netease,kugou,qq` (session-only Settings override) · `qt.lyrics.engine live\|mock` (default live) · `qt.lyrics.cache memory\|<path>` (fresh lookup; default Application Support/<bundle id>/Lyrics.sqlite) · `qt.lyrics.offline YES` (every source unreachable → fallback path) |
-| data-live | `qt.account.sync YES\|NO` (session-only Settings › Account › Sync override; without it DEBUG builds and any `-qt.*` launch run with Sync off) · DEBUG `qt.account.localChangesAlert YES\|launch` (the Sync-on question over Settings › Account — `launch`: the one asked at launch with Sync already on —, nothing changes; capture with `shoot-region.sh … "Account" -qt.show settings -qt.settingsTab account`) · `qt.live.open album:<id\|title>` · `artist:<id\|name>` · `playlist:<id>` (once the library has loaded) · `qt.live.state skeleton\|offline\|unavailable\|expired\|botCheck` (pins every live page's state) · `qt.live.loadDelay <s>` (DEBUG: Home and mood feeds arrive that much later — loading and transition shots) · `qt.live.signedOut YES` (guest mode, no Keychain read) · DEBUG `qt.auth.store memory` (the session lives in memory: a guest run never reads, and a sign-out never clears, the shared dev session) · DEBUG `qt.live.fixtures YES` (YouTube Music answered offline from `Tests/QTInnerTubeTests/Fixtures`, artwork offline — guest screenshots with no network) · with `qt.live.signedOut`, `qt.live.signIn YES` (Google sign-in window in a throwaway WebKit store; a login there is never kept) · DEBUG `qt.auth.signInPreview google|other|insecure[,help]` (the sign-in window's chrome around a local placeholder page — never Google, no network; `,help` opens the ? popover; capture with `shoot.sh --window signIn --window signInHelp`) · DEBUG `qt.auth.revoke YES` (sign-out also ends the session at Google, as release builds do) |
+| data-live | `qt.account.sync YES\|NO` (session-only Settings › Account › Sync override; without it DEBUG builds and any `-qt.*` launch run with Sync off) · DEBUG `qt.account.localChangesAlert YES\|launch` (the Sync-on question over Settings › Account — `launch`: the one asked at launch with Sync already on —, nothing changes; capture with `shoot-region.sh … "Account" -qt.show settings -qt.settingsTab account`) · `qt.live.open album:<id\|title>` · `artist:<id\|name>` · `playlist:<id>` (once the library has loaded) · `qt.live.state skeleton\|offline\|unavailable\|expired\|botCheck` (pins every live page's state) · `qt.live.loadDelay <s>` (DEBUG: Home and mood feeds arrive that much later — loading and transition shots) · `qt.live.signedOut YES` (guest mode, no Keychain read) · DEBUG `qt.auth.store memory` (the session lives in memory: a guest run never reads, and a sign-out never clears, the shared dev session) · DEBUG `qt.live.fixtures YES` (YouTube Music answered offline from `Tests/QTInnerTubeTests/Fixtures`, artwork offline — guest screenshots with no network; a song's radio answers with the recorded Trú Mưa radio, other radios fail offline) · DEBUG `qt.live.radio song:<videoId>\|album:<browseId>\|playlist:<id>\|artist:<channelId>` (starts that radio once YouTube Music is up, cued unless `-qt.paused NO`: the station in the queue, or with fixtures `album:MPREb_JR856gupBGZ` the failure toast) · with `qt.live.signedOut`, `qt.live.signIn YES` (Google sign-in window in a throwaway WebKit store; a login there is never kept) · DEBUG `qt.auth.signInPreview google|other|insecure[,help]` (the sign-in window's chrome around a local placeholder page — never Google, no network; `,help` opens the ? popover; capture with `shoot.sh --window signIn --window signInHelp`) · DEBUG `qt.auth.revoke YES` (sign-out also ends the session at Google, as release builds do) |
 | stage-video | DEBUG `qt.video.debugVisibleHost YES` (orders the web engine's host window onto U270CA, alpha 1 — page diagnostics only) |
 | playback | `qt.engine auto\|simulated\|web` · `qt.webaudio.tap NO` (web engine without the spectrum tap: A/B CPU) · `qt.playback.silent` · `qt.playback.persist` · `qt.playback.nowPlaying` · `qt.playback.anonymous` · `qt.playback.readyWhen playing\|ad\|buffering\|failed\|toast` (+ `qt.playback.readyTimeout <s>`, default 120) · `qt.playback.loadDelay <s>` (slow-network look) · `qt.playback.rate 0.5…2` (session speed; the player bar's "1.5×" button for screenshots) · DEBUG: `qt.playback.statusFile <path>` (JSON status twice a second: engine, queue, Now Playing, the player page's `LOGGED_IN`/`IS_SUBSCRIBER`, main window, catalog mode) and distributed-notification commands (`QTPlaybackDebugHooks`, incl. `window:close` / `window:reopen` without activation, `albumEnd:<browse id>`) · DEBUG: `qt.playback.notice interrupted\|autoplay\|network` (that notice's toast, for screenshots) |
 
@@ -1136,6 +1156,9 @@ InnerTube fixtures), `QT_DUMP=1` (print parser output), `QT_KEYCHAIN_TEST=1` (Ke
 - **Dock menu** (`QTDockMenuBuilder`): now playing, transport (disabled with nothing loaded, like Controls), like,
   shuffle, Repeat submenu (Off / Repeat All / Repeat One), Sleep Timer submenu, mini player, desktop lyrics.
 - **Sidebar context menu** on Liked Songs and playlists: Play, Shuffle, Play Next, Copy Link (live lists load first).
+  Start Radio (the current song), shuffle, Repeat submenu (Off / Repeat All / Repeat One), mini player, desktop lyrics.
+- **Sidebar context menu** on Liked Songs and playlists: Play, Shuffle, Play Next, Start Radio (playlists only),
+  Copy Link (live lists load first).
   A playlist made on this Mac (`local:`) has no YouTube Music link, so no Copy Link; one still being created
   (`pending:`) shows it dimmed (`QTSidebarPlaylistTarget.linkState`). No other menu hands out a playlist link (track
   menus copy the songs' own links).

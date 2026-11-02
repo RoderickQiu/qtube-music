@@ -100,6 +100,8 @@ public struct QTCommands: Commands {
             }
             .keyboardShortcut("l", modifiers: .command)
             .disabled(player.nowPlaying == nil)
+            // The current song's radio: it plays on, and the station follows it.
+            QTStartRadioButton(seed: player.ad == nil ? player.nowPlaying.map(QTRadioSeed.song) : nil)
             // The playing song's artist ("Don't Play This Artist"); a song Autoplay picked moves on at once.
             QTArtistBlockMenuContent(track: player.nowPlaying, model: model)
             Toggle(QTLoc.tr("Shuffle"), isOn: Binding(get: { player.isShuffleOn }, set: { player.isShuffleOn = $0 }))
