@@ -196,6 +196,8 @@ public struct QTSettings: Codable, Sendable, Hashable {
     /// Settings › Account › "Sync likes and playlists to YouTube Music" (on by default): likes, playlist edits,
     /// subscriptions and saved albums change the signed-in account. Off: they stay on this Mac.
     public var syncsToYouTubeMusic = true
+    /// "Don't Play This Artist" (Settings › Playback › Blocked Artists): kept on this Mac, never sent anywhere.
+    public var blockedArtists: [QTBlockedArtist] = []
 
     public init() {}
 
@@ -220,7 +222,11 @@ public struct QTSettings: Codable, Sendable, Hashable {
         playbackEffects = (try? c.decodeIfPresent(QTPlaybackEffectsPrefs.self, forKey: .playbackEffects)) ?? d.playbackEffects
         globalHotKeys = (try? c.decodeIfPresent(QTHotKeyBindings.self, forKey: .globalHotKeys)) ?? d.globalHotKeys
         syncsToYouTubeMusic = (try? c.decodeIfPresent(Bool.self, forKey: .syncsToYouTubeMusic)) ?? d.syncsToYouTubeMusic
+        blockedArtists = (try? c.decodeIfPresent([QTBlockedArtist].self, forKey: .blockedArtists)) ?? d.blockedArtists
     }
+
+    /// The blocked artists as a matcher.
+    public var artistBlocklist: QTArtistBlocklist { QTArtistBlocklist(blockedArtists) }
 }
 
 /// Owns the persisted settings. Views read `store.settings.x` and write through `store.update { $0.x = … }`.

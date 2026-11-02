@@ -104,6 +104,8 @@ struct QTLiveArtistCard: View {
             if hovering { QTLiveCatalogStore.shared.prefetch(.artist(artist)) }
         }
         .contextMenu {
+            QTArtistBlockMenuContent(artist: QTArtistRef(id: artist.id, name: artist.name))
+            Divider()
             Button(QTLoc.tr("Copy Link")) { QTLiveActions.copyLink("https://music.youtube.com/channel/\(artist.id)") }
         }
         .help(artist.name)

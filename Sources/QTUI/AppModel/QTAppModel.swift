@@ -93,6 +93,8 @@ public final class QTAppModel {
             if let v = QTLyricsSession.unofficialSources(argument: launch.string("qt.lyrics.unofficial")) {
                 s.unofficialLyricsSources = v
             }
+            // DEBUG `-qt.blockedArtists "A,B"`: a session-only blocked list (screenshots).
+            if let v = QTArtistBlocking.launchEntries(launch) { s.blockedArtists = v }
         }
         // The demo catalog only for a DEBUG `-qt.catalog mock` launch; YouTube Music (signed in or guest) starts empty,
         // so no demo track, lyric or palette can surface (release builds never find the catalog at all).
@@ -165,6 +167,8 @@ public final class QTAppModel {
         QTLiveCatalogStore.shared.attach(model)
         // Song⇄Video intent, counterparts, Picture in Picture (NowPlaying/QTVideoModeService.swift).
         QTVideoModeService.shared.install(model: model)
+        // Autoplay, radio, mixes and shuffle pass blocked artists over (AppModel/QTArtistBlocking.swift).
+        QTArtistBlocking.install(model: model)
         // Lyrics follow the rendition that plays (an MV of another length gets its own timing or unsynced lyrics).
         QTLyricsRenditionCoordinator.shared.install(player: player)
         // The app-wide accent from the playing song's artwork (Theme/QTArtworkAccentService.swift).

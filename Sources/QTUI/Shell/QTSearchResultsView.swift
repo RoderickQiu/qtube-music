@@ -15,7 +15,9 @@ struct QTSearchResultsView: View {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
         QTBrowseLoader(.search(q), debounce: .milliseconds(250), extract: \.search) {
             QTLiveSkeleton(layout: .search, title: QTLoc.tr("Results for “%@”", table: .main, q))
-        } content: { results, isUpdating in
+        } content: { all, isUpdating in
+            // Blocked artists are left out, unless the search names one (QTArtistBlocking).
+            let results = all.filtered(by: QTAppModel.shared.artistBlocklist, query: q)
             if results.topResult == nil && results.items.isEmpty && !isUpdating {
                 ContentUnavailableView(QTLoc.tr("No results for “%@”", table: .main, q), systemImage: QTIcon.search.systemName)
                     .accessibilityIdentifier("qt.search.empty")

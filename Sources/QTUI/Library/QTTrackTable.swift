@@ -19,6 +19,8 @@ struct QTTrackTable: NSViewRepresentable {
     var reduceMotion: Bool
     var emptyText: String?
     var showsAlphabet: Bool
+    /// Blocked artists: their rows show dimmed (they play when picked; Autoplay, radio and shuffle pass them over).
+    var blocklist = QTArtistBlocklist()
     /// The app's accent (selection, now-playing marks, hearts): `QTTheme.Colors.nsAccent`.
     var accent: NSColor = .controlAccentColor
     /// Interface language the cells were drawn in; a runtime switch redraws every cached cell (badges, tooltips).
@@ -157,7 +159,7 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
             page.emptyLabel.stringValue = new.emptyText ?? ""
             page.emptyLabel.isHidden = !(rows.isEmpty && new.emptyText != nil)
             page.needsLayout = true
-        } else if old?.accent != new.accent {
+        } else if old?.accent != new.accent || old?.blocklist != new.blocklist {
             rows = new.rows
             reloadVisibleRows()
             for i in 0..<t.numberOfRows { (t.rowView(atRow: i, makeIfNecessary: false) as? QTTrackRowView)?.accent = new.accent }
@@ -335,7 +337,7 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
             view = cell
         }
         view.identifier = cellID
-        view.alphaValue = track.availability.isPlayable ? 1 : 0.42
+        view.alphaValue = !track.availability.isPlayable ? 0.42 : config.blocklist.blocks(track) ? 0.5 : 1
         return view
     }
 
@@ -353,8 +355,12 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
 
     func tableView(_ tableView: NSTableView, toolTipFor cell: NSCell, rect: NSRectPointer, tableColumn: NSTableColumn?,
                    row: Int, mouseLocation: NSPoint) -> String {
-        guard rows.indices.contains(row), !rows[row].availability.isPlayable else { return "" }
-        return QTLoc.tr("Not available in your region")
+        guard rows.indices.contains(row) else { return "" }
+        if !rows[row].availability.isPlayable { return QTLoc.tr("Not available in your region") }
+        if config?.blocklist.blocks(rows[row]) == true {
+            return QTLoc.tr("Blocked artist: Autoplay, radio and shuffle skip this song", table: .main)
+        }
+        return ""
     }
 
     func tableView(_ tableView: NSTableView, shouldTypeSelectFor event: NSEvent, withCurrentSearch searchString: String?) -> Bool {
@@ -485,6 +491,7 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
         }
         let allLiked = menuTargets.allSatisfy { model.player.isLiked($0) }
         menu.addItem(item(QTLoc.tr(allLiked ? "Remove from Liked Songs" : "Like"), #selector(menuToggleLike), key: "l", mods: .command))
+        if let block = QTArtistBlocking.menuItem(for: menuTargets, model: model) { menu.addItem(block) }
         menu.addItem(.separator())
         menu.addItem(item(QTLoc.tr("Copy Link"), #selector(menuCopyLink), key: "c", mods: .command,
                           enabled: QTTrackActions.canCopyLinks(menuTargets)))

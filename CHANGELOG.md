@@ -14,6 +14,10 @@ uses the section for a version as its release notes.
   or at the end of the song. The last 30 seconds fade out, then playback pauses and the Mac can sleep again. A small
   countdown sits in the player bar, the Stage and the menu bar popover while it runs; the next Play starts at your
   usual volume.
+- **Don’t Play This Artist.** Right-click a song or an artist, or use Controls for the song that’s playing, to keep
+  that artist out. Autoplay, radio, mixes and shuffle skip them, and Home, Explore and search leave them out. Songs
+  you pick yourself still play, and so do albums and playlists you play in order, where their songs show dimmed. The
+  list stays on this Mac; edit it in **Settings › Playback › Blocked artists**.
 
 ## 0.3.0
 

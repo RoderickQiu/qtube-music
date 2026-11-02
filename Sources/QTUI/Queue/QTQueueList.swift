@@ -164,6 +164,7 @@ public struct QTQueueList: View {
             if queue.upNext.first?.id != first.id {
                 Button(QTLoc.tr("Play Next")) { player.moveInQueue(itemID: first.id, to: .upNext, at: 0) }
             }
+            QTArtistBlockMenuContent(track: first.track)
             Divider()
         }
         if !items.isEmpty {
