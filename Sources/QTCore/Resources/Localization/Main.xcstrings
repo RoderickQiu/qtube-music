@@ -772,6 +772,46 @@
           }
         }
       }
+    },
+    "Don’t Play This Artist" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "不播放此艺人"
+          }
+        }
+      }
+    },
+    "Won’t play “%@”" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将不再播放“%@”"
+          }
+        }
+      }
+    },
+    "Will play “%@” again" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将重新播放“%@”"
+          }
+        }
+      }
+    },
+    "Blocked artist: Autoplay, radio and shuffle skip this song" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已屏蔽的艺人：自动播放、电台和随机播放会跳过这首歌"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

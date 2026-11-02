@@ -19,10 +19,13 @@ public struct QTQueueSnapshot: Codable, Sendable, Hashable {
     /// Seconds into `queue.nowPlaying`.
     public var position: TimeInterval
     public var savedAt: Date
+    /// Context items from Autoplay's radio (the queue passes blocked artists over there). nil in queues saved before
+    /// 0.4.0, or without radio items.
+    public var radioIDs: Set<UUID>?
 
     public init(queue: QTQueue, context: [QTQueueItem] = [], origins: [UUID: QTQueueSection] = [:], contextCursor: Int? = nil,
                 isShuffleOn: Bool = false, repeatMode: QTRepeatMode = .off, mode: QTPlaybackMode = .song,
-                position: TimeInterval = 0, savedAt: Date = Date()) {
+                position: TimeInterval = 0, savedAt: Date = Date(), radioIDs: Set<UUID>? = nil) {
         version = Self.currentVersion
         self.queue = queue
         self.context = context
@@ -33,6 +36,7 @@ public struct QTQueueSnapshot: Codable, Sendable, Hashable {
         self.mode = mode
         self.position = position
         self.savedAt = savedAt
+        self.radioIDs = radioIDs
     }
 }
 

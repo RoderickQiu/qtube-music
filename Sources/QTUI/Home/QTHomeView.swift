@@ -34,7 +34,9 @@ public struct QTHomeView: View {
         // Live: a chosen mood shows that mood's feed (its own phase); the demo has no per-mood feeds.
         let phase: QTLivePhase = isRestoring ? .loading
             : store.map { s in s.pinnedPhase ?? mood.map { s.moodPhases[$0] ?? .loading } ?? s.homePhase } ?? .loaded
-        let shelves = store.flatMap { s in mood.flatMap { s.moodFeeds[$0]?.shelves } } ?? model.catalog.home.shelves
+        // Blocked artists' songs, albums and cards are left out (a shelf left empty goes).
+        let shelves = model.artistBlocklist.filter(store.flatMap { s in mood.flatMap { s.moodFeeds[$0]?.shelves } }
+            ?? model.catalog.home.shelves)
         return ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 0) {
                 header(store: store, selected: mood, phase: phase)
@@ -464,6 +466,7 @@ struct QTHomeCard: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
+        .contextMenu { QTArtistBlockMenuContent(artist: QTArtistRef(id: a.id == a.name ? nil : a.id, name: a.name)) }
         .help(a.name)
         .accessibilityIdentifier("qt.browse.card.artist.\(a.id)")
     }

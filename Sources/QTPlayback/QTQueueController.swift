@@ -108,6 +108,12 @@ public final class QTQueueController {
     @ObservationIgnored public var onNotice: (@MainActor (QTPlaybackNotice) -> Void)?
     /// The speed changed (menus, shortcuts, a remote command): the app saves it.
     @ObservationIgnored public var onRateChange: (@MainActor (Double) -> Void)?
+    /// Songs the queue passes over when it picks by itself — Autoplay's radio, a radio or mix context, and every
+    /// context under shuffle (`isAutoPicked`). The app answers from the blocked artists (`QTArtistBlocklist`); a rule
+    /// for YouTube's AI label would answer here too. Up Next, and whatever the listener picks (Play on a row, a
+    /// double-click in the queue, Previous), always play; so does an album or playlist played in order. nil = none.
+    /// Call `autoPickRulesDidChange()` when its answers change.
+    @ObservationIgnored public var autoPickSkips: (@MainActor (QTTrack) -> Bool)?
     /// The process's single Now Playing owner (nil: none). Attached later when the app switches to real data.
     @ObservationIgnored public private(set) var nowPlaying: QTNowPlayingController?
 
@@ -119,6 +125,10 @@ public final class QTQueueController {
     /// Bumped whenever the context is replaced; stale continuation results are dropped.
     @ObservationIgnored private var contextGeneration = 0
     @ObservationIgnored private var origins: [UUID: QTQueueSection] = [:]
+    /// Context items that came from Autoplay's radio continuation (not the listener's album or playlist).
+    @ObservationIgnored private var radioIDs: Set<UUID> = []
+    /// The current item, when the queue picked it by itself (`isAutoPicked`), not the listener.
+    @ObservationIgnored private var autoPickedCurrentID: UUID?
     @ObservationIgnored private var stateTask: Task<Void, Never>?
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     @ObservationIgnored var continuationTask: Task<QTContinuationResult, Never>?
@@ -209,6 +219,7 @@ public final class QTQueueController {
         let rest = items.filter { $0.id != current.id }
         let after = Array(items.drop { $0.id != current.id }.dropFirst())
         queue.autoplay = isShuffleOn ? shuffled(rest, avoidingFirst: current.track.videoId) : after
+        pruneAutoPicked()
         extendContext(with: remainder)
         if let mode { preferredMode = mode }
         await loadCurrent(startTime: startTime, autoplay: autoplay, mode: preferredMode)
@@ -220,10 +231,13 @@ public final class QTQueueController {
         let items = tracks.filter(\.availability.isPlayable).map { QTQueueItem(track: $0) }
         guard !items.isEmpty else { return }
         isShuffleOn = true
-        let order = shuffled(items, avoidingFirst: nil)
+        var order = shuffled(items, avoidingFirst: nil)
         replaceContext(items, source: source)
-        becomeCurrent(order[0], from: .autoplay)
+        // The queue picks the first song: one it may play (blocked artists are passed over), if there is one.
+        if let i = order.firstIndex(where: { !passesOver($0) }), i > 0 { order.swapAt(0, i) }
+        becomeCurrent(order[0], from: .autoplay, picked: true)
         queue.autoplay = Array(order.dropFirst())
+        pruneAutoPicked()
         extendContext(with: remainder)
         await loadCurrent(startTime: 0, autoplay: true, mode: preferredMode)
     }
@@ -306,6 +320,7 @@ public final class QTQueueController {
             }
         }
         queue.nowPlaying = previous
+        autoPickedCurrentID = nil
         playSerial += 1
         await loadCurrent(startTime: 0, autoplay: true, mode: preferredMode)
     }
@@ -349,6 +364,7 @@ public final class QTQueueController {
             let current = queue.nowPlaying?.id
             queue.autoplay = context[start...].filter { $0.id != current }
         }
+        pruneAutoPicked()
         scheduleSave()
         publishNowPlaying()
     }
@@ -481,7 +497,8 @@ public final class QTQueueController {
     public func snapshot() -> QTQueueSnapshot {
         QTQueueSnapshot(queue: queue, context: context, origins: liveOrigins(), contextCursor: contextCursor,
                         isShuffleOn: isShuffleOn, repeatMode: repeatMode, mode: mode,
-                        position: queue.nowPlaying == nil ? 0 : currentTime)
+                        position: queue.nowPlaying == nil ? 0 : currentTime,
+                        radioIDs: radioIDs.isEmpty ? nil : radioIDs.intersection(context.map(\.id)))
     }
 
     /// Writes synchronously on the calling thread (app termination, where awaiting isn't possible).
@@ -508,6 +525,8 @@ public final class QTQueueController {
         isShuffleOn = snapshot.isShuffleOn
         repeatMode = snapshot.repeatMode
         mode = snapshot.mode
+        radioIDs = snapshot.radioIDs ?? []
+        autoPickedCurrentID = nil
         contextGeneration += 1
     }
 
@@ -540,14 +559,14 @@ public final class QTQueueController {
         defer { advancesInFlight -= 1 }
         var autoplay = true
         if let next = popNext() {
-            becomeCurrent(next.item, from: next.section)
+            becomeCurrent(next.item, from: next.section, picked: true)
         } else if repeatMode == .all, queue.isAutoplayEnabled, !context.isEmpty {
             // (With Autoplay off the context doesn't play, so there is nothing to wrap round to.)
             let current = queue.nowPlaying?.track.videoId
             queue.autoplay = isShuffleOn ? shuffled(context, avoidingFirst: current) : context
             contextCursor = nil
             guard let next = popNext() else { return }
-            becomeCurrent(next.item, from: next.section)
+            becomeCurrent(next.item, from: next.section, picked: true)
         } else if queue.isAutoplayEnabled, autoplayContinuation != nil {
             let current = queue.nowPlaying?.id
             let pauses = pauseSerial
@@ -558,7 +577,7 @@ public final class QTQueueController {
                 reachedEnd(userInitiated: userInitiated, autoplayFailed: result == .failed)
                 return
             }
-            becomeCurrent(next.item, from: next.section)
+            becomeCurrent(next.item, from: next.section, picked: true)
             // Paused while the radio answered (and not played again): the new track waits, cued, for Play.
             autoplay = pauseSerial == pauses || wantsPlayback
         } else {
@@ -587,7 +606,8 @@ public final class QTQueueController {
 
     /// Something can follow the current item: queued, a Repeat All wrap, or more from Autoplay's continuation.
     var hasNextItem: Bool {
-        !queue.upNext.isEmpty || (queue.isAutoplayEnabled && (!queue.autoplay.isEmpty || autoplayContinuation != nil))
+        !queue.upNext.isEmpty
+            || (queue.isAutoplayEnabled && (queue.autoplay.contains { !passesOver($0) } || autoplayContinuation != nil))
             || (repeatMode == .all && queue.isAutoplayEnabled && !context.isEmpty)
     }
 
@@ -596,7 +616,7 @@ public final class QTQueueController {
     func naturalNext() -> QTQueueItem? {
         guard repeatMode != .one, queue.nowPlaying != nil else { return nil }
         if let first = queue.upNext.first { return first }
-        return queue.isAutoplayEnabled ? queue.autoplay.first : nil
+        return queue.isAutoplayEnabled ? queue.autoplay.first { !passesOver($0) } : nil
     }
 
     /// Tells the engine what plays next in order (it prefetches it, and may join it gaplessly or crossfade into it).
@@ -614,7 +634,7 @@ public final class QTQueueController {
     /// without loading anything.
     private func advanceToPrepared(_ s: QTPlaybackState) {
         guard let id = s.item?.queueID, let next = naturalNext(), next.id == id, let section = popNext()?.section else { return }
-        becomeCurrent(next, from: section)
+        becomeCurrent(next, from: section, picked: true)
         if let m = s.item?.mode { mode = m }
         consecutiveFailures = 0
         lastFailure = nil
@@ -629,13 +649,19 @@ public final class QTQueueController {
         publishNowPlaying()
     }
 
+    /// Up Next first, then Autoplay — passing over (and dropping) the songs the rules skip there (`passesOver`).
     private func popNext() -> (item: QTQueueItem, section: QTQueueSection)? {
         if !queue.upNext.isEmpty { return (queue.upNext.removeFirst(), .upNext) }
-        if queue.isAutoplayEnabled, !queue.autoplay.isEmpty { return (queue.autoplay.removeFirst(), .autoplay) }
+        guard queue.isAutoplayEnabled else { return nil }
+        while let first = queue.autoplay.first, passesOver(first) { queue.autoplay.removeFirst() }
+        if !queue.autoplay.isEmpty { return (queue.autoplay.removeFirst(), .autoplay) }
         return nil
     }
 
-    private func becomeCurrent(_ item: QTQueueItem, from section: QTQueueSection) {
+    /// `picked`: the queue chose the item itself (moving on, Next, a shuffle's first song) — then an Autoplay item it
+    /// picks under the rules is `autoPickedCurrentID`. Play, a jump and Previous are the listener's choice.
+    private func becomeCurrent(_ item: QTQueueItem, from section: QTQueueSection, picked: Bool = false) {
+        autoPickedCurrentID = picked && section == .autoplay && isAutoPicked(item) ? item.id : nil
         if let current = queue.nowPlaying {
             queue.history.append(current)
             if queue.history.count > QTQueue.historyLimit { queue.history.removeFirst(queue.history.count - QTQueue.historyLimit) }
@@ -677,6 +703,7 @@ public final class QTQueueController {
 
     private func replaceContext(_ items: [QTQueueItem], source: QTQueueSource?) {
         context = items
+        radioIDs = []
         contextCursor = nil
         contextGeneration += 1
         continuationTask?.cancel()
@@ -816,6 +843,41 @@ public final class QTQueueController {
         syncPreparedNext()
     }
 
+    // MARK: Auto-picked songs (blocked artists; YouTube's AI label would join here)
+
+    /// Whether the queue picks this Autoplay item by itself rather than following the listener's list: everything
+    /// under shuffle, a radio or mix context (`QTQueueSource.isAutomatic`), and the radio continuation's songs.
+    func isAutoPicked(_ item: QTQueueItem) -> Bool {
+        isShuffleOn || queue.autoplaySource?.isAutomatic == true || radioIDs.contains(item.id)
+    }
+
+    /// An Autoplay item the queue passes over (`autoPickSkips`).
+    func passesOver(_ item: QTQueueItem) -> Bool {
+        guard let skips = autoPickSkips, isAutoPicked(item) else { return false }
+        return skips(item.track)
+    }
+
+    /// Takes the songs the rules skip out of Autoplay, so the queue doesn't list what won't play. The context keeps
+    /// them (turning shuffle off brings back the album's or playlist's own order, which plays them).
+    private func pruneAutoPicked() {
+        guard autoPickSkips != nil else { return }
+        // Decided first: `passesOver` reads the queue, which `removeAll` would be modifying.
+        let dropped = Set(queue.autoplay.filter(passesOver).map(\.id))
+        guard !dropped.isEmpty else { return }
+        queue.autoplay.removeAll { dropped.contains($0.id) }
+    }
+
+    /// The rules' answers changed (an artist was blocked): Autoplay drops what it would now skip, and a current song
+    /// the queue picked by itself that the rules now skip moves on at once, while the listener is listening. What the
+    /// listener picked keeps playing.
+    public func autoPickRulesDidChange() {
+        pruneAutoPicked()
+        scheduleSave()
+        guard let current = queue.nowPlaying, current.id == autoPickedCurrentID, wantsPlayback,
+              autoPickSkips?(current.track) == true else { return }
+        Task { await self.next() }
+    }
+
     // MARK: Autoplay continuation
 
     func prefetchContinuationIfNeeded() {
@@ -865,8 +927,11 @@ public final class QTQueueController {
             guard generation == contextGeneration else { return .stale }
             guard let tracks = answer else { continue }
             var seen = request.excludingVideoIDs
-            let items = tracks.filter { $0.availability.isPlayable && seen.insert($0.videoId).inserted }.map { QTQueueItem(track: $0) }
+            let skips = autoPickSkips
+            let items = tracks.filter { $0.availability.isPlayable && skips?($0) != true && seen.insert($0.videoId).inserted }
+                .map { QTQueueItem(track: $0) }
             guard !items.isEmpty else { return .empty }
+            radioIDs.formUnion(items.map(\.id))
             context.append(contentsOf: items)
             queue.autoplay.append(contentsOf: isShuffleOn ? shuffled(items, avoidingFirst: nil) : items)
             scheduleSave()

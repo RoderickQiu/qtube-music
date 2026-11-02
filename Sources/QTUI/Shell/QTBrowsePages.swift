@@ -237,7 +237,9 @@ struct QTExploreView: View {
     }
 
     @ViewBuilder
-    private func shelves(_ list: [QTShelf], ranked: Bool) -> some View {
+    private func shelves(_ all: [QTShelf], ranked: Bool) -> some View {
+        // Without blocked artists (QTArtistBlocking).
+        let list = QTAppModel.shared.artistBlocklist.filter(all)
         if list.isEmpty {
             ContentUnavailableView(QTLoc.tr("Explore"), systemImage: QTIcon.compass.systemName)
                 .frame(maxWidth: .infinity, minHeight: 360)
@@ -339,7 +341,8 @@ struct QTMoodPageView: View {
     var body: some View {
         QTBrowseLoader(.mood(chip), extract: \.shelves) {
             QTLiveSkeleton(layout: .shelves, title: chip.title.resolved)
-        } content: { shelves, _ in
+        } content: { all, _ in
+            let shelves = QTAppModel.shared.artistBlocklist.filter(all)
             QTBrowseScroll(destination: .mood(chip), identifier: "qt.mood") {
                 QTPageTitle(text: chip.title.resolved)
                 if shelves.isEmpty {
@@ -416,6 +419,11 @@ struct QTArtistPageContent: View {
 
     private var source: QTQueueSource { QTQueueSource(kind: .artist, id: page.artist.id, title: .verbatim(page.artist.name)) }
 
+    /// The page's artist for Don't Play This Artist (the demo's ids are names).
+    private var artistRef: QTArtistRef {
+        QTArtistRef(id: page.channelId ?? (page.artist.id == page.artist.name ? nil : page.artist.id), name: page.artist.name)
+    }
+
     /// Wide photo → hero banner; square → portrait.
     private var isWide: Bool {
         guard let best = page.artist.artwork.max(by: { ($0.width ?? 0) < ($1.width ?? 0) }),
@@ -436,7 +444,8 @@ struct QTArtistPageContent: View {
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("qt.artist.songs")
             }
-            ForEach(page.shelves) { shelf in
+            // Rows of other artists (Fans also like, featured on…) leave blocked artists out; the page's own stays.
+            ForEach(QTAppModel.shared.artistBlocklist.filter(page.shelves, keeping: artistRef)) { shelf in
                 QTHomeShelf(shelf: shelf, source: source)
                     .padding(.top, QTTheme.Spacing.shelfSpacing)
             }
@@ -539,8 +548,43 @@ struct QTArtistPageContent: View {
             .accessibilityIdentifier("qt.artist.shuffle")
             .disabled(!songs.contains(where: \.availability.isPlayable))
             subscribe
+            more
         }
         .controlSize(.large)
+    }
+
+    @State private var moreAnchor = QTMenuAnchor()
+
+    /// More: Don't Play This Artist (checked while blocked), Copy Link. A native NSMenu under the button, like the
+    /// album and playlist headers' More (`QTLibraryActions`).
+    private var more: some View {
+        Button {
+            moreAnchor.popUp(moreMenu())
+        } label: {
+            Label {
+                Text(QTLoc.tr("More"))
+            } icon: {
+                Image(systemName: QTIcon.more.systemName).frame(width: 20, height: 20)
+            }
+        }
+        .qtGlassButton(.secondary, iconOnly: true)
+        .background(QTMenuAnchorView(anchor: moreAnchor))
+        .help(QTLoc.tr("More"))
+        .accessibilityLabel(QTLoc.tr("More"))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier("qt.artist.more")
+    }
+
+    private func moreMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.addItem(QTArtistBlocking.menuItem(for: artistRef))
+        if let channel = artistRef.id, channel.hasPrefix("UC") {
+            menu.addItem(.separator())
+            menu.addItem(QTClosureMenuItem(QTLoc.tr("Copy Link")) {
+                QTLiveActions.copyLink("https://music.youtube.com/channel/\(channel)")
+            })
+        }
+        return menu
     }
 
     /// The channel Subscribe acts on: the page's own (signed in), or the artist's id in the demo library.

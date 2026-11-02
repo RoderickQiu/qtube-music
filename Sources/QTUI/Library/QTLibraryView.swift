@@ -55,6 +55,7 @@ public struct QTLibraryView: View {
             reduceMotion: reduceMotion,
             emptyText: q.isEmpty ? nil : QTLoc.tr("No songs match “%@”.", q),
             showsAlphabet: true,
+            blocklist: model.artistBlocklist,
             accent: QTTheme.Colors.nsAccent(model.palette, dark: scheme == .dark, increaseContrast: contrast == .increased)
         )
         .accessibilityIdentifier("qt.library")

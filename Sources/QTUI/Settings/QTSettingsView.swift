@@ -179,6 +179,7 @@ struct QTPlaybackSettings: View {
             Section {
                 Toggle(QTLoc.tr("Prefer videos when available"), isOn: setting(store, \.preferVideos))
             }
+            QTBlockedArtistsSection()
             Section {
                 Toggle(isOn: Binding(get: { eligible && optedIn },
                                      set: { v in store.update { $0.playbackEffects.nativeEngine = v } })) {
@@ -391,7 +392,12 @@ struct QTAdvancedSettings: View {
         .confirmationDialog(QTLoc.tr("Reset all settings?", table: .desktop), isPresented: $confirmReset) {
             Button(QTLoc.tr("Reset", table: .desktop), role: .destructive) {
                 QTInterfaceLanguageSync.write(.automatic)
-                model.settings.update { $0 = QTSettings() }
+                // The blocked artists are the listener's list, not a preference: they stay.
+                model.settings.update { s in
+                    let blocked = s.blockedArtists
+                    s = QTSettings()
+                    s.blockedArtists = blocked
+                }
                 model.applyAppearance()
             }
         } message: {

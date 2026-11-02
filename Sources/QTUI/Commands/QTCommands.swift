@@ -100,6 +100,8 @@ public struct QTCommands: Commands {
             }
             .keyboardShortcut("l", modifiers: .command)
             .disabled(player.nowPlaying == nil)
+            // The playing song's artist ("Don't Play This Artist"); a song Autoplay picked moves on at once.
+            QTArtistBlockMenuContent(track: player.nowPlaying, model: model)
             Toggle(QTLoc.tr("Shuffle"), isOn: Binding(get: { player.isShuffleOn }, set: { player.isShuffleOn = $0 }))
             Picker(QTLoc.tr("Repeat"), selection: Binding(get: { player.repeatMode }, set: { player.repeatMode = $0 })) {
                 Text(QTLoc.tr("Off")).tag(QTRepeatMode.off)

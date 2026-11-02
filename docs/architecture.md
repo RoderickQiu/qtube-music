@@ -10,7 +10,7 @@ SwiftPM package `QTubeMusic` (`Package.swift`, tools 6.2, Swift 6 language mode,
 
 | Target | Depends on | Contents | Owner |
 |---|---|---|---|
-| `QTCore` | — | Models (`QTTrack`, `QTAlbum`, `QTArtist`, `QTPlaylist`, `QTShelf`/`QTHomeFeed`, `QTArtworkPalette`), `QTQueue`, `QTLyricsDocument`, `QTSettings` + `QTSettingsStore`, `QTMockCatalog` + `QTCatalogService`, `QTFormat`, `QTLoc` localization, **all String Catalogs** | shared (scaffold) |
+| `QTCore` | — | Models (`QTTrack`, `QTAlbum`, `QTArtist`, `QTPlaylist`, `QTShelf`/`QTHomeFeed`, `QTArtworkPalette`, `QTArtistBlocklist`), `QTQueue`, `QTLyricsDocument`, `QTSettings` + `QTSettingsStore`, `QTMockCatalog` + `QTCatalogService`, `QTFormat`, `QTLoc` localization, **all String Catalogs** | shared (scaffold) |
 | `QTInnerTube` | QTCore | `QTInnerTubeClient` (actor: ytcfg scrape, WEB_REMIX context, hl/gl, SAPISIDHASH, TTL+LRU cache, retries, session-loss detection; account writes in `QTInnerTubeWrites.swift`, refused unless `setAllowsAccountWrites`, never retried), parsers → QTCore models (music-only filter), `QTCounterpartResolver` (Song⇄Video), `QTInnerTubeCatalog` (`QTCatalogService`), `QTInnerTubeConfiguration`; `Lyrics/QTInnerTubeLyricsClient` (anonymous ANDROID_MUSIC `post(_:payload:)` for timed lyrics, follows a client's hl/gl/visitor id — lyrics-live) | data-layer |
 | `QTAuth` | QTInnerTube | `QTAuthController` (`restore()`, `beginSignIn(hl:over:)`, `signOut()` (also at Google), `importSession(cookies:)`, `webDataStore`), `QTSignInPage` / `QTSignInAddress` (WebAuthn-hiding script, address strip, popup links), `QTCookieImport` / `QTFirefoxCookies` (cookies.txt and Firefox `cookies.sqlite` readers), `QTGoogleSignOut`, `QTIdentitySwitcher` (brand-account switch, verified via the player page's DATASYNC_ID), `QTSessionStore` (actor, Keychain `com.roderickqiu.qtube`), `QTAuthSession`/`QTCookie` (auth-cookie allowlist), `QTWebCookieStore` (`QTWebKitCookieStore.session`: the non-persistent jar playback uses), `QTLegacyWebStorage` (deletes old plain-text WebKit data), `QTAuthState` | data-layer |
 | `QTPlayback` | QTCore, QTInnerTube | `QTPlaybackEngine` protocol, `QTSimulatedPlaybackEngine`, `QTQueueController` (queue + context, shuffle/repeat, autoplay continuation, persistence via `QTQueueStore`, holds a process activity while playing; the reliability watch of `QTQueueController+Reliability`), `QTNowPlayingController` (sole owner of Now Playing + remote commands), `Web/QTWebPlaybackEngine` (hidden WKWebView in the non-persistent session jar `QTWebKitCookieStore.session`, `sessionDidChange()`, JS bridge, ads, playability errors, offline recovery, 144p decode, page freeze while paused; `QTWebKitTuning` keeps the hidden page scheduled), `Web/QTWebVideoOutput` (M5: the page's music video in app views, native PiP, `QTModeSwitchReport`), `Web/Audio/` (web-audio: `QTWebAudioScript` page tap + `QTWebAudioTap` = `QTWebPlaybackEngine.audio`, spectrum for the visualizer decoded from the audio the page appends to its MediaSource, pulled only while a visualizer shows — `docs/web-audio.md`), `QTPlaybackEngineSelector`; `Native/` = the native Premium engine (opt-in, option B of `docs/native-engine-spike.md`): `QTNativePlaybackEngine` (wraps a `QTWebPlaybackEngine` for videos and fallback; `prepareNext` → prefetch, gapless join, crossfade; Song⇄Video handovers; session fallback), `QTNativeAudioPlayer` + `QTNativeDeck` (AVAudioEngine: two player-node decks → mixer → 10-band EQ → main mixer; decode-ahead from memory; FFT tap only while asked), `QTNativeMemoryAudioFile` (AudioToolbox read callbacks + ExtAudioFile over in-memory AAC, never on disk), `QTNativeAudioFetcher` (resolve + ranged download into memory, retry with a re-checked player, LRU of 4 tracks), `QTNativeStreamResolver` (`resolvePremium`: WEB_REMIX + session; `QTNativeFailure` systemic/item), `QTNativePlayerScript` (vendored EJS solver in JavaScriptCore, `Resources/EJS` pinned by `Scripts/update-ejs.sh`; `QTNativePlayerCache` keeps preprocessed players per hash in Caches). Spike-only: `QTNativeAudioGraph`, `QTNativeStreamDownloader` (DEBUG), `QTNativeAVPlayerProbe` | playback (Web video parts: stage-video; Web/Audio: web-audio); Native/: native-engine |
@@ -83,6 +83,39 @@ Everything is wired (integration of M1 polish + M2–M4):
 - **Autoplay:** with the live library, `QTQueueController.autoplayContinuation` is YouTube Music's radio for the
   last track (`next` with `RDAMVM<id>`, read-only), installed by `QTLiveCatalogStore` on entering live mode.
   Lyrics' `QTInnerTubeLyricsClient` follows the app client's hl / gl / visitor id (still anonymous).
+- **Keep AI music out (0.4.0): Don't Play This Artist.** The list is `QTSettings.blockedArtists`
+  (`[QTBlockedArtist]`: channel id when known, name, date; this Mac only, never synced; Settings › Advanced › Reset
+  keeps it). `QTArtistBlocklist` (QTCore) is the one matcher: blocked when the channel id (`MPLA` prefix dropped) is on
+  the list **or** the name is, compared trimmed, NFC and lower-cased, exact — no fuzzy matching (Limusic's rule); a
+  song is blocked when any credited artist is. `QTArtistBlocking` (QTUI/AppModel) owns the actions (toast with Undo),
+  the menus and the cached matcher (`model.artistBlocklist`, observed by views). Where it applies:
+  - **The queue** (`QTQueueController.autoPickSkips`, set by `QTArtistBlocking.install`): only what the queue picks by
+    itself is passed over — Autoplay items under shuffle, in a radio or mix context (`QTQueueSource.isAutomatic`:
+    `.radio` — mood pages, Start Radio — and `RD…` playlists except the curated `RDCLAK…`), and the radio
+    continuation's songs (`radioIDs`, saved in `QTQueueSnapshot.radioIDs`; nil in older queues). `popNext` drops them,
+    `naturalNext` (gapless/crossfade prepare) skips them, the continuation never adds them, and `pruneAutoPicked`
+    keeps Autoplay's list honest after play / shuffle / a rules change. A shuffle's first song is a non-blocked one.
+    **Still plays:** Up Next, the row the listener played, a jump in the queue, Previous, and an album or playlist
+    played in order (their rows show dimmed, 50 %, with a tooltip, in `QTTrackTable`). `autoPickRulesDidChange()`
+    after blocking: Autoplay drops the artist, and a current song the queue picked (`autoPickedCurrentID`) moves on
+    at once while playing (never starts playback while paused); the listener's own pick keeps playing.
+  - **Hidden:** Home and mood feeds, Explore and its sections, mood/genre pages, other artists' rows on an artist
+    page (the page's own artist is exempt: `filter(_:keeping:)`), and search (`QTSearchResults.filtered`) — unless the
+    query is the blocked artist's exact name (they asked). Playlist cards are never hidden. Library pages, albums and
+    the user's playlists are not filtered.
+  - **Menus:** song menus (track tables, cards, quick picks, search top result, the queue) and Controls (the playing
+    song) have "Don't Play This Artist", checked while blocked; several artists → a submenu of names. Artist cards
+    (context menu) and the artist page's More button have it too. Uploads have none.
+  - **AI label: not wired.** YouTube Music's "AI" label (Now Playing, since 2026-10-14/16) was looked for on
+    2026-11-01 with 14 anonymous requests (WEB_REMIX `next`/`player`/`search` at client 1.20261013 and 1.20261027,
+    ANDROID_MUSIC `next`, WEB `next` on www.youtube.com): no `howThisWasMadeSectionViewModel`, "How this was made"
+    or "synthetic" text in any of them — but no video that carries the label was found either (yt-dlp #16271's
+    example `IhC7N6T_gTg` is gone; three AI-music videos, incl. The Velvet Sundown and Xania Monet, have no label on
+    the www watch page either), so the label's path stays unknown. Nothing is faked. The seam: a label rule answers
+    in `autoPickSkips` (per track; `QTTrack` would carry the label once a parser reads it from `next`); a label that
+    only arrives with the track's own `next` belongs in `loadCurrent` before `engine.load` for an auto-picked item
+    (`autoPickedCurrentID`). ANDROID_MUSIC `next` carries Litho `elementRenderer` payloads (base64 protobuf) that
+    weren't decoded — the next place to look once a labelled video is known.
 - **Account:** `model.authController` is the live store's `QTAuthController`; Settings › Account (desktop) shows its
   state and signs in/out through the store.
 
@@ -960,6 +993,7 @@ Booleans: `YES/NO`, `true/false`, `1/0` (empty = true).
 | `qt.show` | comma list: `mini`, `desktopLyrics`, `menuBarPopover`, `settings`; DEBUG `reportProblem` (Help › Report a Problem…; `Scripts/shoot.sh --window reportProblem`), `newPlaylist` (New Playlist sheet with the launch queue), `editPlaylist` / `deletePlaylist` (with `-qt.section playlist:<id>`) | |
 | `qt.readyFile` | path; JSON `{pid, bundleID, windows:[{identifier, number, title, frame}]}` when settled | |
 | `qt.catalog` | `live` (default: the saved session, else guest mode) · `mock` (DEBUG builds only — release builds ignore it — demo catalog; never reads the Keychain; `Scripts/shoot.sh` passes it unless you give `-qt.catalog`) · a mock catalog folder path (also `$QT_MOCK_CATALOG`) | |
+| `qt.blockedArtists` | DEBUG: comma list of names, a session-only blocked list (`-qt.blockedArtists "李健,Ed Sheeran"`; never saved, and blocking during that session isn't saved either) · `qt.blockedArtists.editor YES` (Settings › Playback opens the Blocked Artists sheet; with `-qt.show settings -qt.settingsTab playback`) | |
 
 Builders add their own as `qt.<area>.<name>` (e.g. `qt.stage.chrome hidden`, `qt.lyrics.scrolled YES`), read with
 `model.launch.string/bool/double("qt.stage.chrome")`, and list them here.

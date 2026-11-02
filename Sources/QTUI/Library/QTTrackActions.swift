@@ -45,7 +45,11 @@ public enum QTTrackActions {
         let playable = tracks.filter(\.availability.isPlayable).shuffled()
         guard !playable.isEmpty else { return }
         model.player.isShuffleOn = true
-        Task { await model.player.play(playable, startingAt: 0, source: source) }
+        // The shuffle picks the first song too: not a blocked artist's while there is another (the queue passes the
+        // rest over itself).
+        let blocklist = model.artistBlocklist
+        let start = playable.firstIndex { !blocklist.blocks($0) } ?? 0
+        Task { await model.player.play(playable, startingAt: start, source: source) }
     }
 
     public static func playNext(_ tracks: [QTTrack], model: QTAppModel = .shared) {

@@ -46,6 +46,7 @@ enum QTTrackCardMenu {
             menu.addItem(item)
         }
         add(QTLoc.tr(model.player.isLiked(track) ? "Remove from Liked Songs" : "Like")) { QTTrackActions.toggleLike([track]) }
+        if let block = QTArtistBlocking.menuItem(for: [track], model: model) { menu.addItem(block) }
         menu.addItem(.separator())
         // An upload has no link to share.
         add(QTLoc.tr("Copy Link"), enabled: QTTrackActions.canCopyLinks([track])) { QTTrackActions.copyLinks([track]) }

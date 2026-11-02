@@ -2186,6 +2186,66 @@
           }
         }
       }
+    },
+    "Blocked artists" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已屏蔽的艺人"
+          }
+        }
+      }
+    },
+    "Blocked Artists" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已屏蔽的艺人"
+          }
+        }
+      }
+    },
+    "No Blocked Artists" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有已屏蔽的艺人"
+          }
+        }
+      }
+    },
+    "Autoplay, radio and shuffle skip these artists, and Home, Explore and search leave them out. Songs you pick still play." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动播放、电台和随机播放会跳过这些艺人，首页、探索和搜索也不会显示他们。你自己选的歌曲仍会播放。"
+          }
+        }
+      }
+    },
+    "Remove" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "移除"
+          }
+        }
+      }
+    },
+    "Done" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "完成"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"
