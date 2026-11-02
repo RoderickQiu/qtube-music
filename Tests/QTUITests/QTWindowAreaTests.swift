@@ -1,6 +1,8 @@
 import AppKit
 import Foundation
 import QTCore
+import QTLyrics
+import QTPlayback
 import Testing
 @testable import QTUI
 
@@ -106,6 +108,21 @@ import Testing
         #expect(!nav.canGoForward) // a new page drops the forward stack
         nav.go(.section(.songs))
         #expect(nav.backStack.count == 2) // same page is a no-op
+    }
+
+    /// A page asked for before any window attached (a guest launch's `-qt.live.open`) is where the window starts.
+    @Test func pageAskedForBeforeAttachIsShownOnAttach() {
+        let nav = QTNavigator()
+        nav.go(.artist("UC-hkt"))
+        let catalog = QTMockCatalog(tracks: [], liked: QTPlaylist(id: "LM", title: .localized("Liked Songs"), kind: .liked,
+                                                                  tracks: []))
+        let player = QTPlayerModel(engine: QTUIStubEngine(), lyricsProvider: QTMockLyricsProvider(catalog: catalog))
+        let defaults = UserDefaults(suiteName: "qt.test.navigator.\(UUID().uuidString)")!
+        let model = QTAppModel(settings: QTSettingsStore(defaults: defaults), player: player, catalog: catalog,
+                               launch: QTLaunchOptions(arguments: [:]))
+        nav.attach(model)
+        #expect(nav.current == .artist("UC-hkt"))
+        #expect(nav.backStack == [.section(.home)])
     }
 
     @Test func remembersPerPageState() {

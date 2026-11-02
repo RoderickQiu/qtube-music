@@ -62,6 +62,8 @@ public final class QTNavigator {
     @ObservationIgnored private var scrollOffsets: [String: CGFloat] = [:]
     @ObservationIgnored private weak var model: QTAppModel?
     @ObservationIgnored private var isSyncingSidebar = false
+    /// A page asked for before a window attached (guest launches open `-qt.live.open` that early); shown on attach.
+    @ObservationIgnored private var pendingDestination: QTDestination?
 
     static let historyLimit = 64
 
@@ -75,6 +77,10 @@ public final class QTNavigator {
         backStack = []
         forwardStack = []
         QTWindowLaunchHooks.apply(model.launch, model: model, navigator: self)
+        if let pending = pendingDestination {
+            pendingDestination = nil
+            go(pending)
+        }
     }
 
     public var canGoBack: Bool { !backStack.isEmpty }
@@ -82,6 +88,7 @@ public final class QTNavigator {
 
     /// Pushes a new page (no-op when it's the current one). Clears an active search so the page is visible.
     public func go(_ destination: QTDestination) {
+        if model == nil { pendingDestination = destination }
         model?.searchText = ""
         guard destination != current else { return }
         backStack.append(current)
