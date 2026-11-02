@@ -158,7 +158,7 @@ public struct QTMenuBarLabel: View {
 }
 
 /// Menu bar popover: art · title/artist · like, scrubber, transport flanked by desktop lyrics and mini player,
-/// then the current lyric line. Follows the system appearance (the popover window draws the material).
+/// the sleep timer's countdown while one runs, then the current lyric line. Follows the system appearance (the popover window draws the material).
 public struct QTMenuBarContent: View {
     @Environment(QTAppModel.self) private var model
     @Environment(QTPlayerModel.self) private var player
@@ -173,6 +173,11 @@ public struct QTMenuBarContent: View {
                 .padding(.top, QTTheme.Spacing.m)
             controls
                 .padding(.top, 6)
+            // The sleep timer's countdown, only while one runs; a click offers its choices.
+            if player.sleepTimer.isActive {
+                QTSleepTimerButton(identifier: "qt.menuBarPopover.sleepTimer")
+                    .padding(.top, 8)
+            }
             // Divider + line only while there is a line to show (current, or the next one dimmed before the first
             // line / in an interlude); after the last line the section collapses instead of leaving a band.
             QTCurrentLyricLine(style: .popover)

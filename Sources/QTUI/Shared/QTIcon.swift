@@ -9,6 +9,7 @@ public enum QTIcon: String, CaseIterable, Sendable {
     case search, chevL, chevR, chevD, chevU
     case expand, mini, lyrics, lyricsOptions, volume, volumeMuted, airplay, more, sidebar
     case grip, video, check, layers, close, sparkle, pin, upload
+    case sleepTimer
 
     public var systemName: String {
         switch self {
@@ -53,6 +54,8 @@ public enum QTIcon: String, CaseIterable, Sendable {
         case .pin: "pin"
         // Library › Uploads: the user's own files, kept in YouTube Music's cloud.
         case .upload: "icloud.and.arrow.up"
+        // The sleep timer's countdown (player bar, Stage, menu bar popover).
+        case .sleepTimer: "moon.zzz"
         }
     }
 

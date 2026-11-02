@@ -200,6 +200,11 @@ struct QTPlayerBarTools: View {
                 QTPlaybackSpeedButton()
                     .padding(.trailing, 4)
             }
+            // Only while a sleep timer runs: its countdown (Controls › Sleep Timer starts one).
+            if player.sleepTimer.isActive {
+                QTSleepTimerButton()
+                    .padding(.trailing, 4)
+            }
             panelToggle(.nowPlaying, title: QTLoc.tr("Lyrics"), icon: .lyrics, id: "lyrics")
             panelToggle(.queue, title: QTLoc.tr("Queue"), icon: .list, id: "queue")
             QTAirPlayButton()

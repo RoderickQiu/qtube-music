@@ -418,6 +418,9 @@ struct QTMiniPlayerMenu: View {
         Menu(QTLoc.tr("Playback Speed", table: .player)) {
             QTPlaybackSpeedMenuContent(player: player, includesSteps: false)
         }
+        Menu(QTLoc.tr("Sleep Timer", table: .player)) {
+            QTSleepTimerMenuContent(player: player)
+        }
         Divider()
         Picker(QTLoc.tr("Size", table: .desktop), selection: Binding(get: { prefs.mode }, set: { v in model.settings.update { $0.miniPlayer.mode = v } })) {
             Text(QTLoc.tr("Compact", table: .desktop)).tag(QTMiniPlayerMode.compact)
