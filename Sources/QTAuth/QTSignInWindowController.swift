@@ -159,7 +159,7 @@ final class QTSignInWindowController: NSWindowController, NSWindowDelegate, WKNa
         help.toolTip = QTLoc.tr("Why not my browser?", table: .live)
         help.setAccessibilityLabel(QTLoc.tr("Why not my browser?", table: .live))
         help.setAccessibilityIdentifier("qt.auth.signIn.help")
-        let keeps = NSTextField(wrappingLabelWithString: QTLoc.tr("QTube Music keeps only Google’s sign-in cookies, in your Keychain. Never your password.", table: .live))
+        let keeps = NSTextField(wrappingLabelWithString: QTLoc.tr("QTube Music keeps only Google’s sign-in cookies, in a private file on this Mac. Never your password.", table: .live))
         keeps.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         keeps.textColor = .secondaryLabelColor
         keeps.maximumNumberOfLines = 2

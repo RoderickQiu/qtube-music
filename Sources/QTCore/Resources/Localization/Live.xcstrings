@@ -111,12 +111,12 @@
         }
       }
     },
-    "QTube Music keeps only Google’s sign-in cookies, in your Keychain. Never your password." : {
+    "QTube Music keeps only Google’s sign-in cookies, in a private file on this Mac. Never your password." : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "QTube Music 只在你的钥匙串中保存 Google 的登录 Cookie，绝不保存你的密码。"
+            "value" : "QTube Music 只在这台 Mac 的私有文件中保存 Google 的登录 Cookie，绝不保存你的密码。"
           }
         }
       }

@@ -144,6 +144,8 @@ public enum QTAuthError: Error, Sendable, Equatable {
     case incompleteSession
     /// Keychain read/write failed (OSStatus).
     case keychain(status: Int32)
+    /// The private session file couldn't be read or written.
+    case storage
     case encoding
     /// The sign-in window was closed before finishing.
     case cancelled

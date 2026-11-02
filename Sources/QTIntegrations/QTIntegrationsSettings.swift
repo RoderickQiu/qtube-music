@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import QTCore
 import Security
 
 // QTIntegrations — opt-in connections to other services (spec §10). Everything is OFF by default and nothing is
@@ -131,7 +132,7 @@ public final class QTIntegrationsStore {
 
     public init(defaults: UserDefaults = .standard, secrets: (any QTIntegrationSecretStore)? = nil) {
         self.defaults = defaults
-        self.secrets = secrets ?? QTKeychainSecretStore()
+        self.secrets = secrets ?? QTFileSecretStore.applicationSupport()
         settings = defaults.data(forKey: Self.defaultsKey)
             .flatMap { try? JSONDecoder().decode(QTIntegrationsSettings.self, from: $0) } ?? QTIntegrationsSettings()
     }
@@ -239,8 +240,96 @@ public protocol QTIntegrationSecretStore: Sendable {
     func remove(_ secret: QTIntegrationSecret)
 }
 
-/// Generic-password Keychain items, service `com.roderickqiu.qtube.integrations`, one account per secret.
-public struct QTKeychainSecretStore: QTIntegrationSecretStore {
+/// Integration keys saved by an older version, moved once into the file store.
+public protocol QTLegacyIntegrationSecrets: QTIntegrationSecretStore {
+    /// Must not prompt.
+    func exists(_ secret: QTIntegrationSecret) -> Bool
+}
+
+/// The integration keys (Last.fm secret and session key, ListenBrainz token) in one private file,
+/// `~/Library/Application Support/<bundle id>/Private/Integrations.json` (`QTPrivateFile`: 0600, not backed up), next
+/// to the YouTube Music session — not the Keychain, which asked for the login password after every update of an
+/// ad-hoc signed build. Keys saved in the Keychain by 0.3.0 or earlier move here on first use: macOS asks one last time
+/// per key that exists, then the items are deleted. Tried once (`migratedMarker`); no items, no prompt.
+public final class QTFileSecretStore: QTIntegrationSecretStore, @unchecked Sendable {
+    private let file: QTPrivateFile
+    private let migratedMarker: QTPrivateFile
+    private let legacy: (any QTLegacyIntegrationSecrets)?
+    private let lock = NSLock()
+
+    public init(file: QTPrivateFile, migratedMarker: QTPrivateFile, legacy: (any QTLegacyIntegrationSecrets)? = nil) {
+        self.file = file
+        self.migratedMarker = migratedMarker
+        self.legacy = legacy
+    }
+
+    public static func applicationSupport() -> QTFileSecretStore {
+        // DEBUG builds and tests never touch the installed app's Keychain items.
+        #if DEBUG
+        let legacy: (any QTLegacyIntegrationSecrets)? = nil
+        #else
+        let legacy: (any QTLegacyIntegrationSecrets)? = QTKeychainSecretStore()
+        #endif
+        return QTFileSecretStore(file: .applicationSupport("Integrations.json"),
+                                 migratedMarker: .applicationSupport("Integrations.migrated"),
+                                 legacy: legacy)
+    }
+
+    public func get(_ secret: QTIntegrationSecret) -> String? {
+        lock.withLock { load()[secret.rawValue] }
+    }
+
+    public func set(_ value: String, for secret: QTIntegrationSecret) {
+        lock.withLock {
+            var all = load()
+            all[secret.rawValue] = value
+            save(all)
+        }
+    }
+
+    public func remove(_ secret: QTIntegrationSecret) {
+        lock.withLock {
+            var all = load()
+            guard all.removeValue(forKey: secret.rawValue) != nil else { return }
+            save(all)
+        }
+    }
+
+    private func load() -> [String: String] {
+        var all: [String: String] = [:]
+        if let data = try? file.read() {
+            all = (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
+        }
+        migrateLegacy(into: &all)
+        return all
+    }
+
+    private func migrateLegacy(into all: inout [String: String]) {
+        guard let legacy, (try? migratedMarker.read()) == nil else { return }
+        // Marked first, so a quit at a prompt doesn't ask at every launch.
+        try? migratedMarker.write(Data())
+        var moved: [QTIntegrationSecret] = []
+        for secret in QTIntegrationSecret.allCases where legacy.exists(secret) {
+            guard let value = legacy.get(secret) else { continue }
+            if all[secret.rawValue] == nil { all[secret.rawValue] = value }
+            moved.append(secret)
+        }
+        guard !moved.isEmpty, let data = try? JSONEncoder().encode(all), (try? file.write(data)) != nil else { return }
+        moved.forEach(legacy.remove)
+    }
+
+    private func save(_ all: [String: String]) {
+        if all.isEmpty {
+            try? file.delete()
+        } else if let data = try? JSONEncoder().encode(all) {
+            try? file.write(data)
+        }
+    }
+}
+
+/// Generic-password Keychain items, service `com.roderickqiu.qtube.integrations`, one account per secret: where 0.3.0
+/// and earlier kept the keys. Now only the source of the one move into `QTFileSecretStore`.
+public struct QTKeychainSecretStore: QTLegacyIntegrationSecrets {
     public let service: String
 
     public init(service: String = "com.roderickqiu.qtube.integrations") {
@@ -250,6 +339,15 @@ public struct QTKeychainSecretStore: QTIntegrationSecretStore {
     private func query(_ secret: QTIntegrationSecret) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
          kSecAttrAccount as String: secret.rawValue]
+    }
+
+    /// Attributes only, so another build's lookup doesn't prompt.
+    public func exists(_ secret: QTIntegrationSecret) -> Bool {
+        var q = query(secret)
+        q[kSecReturnAttributes as String] = true
+        q[kSecMatchLimit as String] = kSecMatchLimitOne
+        var out: CFTypeRef?
+        return SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess
     }
 
     public func get(_ secret: QTIntegrationSecret) -> String? {

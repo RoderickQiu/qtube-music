@@ -160,7 +160,7 @@ struct QTAccountSettings: View {
             }
             Button(QTLoc.tr("Keep", table: .desktop), role: .cancel) { importedFile = nil }
         } message: {
-            Text(QTLoc.tr("Anyone with this file can use your Google account. QTube Music keeps its own copy in your Keychain.", table: .desktop))
+            Text(QTLoc.tr("Anyone with this file can use your Google account. QTube Music keeps its own copy in a private file on this Mac.", table: .desktop))
         }
         .confirmationDialog(QTLoc.tr("Sign out of YouTube Music?", table: .desktop), isPresented: $confirmSignOut) {
             Button(QTLoc.tr("Sign Out", table: .desktop), role: .destructive) {

@@ -28,8 +28,7 @@
 # tree. Needs Xcode 27, and `gh` signed in for --publish.
 #
 # Signing: builds are ad-hoc signed (no Apple Developer ID yet), so users open the app once through System Settings ›
-# Privacy & Security › Open Anyway (README › Install), and after each update macOS asks once before the new build may
-# read the saved session from the Keychain. Updates come through Sparkle: the zip and the appcast are EdDSA-signed
+# Privacy & Security › Open Anyway (README › Install). Updates come through Sparkle: the zip and the appcast are EdDSA-signed
 # with the key in the login keychain (account "qtube-music"; Sparkle's generate_keys). See `--developer-id` for the
 # switch-over.
 set -euo pipefail
@@ -60,8 +59,8 @@ Developer ID signing isn't set up yet. To switch over:
        xcrun notarytool store-credentials qtube --apple-id <id> --team-id <TEAMID>
        xcrun notarytool submit "QTube-Music-<v>.dmg" --keychain-profile qtube --wait
        xcrun stapler staple "QTube-Music-<v>.dmg"
-  4. Keep the same EdDSA key (SUPublicEDKey) so installed copies accept the first Developer ID build. From then on
-     the Keychain item's access follows the team ID, so updates stop asking for the saved session.
+  4. Keep the same EdDSA key (SUPublicEDKey) so installed copies accept the first Developer ID build. A team ID also
+     makes the Keychain usable without a prompt per update, so the session could move back from its private file.
   5. Drop the "Open Anyway" step from README › Install and the release notes.
 EOF
       exit 2 ;;

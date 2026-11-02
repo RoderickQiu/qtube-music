@@ -1671,12 +1671,12 @@
         }
       }
     },
-    "Anyone with this file can use your Google account. QTube Music keeps its own copy in your Keychain." : {
+    "Anyone with this file can use your Google account. QTube Music keeps its own copy in a private file on this Mac." : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "任何拿到此文件的人都能使用你的 Google 账户。QTube Music 已在你的钥匙串中保存了自己的副本。"
+            "value" : "任何拿到此文件的人都能使用你的 Google 账户。QTube Music 已在这台 Mac 的私有文件中保存了自己的副本。"
           }
         }
       }
@@ -1711,12 +1711,12 @@
         }
       }
     },
-    "Couldn’t save the session in your Keychain." : {
+    "Couldn’t save the session on this Mac." : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "无法将会话保存到你的钥匙串。"
+            "value" : "无法将会话保存到这台 Mac。"
           }
         }
       }
@@ -1831,12 +1831,12 @@
         }
       }
     },
-    "Only Google’s sign-in cookies are kept, in your Keychain. Signing out in QTube Music also signs that browser session out." : {
+    "Only Google’s sign-in cookies are kept, in a private file on this Mac. Signing out in QTube Music also signs that browser session out." : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "只保留 Google 的登录 Cookie，存放在你的钥匙串中。在 QTube Music 中退出登录，也会让那个浏览器会话退出登录。"
+            "value" : "只保留 Google 的登录 Cookie，存放在这台 Mac 的私有文件中。在 QTube Music 中退出登录，也会让那个浏览器会话退出登录。"
           }
         }
       }

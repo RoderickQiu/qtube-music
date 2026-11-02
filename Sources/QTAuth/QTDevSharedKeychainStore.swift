@@ -191,14 +191,15 @@ public struct QTDevSharedKeychainStore: QTSecureStore {
 #endif
 
 public extension QTKeychainStore {
-    /// The store the app uses: the shared, prompt-free dev item in DEBUG builds; the per-app Keychain item otherwise.
-    /// A release build of a dev variant (`QT_VARIANT=x QT_CONFIG=release`, bundle id `com.roderickqiu.qtube.dev-x`)
-    /// gets its own account, so it never reads (or prompts for, or clears) the installed app's session.
+    /// The store the app uses: the shared, prompt-free dev item in DEBUG builds; the private session file otherwise
+    /// (`QTFileSecureStore`). A release build of a dev variant (`QT_VARIANT=x QT_CONFIG=release`, bundle id
+    /// `com.roderickqiu.qtube.dev-x`) has its own Application Support folder, so it never reads or clears the
+    /// installed app's session.
     static var appDefault: any QTSecureStore {
         #if DEBUG
         QTDevSharedKeychainStore()
         #else
-        QTKeychainStore(account: releaseAccount(bundleIdentifier: Bundle.main.bundleIdentifier))
+        QTFileSecureStore.applicationSupport()
         #endif
     }
 

@@ -215,8 +215,6 @@ PLIST
 plutil -lint "$APP/Contents/Info.plist" >/dev/null
 
 # Ad-hoc signing, inside out: Sparkle's helpers (XPC services, Autoupdate, Updater.app), the framework, the app.
-# (A self-signed certificate wouldn't help: without an Apple-issued team ID the Keychain still keys an item's access
-# to the build's cdhash, so only a Developer ID ends the one Keychain prompt after each update.)
 SIGN_ID="-"
 if [[ -d "$APP/Contents/Frameworks/Sparkle.framework" ]]; then
   FW="$APP/Contents/Frameworks/Sparkle.framework/Versions/B"

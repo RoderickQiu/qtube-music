@@ -57,7 +57,7 @@ struct QTSessionImportSection: View {
                             .symbolRenderingMode(.multicolor)
                             .accessibilityIdentifier("qt.settings.account.importError")
                     }
-                    Text(QTLoc.tr("Only Google’s sign-in cookies are kept, in your Keychain. Signing out in QTube Music also signs that browser session out.", table: .desktop))
+                    Text(QTLoc.tr("Only Google’s sign-in cookies are kept, in a private file on this Mac. Signing out in QTube Music also signs that browser session out.", table: .desktop))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -154,7 +154,7 @@ struct QTSessionImportSection: View {
             return isFirefox ? QTLoc.tr("Couldn’t read Firefox’s cookies. Quit Firefox and try again.", table: .desktop)
                 : QTLoc.tr("Couldn’t read this file.", table: .desktop)
         default:
-            return QTLoc.tr("Couldn’t save the session in your Keychain.", table: .desktop)
+            return QTLoc.tr("Couldn’t save the session on this Mac.", table: .desktop)
         }
     }
 

@@ -35,7 +35,7 @@ open -g -n ".build/apps/QTube Music.app" --args -qt.catalog mock -qt.screen main
   `Scripts/make-mock-catalog.py` from the prototype's git-ignored `data.js` and `assets/`) contains copyrighted
   covers and lyrics, so it is never committed. The scripts find it in the main checkout, including when they run
   from a worktree. Only debug builds bundle or load it (`QTBuild.allowsDemoData`); release builds never contain it.
-- **Without `-qt.catalog mock` the app goes live.** It restores the saved YouTube Music session from the Keychain;
+- **Without `-qt.catalog mock` the app goes live.** It restores the saved YouTube Music session (DEBUG: the shared dev Keychain item);
   if there isn't one, it runs in guest mode (anonymous YouTube Music; library pages ask you to sign in).
 
 ### Tests
@@ -104,7 +104,7 @@ All modules are SwiftPM targets. Ownership, frozen APIs, the privacy audit and t
 |---|---|
 | `QTCore` | Models, queue, lyrics document, settings, mock catalog, `QTLoc` localization and every String Catalog (en and zh-Hans). |
 | `QTInnerTube` | YouTube Music API client (WEB_REMIX, SAPISIDHASH, cache, retries), parsers with the music-only filter, Song⇄Video counterparts; account writes (QTInnerTubeWrites.swift: sent once, never retried). |
-| `QTAuth` | Google sign-in in a throwaway WebKit store (WebAuthn hidden, address strip), session in the Keychain, non-persistent playback cookie jar, sign-out at Google, session import from Firefox / cookies.txt. |
+| `QTAuth` | Google sign-in in a throwaway WebKit store (WebAuthn hidden, address strip), session in a private file (DEBUG: the shared dev Keychain item), non-persistent playback cookie jar, sign-out at Google, session import from Firefox / cookies.txt. |
 | `QTPlayback` | Engine protocol, web engine (hidden WKWebView), video output and PiP, web-audio spectrum tap, queue controller, sole Now Playing owner. Also holds the unused native-spike code in `Native/`. |
 | `QTLyrics` | Lyrics: providers (YouTube Music, LRCLIB, AMLL; opt-in NetEase, Kugou and QQ), LRC/YRC/QRC/KRC/TTML parsers, matcher, SQLite cache, translation engines. |
 | `QTIntegrations` | Last.fm, ListenBrainz and Discord Rich Presence, all off by default. |
@@ -164,10 +164,11 @@ None of these has been done. Each one needs the owner's yes.
    them on this Mac. Still open: one signed-in run against a real account. Every write path is tested only against
    hand-built fixtures (shapes from ytmusicapi / Kaset), and the brand switch's `DATASYNC_ID` check against a fake
    switcher.
-8. **Developer ID and notarization.** Builds are ad-hoc signed, so the first launch needs Open Anyway and, after
-   each update, macOS asks once before the new build may read the saved session (the Keychain keys an item's access
-   to the cdhash unless an Apple-issued team ID signs the app; a self-signed certificate doesn't help, checked
-   2026-11-01). A Developer ID ends both and would also give dev builds a stable Keychain partition.
+8. **Developer ID and notarization.** Builds are ad-hoc signed, so the first launch needs Open Anyway. Secrets are in
+   a private file rather than the Keychain, because the Keychain keys an item's access to the cdhash unless an
+   Apple-issued team ID signs the app (a self-signed certificate doesn't help, checked 2026-11-01), which meant a
+   password prompt per update. A Developer ID ends Open Anyway, would let the secrets move back to the Keychain, and
+   would give dev builds a stable Keychain partition.
 
 ## Licenses and attribution
 

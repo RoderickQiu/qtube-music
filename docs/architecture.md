@@ -454,19 +454,29 @@ What the app sends on its own, and as whom:
 Tests: `Tests/QTInnerTubeTests/PrivacyTests.swift` (the counterpart fallback, plain searches, the visitor ids — with
 the `ytcfg` scrape on and across a session change).
 
-**Session storage.** The session lives in the Keychain and, in memory only, in WebKit:
-- **One Keychain item per app.** Release builds use service `com.roderickqiu.qtube`, account
-  `youtube-music-session`; a release build of a dev variant (`com.roderickqiu.qtube.dev-<v>`) uses
-  `youtube-music-session.<v>` (`QTKeychainStore.releaseAccount`), so it never reads, prompts for or clears the
-  installed app's session. DEBUG builds use the shared dev item below, or memory with `-qt.auth.store memory`.
+**Session storage.** The session lives in a private file (release builds; the shared dev Keychain item in DEBUG) and,
+in memory only, in WebKit:
+- **One private file per app.** `QTFileSecureStore`: `~/Library/Application Support/<bundle id>/Private/Session.json`
+  (`QTPrivateFile`: folder 0700, file 0600, created that way before the atomic rename; the folder is excluded from
+  backups). A dev variant's bundle id gives it its own folder, so it never reads or clears the installed app's session.
+  DEBUG builds use the shared dev item below, or memory with `-qt.auth.store memory`.
+  **Why not the Keychain (owner's decision, 2026-11-01):** an ad-hoc build's Keychain access is keyed to its cdhash
+  (partition `cdhash:…`, verified; a self-signed certificate gives the same), so every update asked for the login
+  password. The trade-off is Firefox's: other accounts can't read the file, programs running as this user can,
+  silently. Encrypting it wouldn't change that (the key would have to be just as reachable). README says so.
+- **One move out of the Keychain.** The first read with no file checks for the 0.3.0-era item
+  (`QTKeychainStore`, service `com.roderickqiu.qtube`, account `youtube-music-session`). The check reads attributes
+  only, which doesn't prompt (verified), so new users never see a dialog. If it exists, macOS asks once, the session
+  moves to the file and the item is deleted. Denied: signed out. `Session.migrated` makes it one try, and sign-in and
+  sign-out set it too, so a sign-out can't bring the old session back. No in-app explanation, by the owner's choice.
 - **Never a persistent WebKit store.** WebKit saves `WKWebsiteDataStore.default()` cookies in plain text
   (`~/Library/HTTPStorages/<bundle id>.binarycookies`, 0644). The app uses none: sign-in runs in a fresh
-  `.nonPersistent()` store per attempt — the login is moved to the Keychain and the throwaway cleared; playback runs in
-  `QTWebKitCookieStore.session`, a process-wide `.nonPersistent()` jar seeded from the Keychain by `restore()` /
+  `.nonPersistent()` store per attempt — the login is moved to the session store and the throwaway cleared; playback runs in
+  `QTWebKitCookieStore.session`, a process-wide `.nonPersistent()` jar seeded from the session store by `restore()` /
   sign-in and emptied by sign-out. `QTAuthController` refuses to write session cookies into a persistent jar, and
   `QTWebPlaybackEngine` refuses a persistent store (precondition). Rotation flows both ways: the jar's
   `WKHTTPCookieStoreObserver` (2 s settle) folds the page's rotated auth cookies of the same login (same SAPISID) back
-  into the Keychain; `Set-Cookie` on API responses (`QTSessionEvent.cookiesRotated`) is copied into the jar.
+  into the session store; `Set-Cookie` on API responses (`QTSessionEvent.cookiesRotated`) is copied into the jar.
   `QTLegacyWebStorage.purge()` (every launch, from `QTLiveCatalogStore.attach`) deletes what older builds left:
   `HTTPStorages/<id>.binarycookies`, `HTTPStorages/<id>/`, `WebKit/<id>/`, `Caches/<id>/WebKit` — only for bundle ids
   `com.roderickqiu.qtube*`, files only (the default store is never loaded).
@@ -474,7 +484,7 @@ the `ytcfg` scrape on and across a session change).
   GET of music.youtube.com whose `ytcfg` says `LOGGED_IN: false` (one probe at a time, answer reused 60 s). A probe
   that loads signed in or fails keeps the session and the request fails as `.http(status)`. A signed-in browse/next/
   search answered `logged_in=0` still expires at once.
-- **Keychain.** Release builds: the normal per-app item (`QTKeychainStore`). DEBUG builds: `QTDevSharedKeychainStore` —
+- **Dev Keychain item.** DEBUG builds: `QTDevSharedKeychainStore` —
   service `com.roderickqiu.qtube`, account `youtube-music-session.dev`, shared by every dev variant and the
   integrator's app, created through `/usr/bin/security` so a rebuilt ad-hoc app never shows a Keychain dialog (ad-hoc
   builds get a new `cdhash:` partition each build; the tool's `apple-tool:` partition is stable). Items are created
@@ -490,7 +500,7 @@ the `ytcfg` scrape on and across a session change).
   every rebuild would prompt anyway); encrypting the value with a key in a second item (that item must be equally
   prompt-free to read, so it adds obscurity, not protection); the data-protection keychain (needs a Team ID
   entitlement). Real fixes are user-gated: a Developer ID / Team ID-signed dev build (stable `teamid:` partition, the
-  normal per-app item), or a dedicated test Google account for dev builds. Release builds are unaffected.
+  normal per-app item), or a dedicated test Google account for dev builds. Release builds don't use it.
 - **Sign-in window** (`QTSignInWindowController`, `QTSignInPage`). A sheet with compact trust cues, like the system's
   web sign-in sheets: an address strip (lock + host from `webView.url` / `hasOnlySecureContent`; click →
   `SFCertificatePanel` with `serverTrust`; a warning off `*.google.com` / `*.youtube.com`, a red "Not Secure" for HTTP or
@@ -515,7 +525,7 @@ the `ytcfg` scrape on and across a session change).
   account while `.signingIn`; YouTube answering signed out → nothing kept, `.sessionRejected`; Cancel
   (`cancelSignIn`) stops the check → nothing kept, `CancellationError` (no error shown). The import buttons are off
   while the sign-in window is open. After a cookies.txt
-  import the pane offers to move the file to the Trash. Storage is unchanged (one Keychain item, allowlist).
+  import the pane offers to move the file to the Trash. Storage is unchanged (the one session file, allowlist).
 - `QTDevSession` (DEBUG executable) imports CDP cookie JSON from stdin (`import`) and has read-only
   `status` / `summary` / `probe` / `ytcfg` commands for exploring signed-in responses — never prints cookie values.
   `QTCookie.decodeCDP` (CDP JSON import) and `QTLyricsDebug`'s /tmp log are compiled into DEBUG builds only.
@@ -1211,7 +1221,7 @@ InnerTube fixtures), `QT_DUMP=1` (print parser output), `QT_KEYCHAIN_TEST=1` (Ke
   `.mock`), the simulated engine, or silent (scripted / test) playback. Ads never.
 - **Last.fm** (off): Connect… (auth.getToken → last.fm approval page in the browser) and Finish Connecting
   (auth.getSession) with the user's API key + shared secret (https://www.last.fm/api/account/create). Shared secret
-  and session key are Keychain items (service `com.roderickqiu.qtube.integrations`), read **off the main thread**
+  and session key are in `Private/Integrations.json` (`QTFileSecretStore`, moved once from the 0.3.0-era Keychain items of service `com.roderickqiu.qtube.integrations`; a prompt per item that exists, none otherwise; DEBUG never reads them), read **off the main thread**
   (`QTIntegrationsStore.loadLastFMSession()`); only the key and user name are in defaults. One **listen** = (video id,
   `QTQueueController.playSerial`): Repeat One, replays and Previous-restart start a new listen (scrobble + fresh
   now-playing); the paused launch track starts one when it first plays; turning Last.fm on mid-song tracks it from
@@ -1236,7 +1246,7 @@ InnerTube fixtures), `QT_DUMP=1` (print parser output), `QT_KEYCHAIN_TEST=1` (Ke
   refused as plays is halved until the bad play is alone and only that one is dropped. Old queue files load (new
   `QTScrobble` fields are `decodeIfPresent`).
 - **ListenBrainz** (off): paste the user token (https://listenbrainz.org/settings/) → Connect validates it
-  (`GET /1/validate-token`) → "name [Disconnect]", "Submit listens", "Update “Now Playing”". Token in the Keychain
+  (`GET /1/validate-token`) → "name [Disconnect]", "Submit listens", "Update “Now Playing”". Token in `Private/Integrations.json`
   (`QTIntegrationSecret.listenBrainzToken`), read off the main thread (`loadListenBrainzSession`). Submissions:
   `single` (one queued listen), `import` (up to 1,000), `playing_now`; `additional_info` names QTube Music as player
   and client (with versions), `music.youtube.com`, `origin_url` (never for uploads) and `duration_ms`. At most one
@@ -1311,9 +1321,8 @@ trusts an update by its EdDSA signature, not by Apple code signing.
   updates automatically" (off by default) installs in the background when the app quits. Settings › General ›
   Updates (`QTUpdateSettings` in QTUI; `QTUpdater` attaches as its `QTUpdateBackend`) shows the version, the last
   check, both toggles and Check Now.
-- **Keychain:** an ad-hoc build's Keychain access is keyed to its cdhash, so the first launch after each update asks
-  once (Always Allow) before it can read the saved session; Deny leaves the app signed out. Only a Developer ID
-  (Apple-issued team ID) removes that prompt; a self-signed certificate doesn't.
+- **Secrets across updates:** the session and integration keys are in private files (*Session storage*), so an update
+  asks for nothing. Sparkle's signing key is separate and stays in the publisher's login keychain.
 - **Tested 2026-11-01:** an older test build in /Applications found a newer one on a local signed feed, downloaded
   and verified it, and replaced itself on quit (no App Management prompt, no quarantine on the new copy).
 
