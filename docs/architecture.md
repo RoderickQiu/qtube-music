@@ -196,6 +196,22 @@ Everything is wired (integration of M1 polish + M2–M4):
   Controls › Playback Speed (choices + Speed Up ⌥⌘. / Slow Down ⌥⌘, ; Normal ⌥⌘0), the mini player's menu, and a
   "1.5×" button in the player bar and the Stage's bottom bar only while the speed isn't normal. `-qt.playback.rate`
   overrides it for a session. Tests: `PlaybackSpeedTests`, `NativeTimePitchTests`, `QTBridgeRateTests`, the soak.
+- **Sleep timer (pre-launch round 2, item 3):** `QTSleepTimer` (QTPlayback, owned by `QTPlayerModel.sleepTimer`, never
+  saved). Choices: 15 / 30 / 45 / 60 / 90 minutes, End of Song, Turn Off. A length counts down on the wall clock,
+  playing or not (a timer that runs out while paused just turns off); its last 30 s fade the volume through
+  `QTQueueController.setVolume` — the playing engine's own volume (web: the page's player; native:
+  `outputVolume`), never the system's — on a squared curve in 0.5 s steps, then `pause()`, which lets go of the
+  idle-sleep assertion (only `.playing` holds it, `updatePlaybackActivity`), then the volume goes back for the next
+  Play. Pausing during the fade ends the timer (volume back); the listener's volume during the fade
+  (`QTPlayerModel.setVolume`: slider, ⌘↑/⌘↓, AppleScript) ends it at their volume; Next/Previous keep fading; Play
+  inside the fade window picks the fade up where it is. End of Song is `QTQueueController.stopsAtEndOfItem`: no next
+  item is handed to the engine (no gapless join or crossfade past the end), and at the natural end the queue moves on
+  to the next song **cued** (`advance(playing: false)`; Repeat One: back to 0:00, paused) and calls
+  `onStoppedAtEndOfItem`. UI (`PlayerBar/QTSleepTimerControls.swift`): Controls › Sleep Timer, the Dock menu and the
+  mini player's menu (checked = active choice; End of Song needs a song; Turn Off only while one runs); while one runs,
+  a "☾ 12:34" capsule (moon only for End of Song, filled while fading) in the player bar, the Stage's bottom bar and the
+  menu bar popover, popping the same choices — like the speed button, there only while it means something. DEBUG
+  `-qt.player.sleepTimer <s>|end` starts one. Tests: `SleepTimerTests` (manual clock), `QTSleepTimerUITests`.
 - **Buffering:** `QTPlayerModel.isBuffering` → `qtBufferingIndicator` (Shared/) swaps the play glyph for a system
   spinner after 0.45 s.
 - **Ads (web engine):** the bridge counts an ad as this load's once the page has left the previous item, and never
@@ -967,7 +983,7 @@ Builders add their own as `qt.<area>.<name>` (e.g. `qt.stage.chrome hidden`, `qt
 | Area | Keys |
 |---|---|
 | window | `qt.window.search <text>` · `qt.window.page album:<id\|title>\|artist:<id\|name>\|mood:<id>\|shelf:<id>` (e.g. `mood:genre:Pop`, `mood:mood-relax`; `shelf:` = a Home shelf's See All) · `qt.window.scroll <pt>` (Explore / artist / mood pages) · `qt.library.filter <text>` · `qt.library.scroll <pt>` (300 pins the compact header) · `qt.library.sort title\|album\|artist\|time\|added[:desc]` · `qt.library.select 1,3` · `qt.home.scroll <pt>` · `qt.home.mood <id>` (e.g. `mood-focus`: launch with that chip selected) |
-| player | `qt.player.upNext demo\|id,id` · `qt.player.autoplay NO` · `qt.player.shuffle YES` · `qt.player.repeat off\|all\|one` · `qt.player.adElapsed <s>` (with `qt.ad`: run the ad `<s>` s then pause; 2 = "Skip in 3", 6 = skippable) · DEBUG `qt.player.keyAppearance YES` (best-effort key-window rendering in background captures; check the shot and retake) |
+| player | `qt.player.upNext demo\|id,id` · `qt.player.autoplay NO` · `qt.player.shuffle YES` · `qt.player.repeat off\|all\|one` · `qt.player.adElapsed <s>` (with `qt.ad`: run the ad `<s>` s then pause; 2 = "Skip in 3", 6 = skippable) · DEBUG `qt.player.keyAppearance YES` (best-effort key-window rendering in background captures; check the shot and retake) · DEBUG `qt.player.sleepTimer <s>\|end` (a sleep timer running with `<s>` seconds left, the shortest length covering it checked, or End of Song; with `-qt.paused NO` and `<s>` ≤ 30 it fades) |
 | lyrics-ui | `qt.lyrics.scrolled` · `qt.lyrics.options` · `qt.lyrics.demoVersions` · DEBUG `qt.lyrics.importFile <path>` (imports that file for the first song that plays; launch with `-qt.lyrics.cache memory` to keep it out of the real lyrics database) · `qt.lyrics.translationState same\|translating\|download\|unavailable\|onDevice\|appleIntelligence` · `qt.lyrics.lab` · `qt.lyrics.debug` |
 | stage | `qt.stage.chrome hidden` · `qt.stage.queue YES` · `qt.stage.popover appearance` · `qt.stage.window YES` (detached window) · `qt.stage.reduceMotion YES` · `qt.stage.visualizerOnBattery YES` · `qt.stage.closeAfter <s>` · `qt.stage.noAd YES` (free account without the simulated pre-roll, e.g. the visualizer fallback) |
 | glass | DEBUG `qt.reduceTransparency YES` (every glass primitive draws its Reduce Transparency solid) |
@@ -1084,7 +1100,7 @@ InnerTube fixtures), `QT_DUMP=1` (print parser output), `QT_KEYCHAIN_TEST=1` (Ke
 ## System integrations (spec §8, §10)
 
 - **Dock menu** (`QTDockMenuBuilder`): now playing, transport (disabled with nothing loaded, like Controls), like,
-  shuffle, Repeat submenu (Off / Repeat All / Repeat One), mini player, desktop lyrics.
+  shuffle, Repeat submenu (Off / Repeat All / Repeat One), Sleep Timer submenu, mini player, desktop lyrics.
 - **Sidebar context menu** on Liked Songs and playlists: Play, Shuffle, Play Next, Copy Link (live lists load first).
   A playlist made on this Mac (`local:`) has no YouTube Music link, so no Copy Link; one still being created
   (`pending:`) shows it dimmed (`QTSidebarPlaylistTarget.linkState`). No other menu hands out a playlist link (track

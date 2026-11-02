@@ -10,6 +10,10 @@ uses the section for a version as its release notes.
   version, when it last checked, and an option to download and install updates in the background (they're applied
   when you quit). Every update is verified against the project's signing key before it's installed. This is the
   last version you need to download by hand.
+- **Sleep timer.** Controls › Sleep Timer (also in the Dock menu) stops the music after 15, 30, 45, 60 or 90 minutes,
+  or at the end of the song. The last 30 seconds fade out, then playback pauses and the Mac can sleep again. A small
+  countdown sits in the player bar, the Stage and the menu bar popover while it runs; the next Play starts at your
+  usual volume.
 
 ## 0.3.0
 

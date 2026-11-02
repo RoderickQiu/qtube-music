@@ -11,6 +11,7 @@ import SwiftUI
 //   -qt.player.repeat all|one|off        repeat mode
 //   -qt.player.adElapsed <s>             with -qt.ad YES: run the launch ad for <s> seconds, then pause (6 = skippable)
 //   -qt.player.keyAppearance YES         DEBUG: draw the window as key in background captures (best effort)
+//   -qt.player.sleepTimer <s>|end        DEBUG: a sleep timer running with <s> seconds left, or End of Song
 
 @MainActor
 enum QTPlayerLaunch {
@@ -32,6 +33,9 @@ enum QTPlayerLaunch {
         if let on = launch.bool("qt.player.shuffle") { player.isShuffleOn = on }
         if let mode = launch.string("qt.player.repeat").flatMap(QTRepeatMode.init(rawValue:)) { player.repeatMode = mode }
         if let elapsed = launch.double("qt.player.adElapsed"), elapsed > 0 { runAd(for: elapsed, player: player) }
+        #if DEBUG
+        applySleepTimer(launch, to: player)
+        #endif
     }
 
     /// `-qt.ad YES -qt.player.adElapsed 6`: lets the (paused) launch ad run for `elapsed` seconds, then pauses it

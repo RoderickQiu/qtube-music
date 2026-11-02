@@ -9,12 +9,14 @@ import QTPlayback
 ///
 /// Ownership: shared (scaffold). Queue policy, track-end advance, shuffle/repeat, persistence and the engine live
 /// in `QTQueueController` (`playback`); Now Playing + remote commands in `QTNowPlayingController`. This type keeps
-/// the UI-facing API stable and adds likes and lyrics.
+/// the UI-facing API stable and adds likes, lyrics and the sleep timer.
 @MainActor
 @Observable
 public final class QTPlayerModel {
     /// Queue, engine and advance policy.
     public let playback: QTQueueController
+    /// Controls › Sleep Timer, the Dock menu, the player bar's countdown.
+    public let sleepTimer: QTSleepTimer
     @ObservationIgnored private let lyricsProvider: any QTLyricsProviding
     @ObservationIgnored private var lyricsTask: Task<Void, Never>?
 
@@ -41,6 +43,7 @@ public final class QTPlayerModel {
         self.lyricsProvider = lyricsProvider
         self.likedTrackIDs = likedTrackIDs
         playback = QTQueueController(engine: engine, nowPlaying: nowPlaying, store: queueStore)
+        sleepTimer = QTSleepTimer(playback: playback)
         playback.isLiked = { [weak self] track in self?.likedTrackIDs.contains(track.videoId) ?? false }
         // Now Playing's like / unlike (Control Center, the Touch Bar, headphones) takes the same path as a click.
         playback.onRemoteLike = { [weak self] track, liked in self?.setLiked(track, liked) }
@@ -97,7 +100,11 @@ public final class QTPlayerModel {
     public func play() { playback.play() }
     public func pause() { playback.pause() }
     public func seek(to time: TimeInterval) { playback.seek(to: time) }
-    public func setVolume(_ volume: Double) { playback.setVolume(volume) }
+    /// The listener's volume (slider, ⌘↑/⌘↓, AppleScript). During the sleep timer's fade it also turns the timer off.
+    public func setVolume(_ volume: Double) {
+        sleepTimer.listenerChangedVolume()
+        playback.setVolume(volume)
+    }
     public func skipAd() { playback.skipAd() }
 
     public func next() async { await playback.next() }

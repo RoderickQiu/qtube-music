@@ -84,6 +84,13 @@ public final class QTQueueController {
     public private(set) var playSerial = 0
     /// The last load failure (cleared by the next successful load).
     public internal(set) var lastFailure: QTPlaybackError?
+    /// The sleep timer's End of Song (`QTSleepTimer`): when the current item ends by itself, the queue moves on to the
+    /// next one cued instead of playing it (under Repeat One it goes back to the start, paused), calls
+    /// `onStoppedAtEndOfItem` and turns this off. Meanwhile the engine is handed no next item, so a gapless join or a
+    /// crossfade can't carry playback past the end.
+    public var stopsAtEndOfItem = false {
+        didSet { if stopsAtEndOfItem != oldValue { syncPreparedNext() } }
+    }
 
     @ObservationIgnored public var autoplayContinuation: QTAutoplayContinuation?
     /// Song⇄Video counterpart lookup (InnerTube `next`, then a conservative search) for tracks that don't carry
@@ -106,6 +113,8 @@ public final class QTQueueController {
     /// Playback stopped for a reason other than one track failing, and the listener should know (`QTPlaybackNotice`).
     /// The app shows one toast, with the notice's action.
     @ObservationIgnored public var onNotice: (@MainActor (QTPlaybackNotice) -> Void)?
+    /// Playback stopped at the end of an item because `stopsAtEndOfItem` asked for it.
+    @ObservationIgnored public var onStoppedAtEndOfItem: (@MainActor () -> Void)?
     /// The speed changed (menus, shortcuts, a remote command): the app saves it.
     @ObservationIgnored public var onRateChange: (@MainActor (Double) -> Void)?
     /// The process's single Now Playing owner (nil: none). Attached later when the app switches to real data.
@@ -534,11 +543,12 @@ public final class QTQueueController {
 
     // MARK: Advancing
 
-    func advance(userInitiated: Bool) async {
+    /// Moves on to what's next; `playing` false cues it instead (the sleep timer's End of Song).
+    func advance(userInitiated: Bool, playing: Bool = true) async {
         guard queue.nowPlaying != nil || !queue.upNext.isEmpty || !queue.autoplay.isEmpty else { return }
         advancesInFlight += 1
         defer { advancesInFlight -= 1 }
-        var autoplay = true
+        var autoplay = playing
         if let next = popNext() {
             becomeCurrent(next.item, from: next.section)
         } else if repeatMode == .all, queue.isAutoplayEnabled, !context.isEmpty {
@@ -560,7 +570,7 @@ public final class QTQueueController {
             }
             becomeCurrent(next.item, from: next.section)
             // Paused while the radio answered (and not played again): the new track waits, cued, for Play.
-            autoplay = pauseSerial == pauses || wantsPlayback
+            autoplay = playing && (pauseSerial == pauses || wantsPlayback)
         } else {
             reachedEnd(userInitiated: userInitiated, autoplayFailed: false)
             return
@@ -576,6 +586,19 @@ public final class QTQueueController {
     }
 
     func handleEnded() async {
+        if stopsAtEndOfItem {
+            // The sleep timer's End of Song: nobody is listening any more; the next song waits, cued, for Play.
+            stopsAtEndOfItem = false
+            wantsPlayback = false
+            pauseSerial += 1
+            onStoppedAtEndOfItem?()
+            if repeatMode == .one {
+                engine.seek(to: 0)
+                return
+            }
+            await advance(userInitiated: false, playing: false)
+            return
+        }
         if repeatMode == .one {
             playSerial += 1
             engine.seek(to: 0)
@@ -601,7 +624,7 @@ public final class QTQueueController {
 
     /// Tells the engine what plays next in order (it prefetches it, and may join it gaplessly or crossfade into it).
     private func syncPreparedNext() {
-        let item = naturalNext().map { next in
+        let item = stopsAtEndOfItem ? nil : naturalNext().map { next in
             QTPlaybackItem(track: next.track, mode: preferredMode == .video && next.track.hasVideo ? .video : .song,
                            queueID: next.id)
         }

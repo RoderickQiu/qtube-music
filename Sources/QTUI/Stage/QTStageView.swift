@@ -496,6 +496,10 @@ public struct QTStageView: View {
             if !QTPlaybackSpeed.isNormal(player.rate) {
                 QTPlaybackSpeedButton(overArt: true, identifier: "qt.stage.speed")
             }
+            // The sleep timer's countdown, only while one runs (same as the player bar).
+            if player.sleepTimer.isActive {
+                QTSleepTimerButton(overArt: true, identifier: "qt.stage.sleepTimer")
+            }
             if let track = player.nowPlaying {
                 let liked = player.isLiked(track)
                 // Same words as the player bar, menus and Dock: the action it will take.

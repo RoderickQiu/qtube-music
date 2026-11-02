@@ -1,8 +1,8 @@
 import AppKit
 import QTCore
 
-// Owner: builder "desktop". The Dock menu: what's playing, transport, like, shuffle/repeat, mini player and
-// desktop lyrics. Built fresh each time it opens, so titles follow the interface language and current state.
+// Owner: builder "desktop". The Dock menu: what's playing, transport, like, shuffle/repeat, sleep timer, mini player
+// and desktop lyrics. Built fresh each time it opens, so titles follow the interface language and current state.
 
 @MainActor
 enum QTDockMenuBuilder {
@@ -46,6 +46,7 @@ enum QTDockMenuBuilder {
         }
         repeatItem.submenu = repeatMenu
         menu.addItem(repeatItem)
+        menu.addItem(QTSleepTimerMenu.menuItem(for: player))
         menu.addItem(.separator())
         menu.addItem(QTClosureMenuItem(QTLoc.tr("Mini Player"), state: model.surface == .mini) {
             QTDesktopCoordinator.shared.toggleMiniPlayer()
