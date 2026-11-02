@@ -29,7 +29,7 @@ const zh = {
   w3d: '只有 Premium 账号能用。所谓的“歌曲/视频”切换只换了音轨，根本看不到画面。歌词只到逐行，没有翻译。每首歌都要单独起一个 yt-dlp 进程，所以没有无缝播放，YouTube 一改就可能坏。',
   w4d: '没有全屏播放页，也不能看 MV。它靠一个隐藏的 YouTube 播放器放歌，有些歌直接报错放不了。在我的 Mac 上，它暂停时 CPU 接近 100%，内存约 800 MB。窗口按钮在右边，是 Windows 的样子；⌘空格 搜索还和聚焦搜索冲突。',
   whyOurs: '<b>QTube Music</b> 把这些都做了：全屏播放页有五种背景；歌词逐字亮起，每行下面带翻译；能看真正的 MV，切换不丢进度；还有桌面歌词和迷你播放器。它用 SwiftUI 和 AppKit 写成，空闲时 CPU 不到 1%，免费账号也能用。',
-  foot: '非官方客户端，与 Google 和 YouTube 无关。基于 MPL-2.0 <a href="https://github.com/RoderickQiu/qtube-music">开源</a>。由 <a href="https://r-q.name">Tianrun Qiu</a> 制作。'
+  foot: '非官方客户端，与 Google 和 YouTube 无关。基于 MPL-2.0 <a href="https://github.com/RoderickQiu/qtube-music">开源</a>。由 <a href="https://r-q.name">Tianrun Qiu</a> 制作。<a href="/privacy">隐私政策</a> · <a href="/terms">使用条款</a>'
 }
 
 // Remember the English text so switching back restores it.

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Privacy Policy · QTube Music</title>
+  <meta name="description" content="What QTube Music keeps on your Mac and what it sends. No analytics, no tracking, no server of its own.">
+  <meta name="theme-color" content="#0d3d56">
+  <link rel="icon" href="img/favicon-64.png" sizes="64x64" type="image/png">
+  <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="legal.css">
+</head>
+<body class="legal-page">
+  <header class="legal-top">
+    <a href="/">QTube Music</a>
+    <div class="legal-lang" role="group" aria-label="Language">
+      <button type="button" data-lang="en" aria-pressed="true">English</button>
+      <button type="button" data-lang="zh" aria-pressed="false">中文</button>
+    </div>
+  </header>
+  <article class="legal" data-lang="en">
+    <h1>Privacy Policy</h1>
+    <p class="updated">Last updated November 1, 2026</p>
+    <p>QTube Music is a free, open-source Mac app for YouTube Music, made by one person, <a href="https://r-q.name">Tianrun Qiu</a>. It's unofficial and isn't made or endorsed by Google or YouTube.</p>
+    <p><strong>The short version:</strong> I run no server for the app and receive none of your data. There's no account with me, no analytics, no tracking and no crash reporting service. What the app talks to is listed below, and you can check it in <a href="https://github.com/RoderickQiu/qtube-music">the source code</a>.</p>
+
+    <h2>What stays on your Mac</h2>
+    <ul>
+      <li><strong>Your sign-in.</strong> Only Google's sign-in cookies, never your password, which you type into Google's own page. They're in <code>~/Library/Application Support/com.roderickqiu.qtube/Private/</code>, which only your user account can open and Time Machine skips.</li>
+      <li><strong>Integration keys,</strong> if you add any (Last.fm, ListenBrainz), in the same folder.</li>
+      <li><strong>Settings, your queue, cached lyrics,</strong> blocked artists and similar app data.</li>
+    </ul>
+    <p><strong>The limit of that protection:</strong> this is how Firefox keeps cookies. Other user accounts on the Mac can't read these files, but other programs you run could, without asking. The app doesn't use the Keychain because, without a paid Apple Developer ID, it would ask for your Mac password after every update.</p>
+
+    <h2>What the app sends, and to whom</h2>
+    <ul>
+      <li><strong>Google and YouTube.</strong> Sign-in, browsing and playback go to them, as with the web player, so your plays show up in your YouTube Music history. Signed in, likes, playlist changes, subscriptions and library additions change your account unless you turn off Settings › Account › Sync likes and playlists to YouTube Music. Searches are sent signed out. <a href="https://policies.google.com/privacy">Google's Privacy Policy</a> applies.</li>
+      <li><strong>Lyrics sources.</strong> To find lyrics, details of the song playing, such as its title and artist, go to LRCLIB, the AMLL TTML DB on GitHub, and YouTube Music. NetEase, Kugou and QQ Music get them only if you turn on Unofficial sources.</li>
+      <li><strong>GitHub, for updates.</strong> Once a day the app downloads an update feed from this project's GitHub Releases, and it downloads an update there when you install one. GitHub sees your IP address and the app's version. The app sends no system profile. Settings › General › Updates turns the checks off. <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">GitHub's Privacy Statement</a> applies.</li>
+      <li><strong>Only if you turn them on:</strong> Last.fm and ListenBrainz receive what you play, and Discord shows it as your status. They're off until you add your own keys or token, or switch them on.</li>
+      <li><strong>Only if you choose to:</strong> Help › Report a Problem opens a prefilled GitHub issue in your browser. Nothing is sent until you submit it there. It can include diagnostics, with cookies, keys, email addresses, account names and your Mac's user name taken out, and <strong>Show Diagnostics</strong> shows you what's in it. Issues are public.</li>
+    </ul>
+    <p>Lyrics translation runs on your Mac using Apple's frameworks. I don't sell or share data, because I don't have any. Ads you hear on a free account come from YouTube.</p>
+
+    <h2>This website</h2>
+    <p>This site has no analytics or cookies. It remembers your language choice in your browser. It's hosted on Vercel, which, like any web host, processes visitors' IP addresses to serve pages. The download comes from GitHub.</p>
+
+    <h2>Your choices</h2>
+    <ul>
+      <li><strong>Sign out</strong> in Settings › Account. It deletes the session from your Mac and ends it at Google.</li>
+      <li><strong>Remove everything:</strong> sign out, delete the app, then delete <code>~/Library/Application Support/com.roderickqiu.qtube</code>.</li>
+      <li>Data held by Google or the other services above is theirs to manage, under their own policies.</li>
+    </ul>
+
+    <h2>Changes and contact</h2>
+    <p>If this policy changes, this page changes with it, and its history is public in <a href="https://github.com/RoderickQiu/qtube-music/commits/main/site/privacy.html">the repository</a>. For questions, open an issue on <a href="https://github.com/RoderickQiu/qtube-music/issues">GitHub</a> or reach me through <a href="https://r-q.name">r-q.name</a> or <a href="https://www.linkedin.com/in/tianrun-qiu/">LinkedIn</a>.</p>
+  </article>
+  <article class="legal" data-lang="zh" hidden>
+    <h1>隐私政策</h1>
+    <p class="updated">最后更新：2026 年 11 月 1 日</p>
+    <p>QTube Music 是一款免费、开源的 YouTube Music Mac 应用，由个人开发者 <a href="https://r-q.name">Tianrun Qiu</a> 制作。它是非官方客户端，与 Google 和 YouTube 无关。</p>
+    <p><strong>简而言之：</strong>我没有为这款应用运行任何服务器，也不会收到你的任何数据。不需要在我这里注册账户，没有分析统计、跟踪或崩溃上报服务。应用会连接哪些服务都列在下面，你也可以在<a href="https://github.com/RoderickQiu/qtube-music">源代码</a>中核实。</p>
+
+    <h2>保存在你 Mac 上的内容</h2>
+    <ul>
+      <li><strong>登录信息。</strong>只保存 Google 的登录 Cookie，绝不保存密码（密码是在 Google 自己的页面上输入的）。它们位于 <code>~/Library/Application Support/com.roderickqiu.qtube/Private/</code>，只有你的用户账户能打开，Time Machine 也不会备份。</li>
+      <li><strong>集成密钥。</strong>如果你添加了 Last.fm 或 ListenBrainz，也保存在同一文件夹。</li>
+      <li><strong>设置、播放队列、歌词缓存</strong>、已屏蔽的艺人等应用数据。</li>
+    </ul>
+    <p><strong>这种保护的局限：</strong>Firefox 也是这样保存 Cookie 的。这台 Mac 上的其他用户账户无法读取这些文件，但你运行的其他程序可以读取，而且不会询问你。应用不使用钥匙串，是因为在没有付费 Apple 开发者 ID 的情况下，每次更新后它都会要求输入 Mac 密码。</p>
+
+    <h2>应用发送哪些内容，发给谁</h2>
+    <ul>
+      <li><strong>Google 和 YouTube。</strong>登录、浏览和播放都与它们通信，和网页版播放器一样，所以你的播放记录会出现在 YouTube Music 历史中。登录后，喜欢、播放列表更改、订阅和添加到资料库的内容会更改你的账户，除非你在“设置 › 账户”中关闭同步。搜索始终以未登录状态发送。适用 <a href="https://policies.google.com/privacy">Google 隐私权政策</a>。</li>
+      <li><strong>歌词来源。</strong>为了查找歌词，正在播放歌曲的信息（如歌名和艺人）会发送给 LRCLIB、GitHub 上的 AMLL TTML DB 和 YouTube Music。只有开启“非官方来源”后，才会发送给网易云音乐、酷狗和 QQ 音乐。</li>
+      <li><strong>GitHub（用于更新）。</strong>应用每天从本项目的 GitHub Releases 下载一次更新信息，安装更新时也从那里下载。GitHub 能看到你的 IP 地址和应用版本。应用不发送系统信息。可在“设置 › 通用 › 更新”中关闭检查。适用 <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">GitHub 隐私声明</a>。</li>
+      <li><strong>仅在你开启后：</strong>Last.fm 和 ListenBrainz 会收到你播放的内容，Discord 会将其显示为你的状态。在你添加自己的密钥或令牌、或手动开启之前，它们都处于关闭状态。</li>
+      <li><strong>仅在你主动选择时：</strong>“帮助 › 报告问题”会在浏览器中打开一个预填好的 GitHub issue，在你提交之前不会发送任何内容。其中可以包含诊断信息，Cookie、密钥、邮箱地址、账户名称和 Mac 用户名都会被移除，你可以用“显示诊断信息”查看内容。Issue 是公开的。</li>
+    </ul>
+    <p>歌词翻译使用 Apple 的框架在你的 Mac 上完成。我不出售或分享数据，因为我根本没有这些数据。免费账户听到的广告来自 YouTube。</p>
+
+    <h2>本网站</h2>
+    <p>本网站没有分析统计，也不使用 Cookie，只在浏览器中记住你选择的语言。网站托管在 Vercel 上，和所有网站托管服务一样，它会处理访问者的 IP 地址来提供页面。下载文件来自 GitHub。</p>
+
+    <h2>你的选择</h2>
+    <ul>
+      <li>在“设置 › 账户”中<strong>退出登录</strong>，会从你的 Mac 删除会话，并在 Google 端结束该会话。</li>
+      <li><strong>彻底清除：</strong>退出登录，删除应用，再删除 <code>~/Library/Application Support/com.roderickqiu.qtube</code>。</li>
+      <li>Google 及上述其他服务持有的数据由它们按各自的政策管理。</li>
+    </ul>
+
+    <h2>变更与联系方式</h2>
+    <p>如果本政策有变更，本页面会同步更新，修改历史公开在<a href="https://github.com/RoderickQiu/qtube-music/commits/main/site/privacy.html">代码仓库</a>中。如有疑问，请在 <a href="https://github.com/RoderickQiu/qtube-music/issues">GitHub</a> 上提交 issue，或通过 <a href="https://r-q.name">r-q.name</a>、<a href="https://www.linkedin.com/in/tianrun-qiu/">LinkedIn</a> 联系我。</p>
+  </article>
+  <footer class="legal-foot"><a href="/privacy" data-zh="隐私政策">Privacy</a> · <a href="/terms" data-zh="使用条款">Terms</a> · <a href="https://github.com/RoderickQiu/qtube-music">GitHub</a></footer>
+  <script src="legal.js" defer></script>
+</body>
+</html>

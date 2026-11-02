@@ -113,7 +113,7 @@ time for the old Keychain item, so your sign-in can move to its new place.
   songs added or removed), subscriptions and albums you add to your library change your YouTube Music account, one
   change at a time. Turn off **Settings › Account › Sync likes and playlists to YouTube Music** to keep them on this
   Mac only. Brand accounts (channels) can be switched in Settings › Account or the Account menu.
-- **No analytics.** No tracking, no telemetry, no crash reporting service. Translation runs on your Mac.
+- **No analytics.** No tracking, no telemetry, no crash reporting service. Translation runs on your Mac. The full [Privacy Policy](https://qtube.r-q.name/privacy) and [Terms of Use](https://qtube.r-q.name/terms) are on the website.
 - **Update checks.** Once a day the app downloads a small update feed from this repository's GitHub Releases. It
   sends no system profile, and Settings › General › Updates turns the checks off.
 
