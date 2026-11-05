@@ -74,13 +74,10 @@ silicon).
 
 1. Download `QTube-Music-<version>.dmg` from [Releases](https://github.com/RoderickQiu/qtube-music/releases).
 2. Open it and drag **QTube Music** to **Applications**.
-3. The app isn't notarized yet: I don't have an Apple Developer ID. The first time you open it, macOS says it
-   can't check it. Click **Done**, go to **System Settings › Privacy & Security**, scroll down and click
-   **Open Anyway**. Or, in Terminal:
 
-   ```sh
-   xattr -dr com.apple.quarantine "/Applications/QTube Music.app"
-   ```
+The app is signed with an Apple Developer ID and notarized, so it opens like any other app. (Releases up to 0.4.0
+were ad-hoc signed: if you have one of those, the first launch needed **System Settings › Privacy & Security › Open
+Anyway**; updating from it is enough.)
 
 From 0.4.0 the app updates itself: it checks once a day and shows what's new (**QTube Music › Check for
 Updates…** checks now; Settings › General › Updates can install updates in the background). Updates are verified

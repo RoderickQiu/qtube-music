@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build "QTube Music.app" (ad-hoc signed) from the SwiftPM package.
+# Build "QTube Music.app" from the SwiftPM package (ad-hoc signed; Developer ID with QT_SIGN_ID).
 #
 #   Scripts/build-app.sh              → .build/apps/QTube Music.app
 #   QT_VARIANT=stage Scripts/build-app.sh → .build/apps/QTube Music stage.app, bundle id com.roderickqiu.qtube.dev-stage
@@ -11,7 +11,10 @@
 #      QT_FEED_URL (Sparkle appcast URL; release builds of the main app default to the GitHub one, every other build
 #      has none, so dev builds never offer to "update" themselves to a release),
 #      QT_BUILD_NUMBER (CFBundleVersion; default the commit count — set it to make an "older" or "newer" build for an
-#      update test).
+#      update test),
+#      QT_SIGN_ID (codesign identity; default "-", ad-hoc. A "Developer ID Application: …" identity signs with the
+#      hardened runtime, a secure timestamp and Scripts/QTubeMusic.entitlements, ready for notarization —
+#      Scripts/release.sh sets it).
 # The marketing version comes from VERSION at the repo root; the build number is the commit count.
 # Works from a git worktree: git-ignored inputs (mock catalog) come from the main checkout.
 set -euo pipefail
@@ -214,16 +217,24 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 PLIST
 plutil -lint "$APP/Contents/Info.plist" >/dev/null
 
-# Ad-hoc signing, inside out: Sparkle's helpers (XPC services, Autoupdate, Updater.app), the framework, the app.
-SIGN_ID="-"
+# Signing, inside out: Sparkle's helpers (XPC services, Autoupdate, Updater.app), the framework, the app. Ad-hoc by
+# default; with a Developer ID (QT_SIGN_ID) every piece gets the hardened runtime and a timestamp, Sparkle's helpers
+# keep their own entitlements, and the app gets Scripts/QTubeMusic.entitlements (what notarization needs).
+SIGN_ID="${QT_SIGN_ID:--}"
+SIGN=(codesign --force -s "$SIGN_ID")
+APP_SIGN=("${SIGN[@]}")
+if [[ "$SIGN_ID" != "-" ]]; then
+  SIGN+=(--options runtime --timestamp --preserve-metadata=entitlements)
+  APP_SIGN+=(--options runtime --timestamp --entitlements "$QT_REPO/Scripts/QTubeMusic.entitlements")
+fi
 if [[ -d "$APP/Contents/Frameworks/Sparkle.framework" ]]; then
   FW="$APP/Contents/Frameworks/Sparkle.framework/Versions/B"
   for nested in "$FW"/XPCServices/*.xpc "$FW/Autoupdate" "$FW/Updater.app"; do
-    [[ -e "$nested" ]] && codesign --force -s "$SIGN_ID" "$nested" >&2
+    [[ -e "$nested" ]] && "${SIGN[@]}" "$nested" >&2
   done
-  codesign --force -s "$SIGN_ID" "$APP/Contents/Frameworks/Sparkle.framework" >&2
+  "${SIGN[@]}" "$APP/Contents/Frameworks/Sparkle.framework" >&2
 fi
-codesign --force -s "$SIGN_ID" "$APP" >&2
+"${APP_SIGN[@]}" "$APP" >&2
 # Old agents' scratch folders and variant apps (see the script); never fails the build.
 "$QT_REPO/Scripts/prune-build.sh" || true
 echo "$APP"

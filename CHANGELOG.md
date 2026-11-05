@@ -3,6 +3,13 @@
 All notable changes to QTube Music. Versions follow [Semantic Versioning](https://semver.org); `Scripts/release.sh`
 uses the section for a version as its release notes.
 
+## 0.4.1
+
+Signed and notarized.
+
+- **Opens like any other app.** QTube Music is now signed with an Apple Developer ID and notarized by Apple, so the
+  first launch no longer needs System Settings › Privacy & Security › Open Anyway. Updating from 0.4.0 is enough.
+
 ## 0.4.0
 
 Updates by themselves, radio from anything, a sleep timer, and artists you never want to hear.

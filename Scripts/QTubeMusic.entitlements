@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Hardened-runtime entitlements for Developer ID builds (Scripts/build-app.sh, QT_SIGN_ID). The native engine's
+       cipher solver runs in an in-process JSContext (QTNativePlayerScript); without allow-jit JavaScriptCore falls
+       back to its interpreter. WKWebView's WebContent processes are Apple-signed and need nothing here. -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+</dict>
+</plist>

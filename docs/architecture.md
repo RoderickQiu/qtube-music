@@ -1067,7 +1067,9 @@ InnerTube fixtures), `QT_DUMP=1` (print parser output), `QT_KEYCHAIN_TEST=1` (Ke
   (one region-locked, two without MV), 5 with lyrics (2 word-synced with zh translation), Liked (`LM`) + 7 playlists
   (`pl-1`…`pl-7`, names from the prototype sidebar), Home moods + 4 shelves.
 - `Scripts/build-app.sh` — builds and assembles `.build/apps/QTube Music.app` (bundle id `com.roderickqiu.qtube`,
-  macOS 15, `en` + `zh-Hans`, SwiftPM resource bundles in `Contents/Resources`, mock catalog, ad-hoc signed).
+  macOS 15, `en` + `zh-Hans`, SwiftPM resource bundles in `Contents/Resources`, mock catalog, ad-hoc signed;
+  `QT_SIGN_ID="Developer ID Application: …"` signs with the hardened runtime, a timestamp and
+  `Scripts/QTubeMusic.entitlements` (`allow-jit` for the native engine's `JSContext`), as `Scripts/release.sh` does).
   `QT_VARIANT=<name>` → `QTube Music <name>.app`, `com.roderickqiu.qtube.dev-<name>`, scratch `.build/<name>`,
   so agents run side by side. `QT_CONFIG=release`, `QT_SCRATCH=…`. `--print-path`. Works from worktrees. Ends by
   running `Scripts/prune-build.sh` (idle scratch folders and old variant apps go; scratch capped at 6 GB).
@@ -1303,8 +1305,11 @@ and **Open GitHub Issue…** (⌘↩). The app never sends anything: the browser
 
 ## Updates (Sparkle)
 
-Sparkle 2 (app target only, embedded in Contents/Frameworks), on from 0.4.0. Builds are still ad-hoc signed: Sparkle
-trusts an update by its EdDSA signature, not by Apple code signing.
+Sparkle 2 (app target only, embedded in Contents/Frameworks), on from 0.4.0. Sparkle trusts an update by its EdDSA
+signature, not by Apple code signing; releases are Developer ID-signed and notarized as well since 2026-11-04 (0.4.0
+and earlier were ad-hoc signed), and the zip in the appcast holds the stapled app, so Gatekeeper passes an update
+offline. Sparkle also checks Apple's signature when both sides have one: once a Developer ID build is installed, an
+update must be signed by the same team. An ad-hoc 0.4.0 accepts the first Developer ID build on EdDSA alone.
 
 - **Feed:** release builds of the main app (`QT_CONFIG=release`, no variant) carry `SUFeedURL` =
   `https://github.com/RoderickQiu/qtube-music/releases/latest/download/appcast.xml`, so the feed is whatever release
