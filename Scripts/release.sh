@@ -29,8 +29,10 @@
 # tree. Needs Xcode 27, and `gh` signed in for --publish.
 #
 # Signing and notarization: the app is signed with the "Developer ID Application" identity in the login keychain
-# (hardened runtime, Scripts/QTubeMusic.entitlements; Scripts/build-app.sh with QT_SIGN_ID), then the zip is
-# notarized, the ticket stapled to the app, and the .dmg built from the stapled app, signed, notarized and stapled too.
+# (hardened runtime, Scripts/QTubeMusic.entitlements; Scripts/build-app.sh with QT_SIGN_ID), then notarized once (as
+# a zip) and the ticket stapled to it; the .dmg is built from the stapled app and signed. The image itself isn't
+# notarized: Gatekeeper judges the app at launch, not the image at mount, and one submission is one wait in Apple's
+# queue (2026-11-04: 25 min for the app, hours for the image).
 # notarytool reads its credentials from the keychain profile "qtube" (QT_NOTARY_PROFILE), stored once with
 #   xcrun notarytool store-credentials qtube --apple-id <Apple ID> --team-id <TEAMID>   (an app-specific password)
 # Updates come through Sparkle: the zip and the appcast are EdDSA-signed with the key in the login keychain (account
@@ -235,10 +237,6 @@ if (( ALREADY_BUILT == 0 )); then
   hdiutil verify "$DMG" >/dev/null 2>&1 || fail "hdiutil verify failed for the .dmg"
   if (( ADHOC == 0 )); then
     codesign --force --timestamp -s "$SIGN_ID" "$DMG" || fail "couldn't sign the .dmg"
-    notarize "$DMG"
-    xcrun stapler staple -q "$DMG" || fail "stapler couldn't staple the .dmg"
-    VERDICT="$(spctl --assess --type open --context context:primary-signature -vv "$DMG" 2>&1 || true)"
-    grep -q "source=Notarized Developer ID" <<<"$VERDICT" || { echo "$VERDICT" >&2; fail "Gatekeeper doesn't see the .dmg as notarized"; }
   fi
   MNT="$(mktemp -d -t qtdmg)"
   hdiutil attach -nobrowse -readonly -noautoopen -mountpoint "$MNT" "$DMG" >/dev/null

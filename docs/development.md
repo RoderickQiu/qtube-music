@@ -82,7 +82,7 @@ Launch arguments apply to one session only and are never saved. Pass them as
 | Script | What it does |
 |---|---|
 | `Scripts/build-app.sh` | Builds, bundles and signs the app: ad-hoc, or with the hardened runtime and `Scripts/QTubeMusic.entitlements` when `QT_SIGN_ID` names a Developer ID (`QT_VARIANT`, `QT_CONFIG`, `QT_SCRATCH`, `--print-path`). |
-| `Scripts/release.sh` | Tests, universal release build, Developer ID signing, notarization and stapling (notarytool profile `qtube`), .dmg + .zip + appcast, release commit and tag; `--publish` pushes and creates the GitHub Release. |
+| `Scripts/release.sh` | Tests, universal release build, Developer ID signing, one notarization of the app and stapling (notarytool profile `qtube`), signed .dmg + .zip + appcast, release commit and tag; `--publish` pushes and creates the GitHub Release. |
 | `Scripts/prune-build.sh` | Deletes idle scratch folders and old variant apps from `.build/` (`--dry-run`, `QT_PRUNE_IDLE_HOURS`, `QT_BUILD_CAP_GB`); run after every build. |
 | `Scripts/virtual-display.sh start` · `stop` | An invisible 1920×1080 test display ("QT Virtual") for screenshots while someone is using the Mac and the U270CA isn't connected: `QT_SCREEN="QT Virtual" Scripts/shoot.sh …`. Background launches there never come to the front of the real screen (Stage Manager included). Stop it when done. |
 | `Scripts/shoot.sh <name> [--window main\|mini\|desktopLyrics\|menuBarPopover\|settings\|reportProblem\|signIn\|signInHelp]… [args]` | Launches in the background on the test display (`$QT_SCREEN`; otherwise U270CA if connected, else the built-in display). Waits until the app is ready, captures each window into the main checkout's `screenshots/` and quits. It retakes captures that are thumbnails or caught mid-animation, and gives focus back if the app took it. Uses `-qt.catalog mock` unless you pass `-qt.catalog`. Malformed launch arguments (a key without a value, a stray word) stop it at once; a one-string `"-qt.surface stage -qt.paused YES"` is split. |
@@ -166,7 +166,8 @@ None of these has been done. Each one needs the owner's yes.
    hand-built fixtures (shapes from ytmusicapi / Kaset), and the brand switch's `DATASYNC_ID` check against a fake
    switcher.
 8. **Developer ID and notarization: done (2026-11-04).** Releases are signed with the owner's Developer ID (team
-   `CXA8L7KWZG`), hardened runtime, notarized and stapled by `Scripts/release.sh`; the first launch no longer needs
+   `CXA8L7KWZG`), hardened runtime, notarized and stapled by `Scripts/release.sh` (the app only; the .dmg is signed, not
+   notarized, since Gatekeeper judges the app at launch); the first launch no longer needs
    Open Anyway. Dev builds are still ad-hoc signed. Still open: secrets are in a private file rather than the
    Keychain, because the Keychain keys an item's access to the cdhash unless an Apple-issued team ID signs the app
    (a self-signed certificate doesn't help, checked 2026-11-01), which meant a password prompt per update. With the
