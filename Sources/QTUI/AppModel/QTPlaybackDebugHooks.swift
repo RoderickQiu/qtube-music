@@ -17,6 +17,7 @@ import QTPlayback
 //           · playID:<videoId> — play one track looked up read-only in the live catalog
 //           · albumEnd:<browseId> — play an album from its last track, so Autoplay's radio follows (reliability soak)
 //           · surface:window|stage · panel:now-playing|queue · offline · online
+//           · goto:album|artist — the now-playing title / artist link (leaves the Stage, opens the page)
 //           · window:close|reopen — close the main window / bring it back the way a Dock click does (without
 //             activating the app), to check that reopening never disturbs playback
 //           · remote:play|pause|toggle|next|previous — through MPRemoteCommandCenter's own dispatch
@@ -106,6 +107,10 @@ final class QTPlaybackDebugHooks {
                 await player.play(tracks, startingAt: last, source: source, mode: model.isVideoMode ? .video : .song)
             }
         case "surface": model.surface = QTSurface(argument: arg) ?? .window
+        case "goto":   // what clicking the now-playing title / artist does (NowPlaying/QTTrackLinks.swift)
+            guard let track = player.nowPlaying else { break }
+            let destination = arg == "artist" ? track.artists.first.map { QTDestination.artist($0) } : track.qtTitleDestination
+            if let destination { QTTrackLinks.open(destination, model: model) }
         case "panel":
             model.isPanelShown = true
             model.panelTab = QTPanelTab(argument: arg) ?? .nowPlaying

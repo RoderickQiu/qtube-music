@@ -99,9 +99,10 @@ struct QTPlayerBarNowPlaying: View {
                         .font(QTTheme.Typography.secondary)
                         .foregroundStyle(.secondary)
                 } else {
-                    Text(player.nowPlaying?.title ?? "")
+                    // Title → the album, each artist → their page (NowPlaying/QTTrackLinks.swift).
+                    QTTrackTitleLink(track: player.nowPlaying)
                         .font(QTTheme.Typography.rowTitle)
-                    Text(player.nowPlaying?.artistLine ?? "")
+                    QTTrackLinkLine(track: player.nowPlaying)
                         .font(QTTheme.Typography.secondary)
                         .foregroundStyle(.secondary)
                 }
@@ -109,7 +110,7 @@ struct QTPlayerBarNowPlaying: View {
             .lineLimit(1)
             .truncationMode(.tail)
             .layoutPriority(-1)
-            .accessibilityElement(children: .combine)
+            .accessibilityElement(children: .contain)
 
             if let ad {
                 QTAdSkipControl(ad: ad)

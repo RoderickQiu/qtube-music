@@ -5,6 +5,8 @@ uses the section for a version as its release notes.
 
 ## Unreleased
 
+- **Click the playing song's title or artist to go there.** In the player bar, the lyrics panel and Stage, the
+  title and the album name open the album page and each artist's name opens that artist's page.
 - **Small windows no longer spill over their edges.** With the panel open in a small window, the sidebar and the
   panel were pushed out past the window's sides, and opening the panel shifted the sidebar. The player bar now
   steps down instead: the volume slider, then Mini Player and Stage, step aside (#1, #2).

@@ -82,4 +82,27 @@ import Testing
         #expect(t("Say So", album: "Hot Pink").qtNowPlayingSubtitle(separator: " · ") == "Kim Ny Ngọc · Hot Pink")
         #expect(t("Say So", album: nil).qtNowPlayingSubtitle(separator: " · ") == "Kim Ny Ngọc")
     }
+
+    /// The clickable now-playing line reads exactly as the plain subtitle, and each name goes to its own page.
+    @Test func nowPlayingLinksGoToTheArtistAndAlbumPages() {
+        let track = QTTrack(videoId: "s", title: "租购",
+                            artists: [QTArtistRef(id: "UCa", name: "薛之谦"), QTArtistRef(name: "Doja Cat")],
+                            album: QTAlbumRef(id: "MPREb_x", title: "守村人"), duration: 200)
+        let segments = track.qtLinkSegments(albumSeparator: " — ")
+        #expect(segments.map { $0.lead + $0.text }.joined() == track.qtNowPlayingSubtitle(separator: " — "))
+        // By id when YouTube Music links one, else by name.
+        #expect(segments.map(\.destination) == [.artist("UCa"), .artist("Doja Cat"), .album("MPREb_x")])
+        #expect(segments.first?.lead == "")
+        #expect(track.qtTitleDestination == .album("MPREb_x"))
+        // The player bar's line: artists only.
+        #expect(track.qtLinkSegments(albumSeparator: nil).map(\.text) == ["薛之谦", "Doja Cat"])
+
+        // A single named after the song: no album in the line, but the title still opens it.
+        var single = track
+        single.album = QTAlbumRef(title: "租购 - Single")
+        #expect(single.qtLinkSegments(albumSeparator: " — ").map(\.text) == ["薛之谦", "Doja Cat"])
+        #expect(single.qtTitleDestination == .album("租购 - Single"))
+        single.album = nil
+        #expect(single.qtTitleDestination == nil)
+    }
 }

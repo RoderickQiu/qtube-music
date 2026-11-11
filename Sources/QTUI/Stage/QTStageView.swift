@@ -370,23 +370,22 @@ public struct QTStageView: View {
 
     private func meta(alignment: HorizontalAlignment, compact: Bool = false) -> some View {
         let track = player.nowPlaying
-        let subtitle: String = {
-            guard let track else { return "" }
-            if compact { return track.artistLine }
-            return track.qtNowPlayingSubtitle(separator: " — ")
-        }()
+        // Title and album → the album page, each artist → their page; the in-window Stage closes to show it.
+        let open: (QTDestination) -> Void = { destination in
+            if presentation == .inline { closeStage() }
+            QTTrackLinks.open(destination, model: model)
+        }
         return VStack(alignment: alignment, spacing: 6) {
-            Text(track?.title ?? "")
+            QTTrackTitleLink(track: track, open: open)
                 .font(compact ? .system(size: 20, weight: .bold) : QTTheme.Typography.stageTitle)
                 .lineLimit(2)
-            Text(subtitle)
+            QTTrackLinkLine(track: track, albumSeparator: compact ? nil : " — ", open: open)
                 .font(compact ? .system(size: 13) : QTTheme.Typography.stageSubtitle)
                 .foregroundStyle(QTTheme.Colors.onArtSecondary)
-                .lineLimit(1)
         }
         .multilineTextAlignment(alignment == .center ? .center : .leading)
         .frame(maxWidth: .infinity, alignment: Alignment(horizontal: alignment, vertical: .top))
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("qt.stage.meta")
     }
 

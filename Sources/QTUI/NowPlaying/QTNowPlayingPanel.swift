@@ -154,15 +154,16 @@ struct QTNowPlayingHero: View {
                 .layoutPriority(1)
                 .shadow(color: .black.opacity(0.28), radius: 12, y: 6)
             VStack(alignment: .leading, spacing: 0) {
-                Text(track?.title ?? "")
+                // Title and album → the album page, each artist → their page (QTTrackLinks.swift).
+                QTTrackTitleLink(track: track)
                     .font(QTTheme.Typography.panelTitle)
                     .lineLimit(2)
+                    .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("qt.player.panel.title")
-                Text(subtitle(track))
+                QTTrackLinkLine(track: track, albumSeparator: " · ")
                     .font(QTTheme.Typography.secondary)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
                     .padding(.top, 3)
                 // Song|Video and lyrics options only with something playing.
                 if track != nil {
@@ -185,10 +186,6 @@ struct QTNowPlayingHero: View {
         .padding(.vertical, 20)
         .frame(minHeight: QTTheme.Metrics.panelHeroHeight)
         .animation(QTTheme.Motion.animation(QTTheme.Motion.spring, reduceMotion: reduceMotion), value: showsVideo)
-    }
-
-    private func subtitle(_ track: QTTrack?) -> String {
-        track?.qtNowPlayingSubtitle(separator: " · ") ?? ""
     }
 
     @ViewBuilder
