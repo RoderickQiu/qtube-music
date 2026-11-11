@@ -3,7 +3,9 @@
 All notable changes to QTube Music. Versions follow [Semantic Versioning](https://semver.org); `Scripts/release.sh`
 uses the section for a version as its release notes.
 
-## Unreleased
+## 0.4.2
+
+Small windows, and links from the playing song.
 
 - **Click the playing song's title or artist to go there.** In the player bar, the lyrics panel and Stage, the
   title and the album name open the album page and each artist's name opens that artist's page.
