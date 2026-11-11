@@ -85,4 +85,17 @@ final class QTStageTitlebar {
         let frame = close.convert(close.bounds, to: nil)
         return content.frame.height - frame.midY
     }
+
+    /// Right edge of the last traffic light (the zoom button), in points from the window's leading edge (nil when
+    /// there are none). Where the lights sit depends on the system and the toolbar style — on macOS 26 a
+    /// unified toolbar insets them further than the classic 20 pt — so the Stage measures instead of assuming.
+    static func trafficLightsMaxX(in window: NSWindow) -> CGFloat? {
+        let frames = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].compactMap { type -> CGRect? in
+            guard let button = window.standardWindowButton(type), !button.isHiddenOrHasHiddenAncestor else { return nil }
+            return button.convert(button.bounds, to: nil)
+        }
+        guard let maxX = frames.map(\.maxX).max() else { return nil }
+        // Right-to-left: the lights sit at the trailing edge, where the Stage's own trailing controls are not.
+        return window.windowTitlebarLayoutDirection == .rightToLeft ? nil : maxX
+    }
 }

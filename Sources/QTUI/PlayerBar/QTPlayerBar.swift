@@ -13,35 +13,60 @@ public struct QTPlayerBar: View {
     public init() {}
 
     public var body: some View {
-        HStack(spacing: QTTheme.Spacing.l) {
-            // Sides are 320 pt on wide windows and give way first on narrow ones; the centre keeps room for
-            // the transport and a usable scrubber.
-            QTPlayerBarNowPlaying()
-                .frame(minWidth: 180, maxWidth: QTTheme.Metrics.playerBarSideWidth, alignment: .leading)
-            VStack(spacing: 2) {
-                QTTransportControls(style: .playerBar)
-                QTScrubber()
-                    .frame(maxWidth: QTTheme.Metrics.scrubberMaxWidth)
-            }
-            .frame(minWidth: 300, maxWidth: .infinity)
-            ViewThatFits(in: .horizontal) {
-                QTPlayerBarTools(showsVolumeSlider: true)
-                QTPlayerBarTools(showsVolumeSlider: false)
-            }
-            .frame(minWidth: 180, maxWidth: QTTheme.Metrics.playerBarSideWidth, alignment: .trailing)
+        // The bar steps down as it narrows, one whole layout at a time, so it always fits the width it gets: the
+        // volume slider goes first (into a popover), then Mini Player and Stage (both stay in the Window menu, on
+        // ⇧⌘M / ⇧⌘F, and the artwork opens the Stage), then the gaps tighten. A bar that could not shrink far
+        // enough became the content column's minimum width, and the split view then pushed the sidebar and the
+        // panel out past the window's edges (GitHub #1, #2).
+        ViewThatFits(in: .horizontal) {
+            row(.full)
+            row(.noSlider)
+            row(.essential)
+            row(.tight)
         }
-        .padding(.leading, 12)
-        .padding(.trailing, 18)
         .frame(height: QTTheme.Metrics.playerBarHeight)
         .qtGlass(.bar, in: RoundedRectangle(cornerRadius: QTTheme.Radius.playerBar, style: .continuous))
         .background { QTPlayerKeyAppearanceProbe() }
         .padding(.horizontal, QTTheme.Metrics.playerBarInset)
-        .padding(.top, 4)
+        .padding(.top, QTTheme.Metrics.playerBarTopPadding)
         .padding(.bottom, QTTheme.Metrics.playerBarInset)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("qt.player.bar")
         // Song⇄Video (`isVideoMode`) is kept in step with the loaded rendition by `QTVideoModeService`.
     }
+
+    /// One layout of the bar. Sides are 320 pt on wide windows and give way first; the centre keeps room for the
+    /// transport and a usable scrubber. Ideal widths are the minimums, so `ViewThatFits` (which measures ideals)
+    /// keeps a layout for as long as it can be squeezed in — a long title truncates, it never forces a step down.
+    private func row(_ fit: QTPlayerBarFit) -> some View {
+        HStack(spacing: fit.spacing) {
+            QTPlayerBarNowPlaying()
+                .frame(minWidth: fit.nowPlayingMin, idealWidth: fit.nowPlayingMin,
+                       maxWidth: QTTheme.Metrics.playerBarSideWidth, alignment: .leading)
+            VStack(spacing: 2) {
+                QTTransportControls(style: .playerBar)
+                QTScrubber()
+                    .frame(maxWidth: QTTheme.Metrics.scrubberMaxWidth)
+            }
+            .frame(minWidth: QTPlayerBarFit.centreMin, idealWidth: QTPlayerBarFit.centreMin, maxWidth: .infinity)
+            QTPlayerBarTools(showsVolumeSlider: fit == .full, showsWindowTools: fit == .full || fit == .noSlider)
+                .fixedSize()
+                .frame(maxWidth: QTTheme.Metrics.playerBarSideWidth, alignment: .trailing)
+        }
+        .padding(.leading, 12)
+        .padding(.trailing, fit == .tight ? 12 : 18)
+    }
+}
+
+/// The player bar's layouts, widest first.
+enum QTPlayerBarFit {
+    case full, noSlider, essential, tight
+
+    static let centreMin: CGFloat = 210
+
+    var spacing: CGFloat { self == .tight ? QTTheme.Spacing.s : QTTheme.Spacing.l }
+    /// Artwork, a readable piece of the title and ♥; the tightest layout keeps a shorter piece.
+    var nowPlayingMin: CGFloat { self == .tight ? 132 : 190 }
 }
 
 // MARK: - Now playing (left)
@@ -191,6 +216,8 @@ public struct QTAdSkipControl: View {
 
 struct QTPlayerBarTools: View {
     var showsVolumeSlider = true
+    /// Mini Player and Stage; off on the narrowest bars.
+    var showsWindowTools = true
     @Environment(QTAppModel.self) private var model
     @Environment(QTPlayerModel.self) private var player
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -213,11 +240,13 @@ struct QTPlayerBarTools: View {
                 .frame(width: 28, height: 28)
             QTVolumeControl(showsSlider: showsVolumeSlider)
                 .padding(.horizontal, 4)
-            toolButton(QTLoc.tr("Mini Player"), icon: .mini, shortcut: "⇧⌘M", id: "mini") {
-                model.surface = model.surface == .mini ? .window : .mini
-            }
-            toolButton(QTLoc.tr("Stage"), icon: .expand, shortcut: "⇧⌘F", id: "stage") {
-                model.surface = .stage
+            if showsWindowTools {
+                toolButton(QTLoc.tr("Mini Player"), icon: .mini, shortcut: "⇧⌘M", id: "mini") {
+                    model.surface = model.surface == .mini ? .window : .mini
+                }
+                toolButton(QTLoc.tr("Stage"), icon: .expand, shortcut: "⇧⌘F", id: "stage") {
+                    model.surface = .stage
+                }
             }
         }
         .labelStyle(.iconOnly)

@@ -53,6 +53,9 @@ public enum QTTheme {
         /// Gap between the floating player bar and the window edges.
         public static let playerBarInset: CGFloat = 10
         public static let playerBarSideWidth: CGFloat = 320
+        /// Height the floating player bar takes at the bottom of the window (bar + its top and bottom padding).
+        public static let playerBarTopPadding: CGFloat = 4
+        public static var playerBarObstruction: CGFloat { playerBarHeight + playerBarTopPadding + playerBarInset }
         public static let scrubberMaxWidth: CGFloat = 560
         public static let tableRowHeight: CGFloat = 60
         public static let rowArtwork: CGFloat = 40

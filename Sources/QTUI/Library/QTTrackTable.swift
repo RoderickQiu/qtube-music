@@ -107,7 +107,7 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
                 col.headerCell.alignment = .center
                 col.sortDescriptorPrototype = NSSortDescriptor(key: QTTrackSort.Key.added.rawValue, ascending: true)
             case .title:
-                col.width = 380; col.minWidth = 220; col.resizingMask = [.autoresizingMask, .userResizingMask]
+                col.width = 380; col.minWidth = QTTrackTablePageView.titleColumnFloor; col.resizingMask = [.autoresizingMask, .userResizingMask]
                 col.sortDescriptorPrototype = NSSortDescriptor(key: QTTrackSort.Key.title.rawValue, ascending: true)
             case .album:
                 col.width = 250; col.minWidth = 140; col.resizingMask = [.autoresizingMask, .userResizingMask]
@@ -143,7 +143,7 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
         page.hasCompactBar = new.compact != nil
         page.headerHeight = new.header == nil ? 0 : new.headerHeight
         // An album page doesn't repeat its own title in every row.
-        page.tableView.tableColumn(withIdentifier: Column.album.id)?.isHidden = new.collection.kind == .album
+        page.wantsAlbumColumn = new.collection.kind != .album
         updateHosts(new, page: page)
         updateHeaderTitles()
 

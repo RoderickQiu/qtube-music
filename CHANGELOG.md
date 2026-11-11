@@ -3,6 +3,17 @@
 All notable changes to QTube Music. Versions follow [Semantic Versioning](https://semver.org); `Scripts/release.sh`
 uses the section for a version as its release notes.
 
+## Unreleased
+
+- **Small windows no longer spill over their edges.** With the panel open in a small window, the sidebar and the
+  panel were pushed out past the window's sides, and opening the panel shifted the sidebar. The player bar now
+  steps down instead: the volume slider, then Mini Player and Stage, step aside (#1, #2).
+- **Song lists cope with narrow columns.** A narrow list drops the Album column, then the like column, so Time
+  stays in view; Play and Shuffle become icon buttons.
+- **The last song in a list is reachable.** Lists now scroll their last row clear of the player bar.
+- **Stage: more room for lyrics in a small window.** The cover shrinks before lyric lines start wrapping, and the
+  close button no longer sits on the window's zoom button (#3).
+
 ## 0.4.1
 
 Signed and notarized.

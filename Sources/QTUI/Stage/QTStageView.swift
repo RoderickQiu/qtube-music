@@ -44,6 +44,8 @@ public struct QTStageView: View {
     @State private var titlebar = QTStageTitlebar()
     /// Centre of the window's traffic lights from the top (nil in full screen / without a title bar).
     @State private var trafficLightsMidY: CGFloat?
+    /// Right edge of the zoom button from the window's leading edge (nil in full screen / without a title bar).
+    @State private var trafficLightsMaxX: CGFloat?
     /// The synced line over the music video (Appearance popover; on by default).
     @AppStorage(QTStageVideoLyrics.defaultsKey) private var showsVideoLyrics = true
     private let power = QTStagePowerMonitor.shared
@@ -218,10 +220,15 @@ public struct QTStageView: View {
     }
 
     private func standardLayout(_ a: QTStageResolvedAppearance, area: CGSize) -> some View {
-        let gap: CGFloat = 72
-        let artWidth = max((area.width - gap) / 2.08, 0)
-        let lyricsWidth = max(area.width - gap - artWidth, 0)
-        let metaUnder = a.showsMetaUnderArt
+        // Wide Stage: art and lyrics share the width almost evenly. As the window narrows the art column gives
+        // way first, so lyric lines keep their length instead of wrapping beside a large cover; on the narrowest
+        // Stage (the detached window's minimum) the cover steps aside and the lyrics take the full width.
+        let split = QTStageStandardSplit(width: area.width)
+        let gap = split.gap
+        let artWidth = split.artWidth
+        let lyricsWidth = split.lyricsWidth
+        // Without the art column the title sits over the lyrics, as it does beside artwork.
+        let metaUnder = a.showsMetaUnderArt && split.showsArt
         // Vinyl: the turntable (record + tonearm) fits the art column, so the arm never reaches into the lyrics.
         // The record leaves room for the arm's rest position and sits left of centre; the title stays centred
         // under the record.
@@ -229,15 +236,18 @@ public struct QTStageView: View {
         let artSize = min(QTTheme.Metrics.stageArtwork, artWidth / (1 + reach), area.height - (metaUnder ? 96 : 0))
         let recordShift = reach * artSize / 2
         return HStack(spacing: gap) {
-            VStack(spacing: 22) {
-                artSlot(a, size: artSize)
-                    .offset(x: -recordShift)
-                if metaUnder {
-                    meta(alignment: .center)
-                        .padding(.trailing, recordShift * 2)
+            if split.showsArt {
+                VStack(spacing: 22) {
+                    artSlot(a, size: artSize)
+                        .offset(x: -recordShift)
+                    if metaUnder {
+                        meta(alignment: .center)
+                            .padding(.trailing, recordShift * 2)
+                    }
                 }
+                .frame(width: artWidth, height: area.height)
+                .transition(.opacity)
             }
-            .frame(width: artWidth, height: area.height)
 
             ZStack(alignment: .topLeading) {
                 if !metaUnder {
@@ -391,7 +401,12 @@ public struct QTStageView: View {
     }
 
     /// Leading inset that keeps the close button clear of the traffic lights in a window (not in full screen).
-    private var topBarLeading: CGFloat { hasTrafficLights && !isFullScreen ? 84 : QTTheme.Spacing.l }
+    /// Measured: the lights sit further in under a unified toolbar on macOS 26 than the classic 20 pt, and a fixed
+    /// inset put the close button on top of the zoom button there (GitHub #3).
+    private var topBarLeading: CGFloat {
+        guard hasTrafficLights, !isFullScreen else { return QTTheme.Spacing.l }
+        return max((trafficLightsMaxX ?? 72) + 12, 84)
+    }
 
     private func topBar(_ a: QTStageResolvedAppearance) -> some View {
         @Bindable var model = model
@@ -655,6 +670,7 @@ public struct QTStageView: View {
             if presentation == .inline, model.surface == .stage { titlebar.install(in: window) }
             hasTrafficLights = Self.showsTrafficLights(window)
             trafficLightsMidY = QTStageTitlebar.trafficLightsMidY(in: window)
+            trafficLightsMaxX = QTStageTitlebar.trafficLightsMaxX(in: window)
             applyTitlebarVisibility(animated: false)
         }
     }

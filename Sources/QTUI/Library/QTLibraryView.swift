@@ -217,7 +217,13 @@ struct QTLibraryHeader: View {
                     if filterWidth != nil {
                         QTLibraryActions(collection: collection, rows: rows).fixedSize()
                     } else {
-                        QTLibraryActions(collection: collection, rows: rows).layoutPriority(1)
+                        // Narrowest columns (the smallest window with the panel open): Play and Shuffle become
+                        // icon buttons instead of truncating to "▶ P…".
+                        ViewThatFits(in: .horizontal) {
+                            QTLibraryActions(collection: collection, rows: rows).fixedSize()
+                            QTLibraryActions(collection: collection, rows: rows, iconOnly: true)
+                        }
+                        .layoutPriority(1)
                         filter.frame(minWidth: 0, idealWidth: 160, maxWidth: 220)
                     }
                 }
@@ -244,6 +250,8 @@ struct QTLibraryHeader: View {
 struct QTLibraryActions: View {
     let collection: QTTrackCollection
     let rows: [QTTrack]
+    /// Play and Shuffle as round icon buttons (narrow columns).
+    var iconOnly = false
     var body: some View {
         let playable = rows.filter(\.availability.isPlayable)
         HStack(spacing: 10) {
@@ -254,8 +262,9 @@ struct QTLibraryActions: View {
             } label: {
                 Label(QTLoc.tr("Play"), systemImage: QTIcon.play.systemName)
             }
-            .qtGlassButton(.primary)
+            .qtGlassButton(.primary, iconOnly: iconOnly)
             .help(QTLoc.tr("Play"))
+            .accessibilityLabel(QTLoc.tr("Play"))
             .accessibilityIdentifier("qt.library.play")
             .disabled(playable.isEmpty)
 
@@ -264,8 +273,9 @@ struct QTLibraryActions: View {
             } label: {
                 Label(QTLoc.tr("Shuffle"), systemImage: QTIcon.shuffle.systemName)
             }
-            .qtGlassButton(.secondary)
+            .qtGlassButton(.secondary, iconOnly: iconOnly)
             .help(QTLoc.tr("Shuffle"))
+            .accessibilityLabel(QTLoc.tr("Shuffle"))
             .accessibilityIdentifier("qt.library.shuffle")
             .disabled(playable.isEmpty)
 

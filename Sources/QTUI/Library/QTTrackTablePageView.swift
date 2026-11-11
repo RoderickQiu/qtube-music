@@ -50,6 +50,20 @@ final class QTTrackTablePageView: NSView {
     static let leadingInset: CGFloat = 32
     static let trailingInset: CGFloat = 44
     static let bottomInset: CGFloat = 44
+    /// Clear space between the last row and the floating player bar when the list ends under it.
+    static let bottomBarGap: CGFloat = 20
+    /// Narrow lists drop columns instead of pushing Time out of view: Album goes when the title would have less
+    /// than `titleColumnComfortable` beside it, the like column when the title would have less than
+    /// `titleColumnTight` (Like stays in the row's menu and the player bar). The title itself can shrink to
+    /// `titleColumnFloor`.
+    static let titleColumnComfortable: CGFloat = 260
+    static let titleColumnTight: CGFloat = 170
+    static let titleColumnFloor: CGFloat = 120
+    static let albumColumnID = NSUserInterfaceItemIdentifier("qt.library.column.album")
+    static let titleColumnID = NSUserInterfaceItemIdentifier("qt.library.column.title")
+    static let likedColumnID = NSUserInterfaceItemIdentifier("qt.library.column.liked")
+    /// Whether this list has an Album column at all (album pages don't); narrow lists hide it on their own.
+    var wantsAlbumColumn = true { didSet { if oldValue != wantsAlbumColumn { needsLayout = true } } }
     static let alphabetWidth: CGFloat = 20
     static let alphabetLetterHeight: CGFloat = 14
 
@@ -187,7 +201,20 @@ final class QTTrackTablePageView: NSView {
     // MARK: Layout
 
     var tableTop: CGFloat { headerHeight + Self.columnHeaderHeight }
-    private var tableWidth: CGFloat { max(200, scrollView.contentView.bounds.width - Self.leadingInset - Self.trailingInset) }
+    /// How much of the bottom of this view lies under the floating player bar. On macOS 26 the bar is a
+    /// `safeAreaBar` and the list runs under it to the window's edge (AppKit sees no safe-area inset for it); with a
+    /// plain safe-area inset the view ends above the bar and this is 0.
+    var bottomObstruction: CGFloat {
+        guard window != nil else { return 0 }
+        let bottomInWindow = convert(bounds, to: nil).minY
+        return min(max(QTTheme.Metrics.playerBarObstruction - bottomInWindow, 0), QTTheme.Metrics.playerBarObstruction)
+    }
+    /// Space after the last row: enough to scroll it clear of the player bar.
+    private var bottomSpace: CGFloat {
+        let obstruction = bottomObstruction
+        return obstruction > 0 ? max(Self.bottomInset, obstruction + Self.bottomBarGap) : Self.bottomInset
+    }
+    private var tableWidth: CGFloat { max(160, scrollView.contentView.bounds.width - Self.leadingInset - Self.trailingInset) }
     /// Height covered at the top of the visible area when pinned (compact bar + column headings).
     var pinnedObstruction: CGFloat { (isPinned && hasCompactBar ? Self.compactHeight : 0) + Self.columnHeaderHeight }
 
@@ -207,7 +234,7 @@ final class QTTrackTablePageView: NSView {
         let rows = CGFloat(tableView.numberOfRows)
         let tableHeight = max(rows * tableView.rowHeight, 1)
         let emptyHeight: CGFloat = emptyLabel.isHidden ? 0 : 120
-        let docHeight = max(tableTop + tableHeight + emptyHeight + Self.bottomInset, clip.height)
+        let docHeight = max(tableTop + tableHeight + emptyHeight + bottomSpace, clip.height)
         if documentView.frame.size != NSSize(width: width, height: docHeight) {
             documentView.frame = NSRect(x: 0, y: 0, width: width, height: docHeight)
         }
@@ -263,6 +290,20 @@ final class QTTrackTablePageView: NSView {
     /// Fixed columns keep their width; the flexible ones (title, album) share the rest in their current ratio,
     /// so a user's column resize is kept proportionally when the window changes size.
     private func fitColumns(to width: CGFloat) {
+        // A narrow list (a small window with the panel open) drops the Album column rather than pushing the like
+        // and Time columns out of view.
+        let columns = tableView.tableColumns
+        if let album = columns.first(where: { $0.identifier == Self.albumColumnID }),
+           let liked = columns.first(where: { $0.identifier == Self.likedColumnID }) {
+            // Number and Time: the columns that always stay.
+            let fixed = columns.filter { $0 !== album && $0 !== liked && $0.identifier != Self.titleColumnID }
+                .reduce(0) { $0 + $1.minWidth }
+            let hidesAlbum = !wantsAlbumColumn
+                || width < fixed + liked.minWidth + album.minWidth + Self.titleColumnComfortable
+            let hidesLiked = width < fixed + liked.minWidth + Self.titleColumnTight
+            if album.isHidden != hidesAlbum { album.isHidden = hidesAlbum }
+            if liked.isHidden != hidesLiked { liked.isHidden = hidesLiked }
+        }
         let cols = tableView.tableColumns.filter { !$0.isHidden }
         let flexible = cols.filter { $0.resizingMask.contains(.autoresizingMask) }
         let fixed = cols.filter { !$0.resizingMask.contains(.autoresizingMask) }.reduce(0) { $0 + $1.width }
@@ -351,8 +392,9 @@ final class QTTrackTablePageView: NSView {
             let obstruction = (hasCompactBar && headerHeight > 0 && r.minY - Self.compactHeight - Self.columnHeaderHeight > headerHeight - Self.compactHeight)
                 ? Self.compactHeight + Self.columnHeaderHeight : Self.columnHeaderHeight
             scroll(toY: r.minY - obstruction, animated: false)
-        } else if r.maxY > clip.maxY {
-            scroll(toY: r.maxY - clip.height, animated: false)
+        } else if r.maxY > clip.maxY - bottomObstruction {
+            // Above the floating player bar, not behind it.
+            scroll(toY: r.maxY - clip.height + bottomObstruction, animated: false)
         }
     }
 }

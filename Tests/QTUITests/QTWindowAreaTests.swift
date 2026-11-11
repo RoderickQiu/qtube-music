@@ -298,3 +298,97 @@ import Testing
         #expect(outside(100, 210, in: nil))          // a click with no window (menu bar extra, Dock)
     }
 }
+
+// MARK: - Narrow windows (GitHub #1, #2, #3)
+
+@MainActor
+@Suite struct QTNarrowWindowTests {
+    /// The player bar spans the content column and the panel. If its tightest layout cannot shrink to what is left
+    /// beside the widest sidebar in the smallest window, the split view overflows the window on both sides.
+    /// Tools in that layout (Lyrics, Queue, AirPlay, volume) measure about 165 pt.
+    @Test func playerBarFitsBesideTheWidestSidebarInTheSmallestWindow() {
+        let windowMinimum: CGFloat = 960
+        let widestSidebar: CGFloat = 320
+        let fit = QTPlayerBarFit.tight
+        let tools: CGFloat = 170
+        let needed = fit.nowPlayingMin + QTPlayerBarFit.centreMin + tools + fit.spacing * 2 + 24
+            + QTTheme.Metrics.playerBarInset * 2
+        #expect(needed <= windowMinimum - widestSidebar)
+    }
+
+    @Test func playerBarObstructionMatchesTheBar() {
+        #expect(QTTheme.Metrics.playerBarObstruction == 86)
+    }
+
+    /// A list that runs under the floating player bar (macOS 26) leaves room to scroll its last row clear of it; a
+    /// list that ends above the bar keeps the plain bottom inset.
+    @Test func trackListScrollsItsLastRowClearOfThePlayerBar() {
+        final class Rows: NSObject, NSTableViewDataSource {
+            func numberOfRows(in tableView: NSTableView) -> Int { 40 }
+        }
+        let rows = Rows()
+        func trailingSpace(pageBottom: CGFloat) -> CGFloat {
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 600), styleMask: [.borderless],
+                                  backing: .buffered, defer: true)
+            let page = QTTrackTablePageView(frame: NSRect(x: 0, y: pageBottom, width: 700, height: 600 - pageBottom))
+            page.tableView.dataSource = rows
+            page.tableView.rowHeight = 60
+            window.contentView?.addSubview(page)
+            page.tableView.reloadData()
+            page.layoutSubtreeIfNeeded()
+            page.layoutDocument()
+            return page.documentView.frame.height - page.tableView.frame.maxY
+        }
+        let bar = QTTheme.Metrics.playerBarObstruction
+        #expect(trailingSpace(pageBottom: 0) >= bar + QTTrackTablePageView.bottomBarGap)
+        #expect(trailingSpace(pageBottom: bar) == QTTrackTablePageView.bottomInset)
+    }
+
+    @Test func narrowTrackListsDropAlbumThenLikeAndKeepTime() {
+        func hidden(width: CGFloat) -> (album: Bool, liked: Bool) {
+            let page = QTTrackTablePageView(frame: NSRect(x: 0, y: 0, width: width, height: 400))
+            for (id, w, flexible) in [("qt.library.column.number", 40.0, false), ("qt.library.column.title", 380, true),
+                                      ("qt.library.column.album", 250, true), ("qt.library.column.liked", 44, false),
+                                      ("qt.library.column.time", 72, false)] {
+                let c = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(id))
+                c.width = w
+                if flexible {
+                    c.minWidth = id.hasSuffix("title") ? QTTrackTablePageView.titleColumnFloor : 140
+                    c.resizingMask = [.autoresizingMask, .userResizingMask]
+                } else {
+                    c.minWidth = w; c.maxWidth = w; c.resizingMask = []
+                }
+                page.tableView.addTableColumn(c)
+            }
+            page.layoutSubtreeIfNeeded()
+            page.layoutDocument()
+            func isHidden(_ id: String) -> Bool {
+                page.tableView.tableColumn(withIdentifier: NSUserInterfaceItemIdentifier(id))?.isHidden ?? false
+            }
+            return (isHidden("qt.library.column.album"), isHidden("qt.library.column.liked"))
+        }
+        #expect(hidden(width: 900) == (false, false))
+        #expect(hidden(width: 560) == (true, false))
+        #expect(hidden(width: 330) == (true, true))
+    }
+
+    @Test func stageStandardSplitGivesTheLyricsMoreRoomAsItNarrows() {
+        let wide = QTStageStandardSplit(width: 1312)
+        #expect(wide.showsArt)
+        #expect(wide.gap == 72)
+        #expect(abs(wide.artWidth - (1312 - 72) / 2.08) < 0.5)
+
+        // The reporter's window (970 pt wide: 842 pt of content): lyrics get clearly more than half.
+        let narrow = QTStageStandardSplit(width: 842)
+        #expect(narrow.showsArt)
+        #expect(narrow.lyricsWidth > 842 * 0.55)
+        #expect(abs(narrow.artWidth + narrow.gap + narrow.lyricsWidth - 842) < 0.5)
+
+        // Continuous at the wide threshold, no art at the detached window's minimum.
+        let justUnder = QTStageStandardSplit(width: 999.5)
+        #expect(abs(justUnder.artWidth - QTStageStandardSplit(width: 1000).artWidth) < 1)
+        let smallest = QTStageStandardSplit(width: 592)
+        #expect(!smallest.showsArt)
+        #expect(smallest.lyricsWidth == 592)
+    }
+}
