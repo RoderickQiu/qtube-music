@@ -44,6 +44,8 @@ public enum QTTheme {
     // MARK: Metrics
 
     public enum Metrics {
+        /// The main window's smallest content size (set on the NSWindow, see QTMainWindowView).
+        public static let minWindow = CGSize(width: 960, height: 600)
         public static let sidebarWidth: CGFloat = 248
         public static let sidebarMinWidth: CGFloat = 200
         public static let panelWidth: CGFloat = 384

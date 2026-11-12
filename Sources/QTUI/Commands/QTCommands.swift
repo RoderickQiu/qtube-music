@@ -57,12 +57,11 @@ public struct QTCommands: Commands {
 
         // View
         CommandGroup(after: .sidebar) {
-            Button(QTLoc.tr(model.isPanelShown ? "Hide Panel" : "Show Panel", table: .desktop)) { model.isPanelShown.toggle() }
+            Button(QTLoc.tr(model.isPanelShown ? "Hide Panel" : "Show Panel", table: .desktop)) { model.setPanelShown(!model.isPanelShown) }
                 .keyboardShortcut("n", modifiers: [.command, .option])
             // An inline picker brings its own separators — no Divider next to it (that doubled them).
             Picker(QTLoc.tr("Panel", table: .desktop), selection: Binding(get: { model.panelTab }, set: { tab in
-                model.panelTab = tab
-                model.isPanelShown = true
+                model.setPanelShown(true, tab: tab)
             })) {
                 Text(QTLoc.tr("Now Playing")).tag(QTPanelTab.nowPlaying)
                 Text(QTLoc.tr("Queue")).tag(QTPanelTab.queue)

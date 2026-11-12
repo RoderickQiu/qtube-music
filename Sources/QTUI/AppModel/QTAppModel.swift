@@ -38,7 +38,7 @@ public final class QTAppModel {
     public var surface: QTSurface = .window
     public var sidebarSelection: QTSidebarItem = .home
     public var selectedTrackIDs: Set<QTTrack.ID> = []
-    /// Docked inspector (Now Playing / Queue), ⌥⌘N.
+    /// Docked panel (Now Playing / Queue), ⌥⌘N. Toggle it with `setPanelShown`.
     public var isPanelShown = true
     public var panelTab: QTPanelTab = .nowPlaying
     /// Song⇄Video: true when the video rendition is shown.

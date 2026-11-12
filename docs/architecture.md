@@ -535,7 +535,7 @@ in memory only, in WebKit:
 | Folder | Builder | Holds |
 |---|---|---|
 | `Shell/`, `Sidebar/`, `Home/`, `Library/` | window | main window layout, router, sidebar, Home, playlist/library tables |
-| `NowPlaying/`, `PlayerBar/`, `Queue/` | player | docked inspector, player bar, `QTScrubber`, `QTTransportControls`, `QTQueueList` |
+| `NowPlaying/`, `PlayerBar/`, `Queue/` | player | docked panel, player bar, `QTScrubber`, `QTTransportControls`, `QTQueueList` |
 | `Lyrics/` | lyrics-ui | `QTLyricsView`, `QTLyricsOptionsButton` / `QTLyricsOptionsPopover` |
 | `Stage/` | stage | `QTStageView` (layouts × backgrounds, chrome, drawer) |
 | `Desktop/`, `Commands/`, `Settings/`, `Sources/QTubeMusicApp`, `Assets/AppIcon.icns` | desktop | mini player, desktop lyrics, menu bar, `QTDesktopCoordinator`, Dock menu, sidebar playlist context menu (`QTSidebarContextMenu`), `QTIntegrationsCoordinator` (Last.fm / Discord / notifications), `QTScripting` (AppleScript), `QTGlobalHotKeys` (global shortcuts), menus + key routing, Settings (incl. Integrations, `QTInterfaceLanguageSync`), app icon |
@@ -657,8 +657,8 @@ Views:
 - Missing language model (`.needsDownload`): the options popover has the consent row ("Download {language} for offline
   translation") and the panel shows one quiet glass cue under the lyrics, "Translate to {language}"
   (`QTLyricsTranslationCue`); either asks for the system's download sheet (`requestDownload`). Floating buttons in the
-  panel (this cue, "Current") sit above the window's floating player bar — the inspector column gets no safe-area
-  inset from it. Traditional Chinese lyrics translate through the Simplified model when only that one is installed
+  panel (this cue, "Current") sit above the window's floating player bar — the panel ignores the bar's safe-area
+  inset and runs under it. Traditional Chinese lyrics translate through the Simplified model when only that one is installed
   (direct sessions, macOS 26+).
 - Pronunciation lane (pinyin, romaji): `QTSettings.lyricsPronunciation` (`QTLyricsPronunciation`: `automatic` = only
   when no translation line shows or is on its way, `on`, `off`), switched in the options popover ("Pronunciation",
@@ -769,7 +769,7 @@ Coordinators (one per process, `@MainActor`):
   the panel's width allows (the panel never grows on Song⇄Video). WebKit's PiP shows the raw `<video>` (baked-in bars
   stay there).
 - In-window Stage keeps the window's own title bar and SwiftUI toolbar (so the traffic lights stay put and the
-  inspector's toolbar plumbing stays consistent): Shell drops its toolbar items while `surface == .stage`, and
+  split view's toolbar plumbing stays consistent): Shell drops its toolbar items while `surface == .stage`, and
   `QTStageTitlebar` (Stage/) hides every remaining toolbar item (`NSToolbarItem.isHidden`, also items SwiftUI adds
   later) and shows exactly those again on close. (Swapping in an empty `NSToolbar` made showing the panel under the
   Stage loop AppKit's constraint pass until it crashed.) Under the Stage the browsing UI is `accessibilityHidden`,
@@ -854,7 +854,7 @@ Core:
 
 The prototype defines layout, hierarchy, copy and states; the app must look like a first-class Mac app.
 - Native controls: `NavigationSplitView` sidebar (system material, source-list selection), real toolbar +
-  `.searchable`, `.inspector` for the docked panel, `Table`/`NSTableView` with system headers, `Picker`
+  `.searchable`, the docked panel beside the content (`QTDockedPanel`, not `.inspector`: GitHub #1), `Table`/`NSTableView` with system headers, `Picker`
   (segmented/menu), `Toggle` (`.button` style for shuffle/repeat = filled when on), `Slider`, `Stepper`, `Menu`,
   `.popover`, grouped `Form` in Settings, `NSMenu`/`.contextMenu`, sheets/alerts.
 - System semantics only: `QTTheme.Colors` wraps label/secondary/tertiary/separator/window/selection colours.
@@ -883,10 +883,11 @@ The prototype defines layout, hierarchy, copy and states; the app must look like
   (Music, Finder, System Settings) show on this macOS 27 host (references `screenshots/r4-shell-ref-*.png`); no
   custom sidebar background. Search: `.searchable(placement: .toolbarPrincipal)` puts the system field in the
   content column's toolbar (centred there; it never sits over the panel); while results show, the sidebar has no
-  selection. The panel's header is toolbar items of the inspector's toolbar section (`QTPanelToolbar`, NowPlaying/:
-  Now Playing | Queue, flexible spacer, Hide Panel; only while the panel is shown and not under the Stage), so the
-  art-tinted backdrop runs under the title bar and there are no header rows or hard dividers. Content pages use
-  `qtSoftScrollEdges()` (soft scroll-edge effect under the toolbar).
+  selection. The docked panel (Now Playing / Queue) is `QTDockedPanel` (Shell/), a pane inside the detail column,
+  not a SwiftUI `.inspector` (see *Docked panel* below). One Show / Hide Panel button sits at the toolbar's trailing
+  edge whether the panel is open or not; the Now Playing | Queue switch heads the panel (`QTPanelTabPicker`), and the
+  art-tinted backdrop runs under the title bar. Content pages use `qtSoftScrollEdges()` (soft scroll-edge effect
+  under the toolbar).
 - **Track tables.** Finder-style selection (the app's accent when focused, unemphasized grey otherwise; white
   text on the accent). Type-to-select and sortable headers are the jump aids; the A–Z strip appears only for lists of more than
   60 rows sorted by title (`QTTrackTableCoordinator.wantsAlphabet`), with script-aware letters (Latin initial, pinyin
@@ -920,7 +921,7 @@ The prototype defines layout, hierarchy, copy and states; the app must look like
   - `QTGlassGroup { … }` — `GlassEffectContainer` for neighbouring glass shapes (Stage top bar).
   - `qtFloatingBottomBar { … }` — `safeAreaBar` on macOS 26 (scroll edge effect under the bar), `safeAreaInset`
     before; the bar sits on `QTBottomBarBackdrop` (a material that fades in from the bar's top edge to the window
-    edge), so SwiftUI pages and AppKit tables are frosted behind it and no half-cut rows show in the gutters. The player bar floats over the bottom of content + inspector (10 pt inset, radius 22); the sidebar
+    edge), so SwiftUI pages and AppKit tables are frosted behind it and no half-cut rows show in the gutters. The player bar floats over the bottom of content + panel (10 pt inset, radius 22); the sidebar
     keeps the window's full height and pages scroll under the bar.
   - `QTPanelGlassBackground(cornerRadius:)` — window-level glass for clear panels (`NSGlassEffectView` on 26,
     `.popover` vibrancy before): mini player strip, desktop lyrics controls.
@@ -928,20 +929,40 @@ The prototype defines layout, hierarchy, copy and states; the app must look like
     setting). `qtFloatingSurface(_:material:)` remains as a forwarder to `.chrome`.
   - Native chrome — sidebar, toolbar items and search field, segmented pickers, popovers, menus, the MenuBarExtra
     window — gets the system glass by itself. Don't paint over it, don't add `.toolbarBackground`, and keep the
-    toolbar/inspector/split view stock.
+    toolbar and split view stock.
   - It only appears if the binary is linked on the macOS 26+ SDK: see `build-app.sh` (SDK stamp) below.
-  - No `GridItem(.flexible(minimum:))` (or other hard minimum widths) in content pages: with the inspector open, a
-    content minimum feeds AppKit's split-view constraints into an update-constraints loop (crash) on the macOS 26+
-    design. Count columns from the measured width instead (`QTQuickPicks`, `QTLibraryGridPage`); see *No content
+  - No `GridItem(.flexible(minimum:))` (or other hard minimum widths) in content pages: with the panel open, a
+    content minimum pushes the panel or the sidebar past the window's edges (and with the old inspector it fed
+    AppKit's split-view constraints into an update-constraints loop, a crash, on the macOS 26+ design). Count columns from the measured width instead (`QTQuickPicks`, `QTLibraryGridPage`); see *No content
     minimum width* above. Quick picks use at most 3 columns of at least `QTQuickPicks.minRowWidth` (260 pt: art,
     ~136 pt of title, heart) so titles read in every appearance and catalog.
-- **Docked panel width (R6).** `QTInspectorWidthKeeper` (Shell/) keeps the inspector at the design width (384 pt) or
-  the user's last divider drag (`qt.window.panelWidth` in UserDefaults; dev launches with `-qt.screen`/`-qt.window`
-  always use 384 and never save). SwiftUI's `inspectorColumnWidth(ideal:)` reaches AppKit only when the split item is
-  first added; every later SwiftUI update that re-sets the split items (the live library streaming in) re-added it
-  without its preferred size, and the panel sat at its 320 pt minimum with the live library (384 with the demo). The
-  keeper adds a width constraint at priority 262 (above the inspector's holding priority 261, never required), lifts
-  it while the divider is dragged and adopts the new width on mouse-up.
+- **Window minimum size (GitHub #1).** 960 × 600, enforced by `QTWindowMinSize` (Shell/) in `windowWillResize`
+  (it stands in front of SwiftUI's window delegate and forwards everything else), not declared in the layout. The
+  split view won't shrink the detail column below about the window's minimum content width, however that is set
+  (a root `.frame(minWidth:)`, a sibling spacer and a raised `NSWindow.contentMinSize` all measured the same). With
+  960 declared, any window narrower than about 1208 pt (960 + the sidebar) slid the content, the panel and the
+  player bar up to 86 pt past the trailing edge while the sidebar animated in or out. So nothing in the window
+  declares a minimum width (the player bar is framed `minWidth: 0` too) and SwiftUI's own minimum stays near 632 pt.
+  Side effect: system window tiling may now make the window narrower than 960 pt.
+- **Docked panel (GitHub #1).** `QTDockedPanel` (Shell/) lays the panel out beside the content inside the
+  NavigationSplitView's detail column and shows / hides it at once (`QTAppModel.setPanelShown`, every toggle:
+  toolbar, player bar Lyrics / Queue, ⌥⌘N). On macOS 27 the toolbar's glass buttons dim or flash for about 0.2 s in
+  two cases, stock SwiftUI included (found by measuring the sidebar button's brightness per frame on recordings of a
+  debug build clicking its own panel button): (1) an AppKit-backed view (List, table) is added, removed or changes
+  frame beside the toolbar, so the panel stays mounted at a fixed frame and only its opacity, hit testing and
+  accessibility change, with no slide; (2) a SwiftUI ScrollView that extends under the toolbar re-lays out its
+  content, so the content column starts 1 pt below the toolbar and pages no longer scroll under it. Scroll-edge
+  effect styles, keyboard focus and what is drawn behind the toolbar made no difference. Only `QTDockedPanel` and
+  `QTPanelToggleButton` read `isPanelShown`, so a toggle doesn't re-render the split view. It was a SwiftUI `.inspector` until 0.4.2. Showing or hiding an
+  inspector makes SwiftUI rebuild the window toolbar (every item fades out and back in, the sidebar button drops into
+  the overflow menu for a moment) and re-lay out the split view; on macOS 26 that pass laid the split view out wider
+  than the window, so the sidebar slid off the window's left edge and back on every toggle. A stock
+  NavigationSplitView + `.inspector` with no app code does the same on this macOS 27 host, toolbar items or not. So:
+  no `.inspector`, and no toolbar items that come and go with the panel (SwiftUI rebuilds the toolbar for that too).
+  Width: the design's 384 pt or the user's last drag of the panel's leading edge (`qt.window.panelWidth`; dev
+  launches with `-qt.screen`/`-qt.window` use 384 and never save), narrowed in a small window so the content keeps
+  320 pt (`QTDockedPanelWidth.fitted`), never under 320. The panel ignores the player bar's bottom inset and runs
+  under it like the pages; its lyrics and queue keep their own room above the bar.
 - Type: system text styles via `QTTheme.Typography` (SF Pro; PingFang SC only via the system cascade — never name
   a CJK font first; no forced uppercase/tracking on CJK). Tabular figures with `.monospacedDigit()`.
 - Motion: `QTTheme.Motion` (curve `cubic-bezier(.2,.8,.2,1)`, 320 ms UI, 520 ms lyric scroll, springs,

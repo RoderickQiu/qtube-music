@@ -103,7 +103,7 @@ public struct QTQueueList: View {
         switch style {
         case .panel:
             // Rows scroll under the footer's bar material, like Music's queue. The docked panel runs under the
-            // window's floating player bar (an inspector column gets no safe-area inset from it), so the footer —
+            // window's floating player bar (it ignores the bar's safe-area inset), so the footer —
             // and with it the last rows and the scroller — stops above the bar.
             list.safeAreaInset(edge: .bottom, spacing: 0) {
                 footer

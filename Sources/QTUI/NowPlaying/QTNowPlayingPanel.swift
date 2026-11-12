@@ -3,9 +3,9 @@ import QTCore
 import QTPlayback
 import SwiftUI
 
-// Owner: builder "player". The docked inspector: two tabs (Now Playing with lyrics, Queue), no transport.
-// Its own header (like Xcode's inspector tab bar) carries the tab picker and the hide button (⌥⌘N), so the
-// panel closes from where it is. Blurred artwork backdrop.
+// Owner: builder "player". The docked panel: two tabs (Now Playing with lyrics, Queue), no transport.
+// The Now Playing | Queue switch heads the panel (like the tab bar at the top of Xcode's inspector); the toolbar's
+// Show / Hide Panel button (⌥⌘N) at the window's trailing edge opens and closes it. Blurred artwork backdrop.
 
 public struct QTNowPlayingPanel: View {
     @Environment(QTAppModel.self) private var model
@@ -17,21 +17,18 @@ public struct QTNowPlayingPanel: View {
     public var body: some View {
         ZStack {
             QTPanelBackdrop(track: player.nowPlaying)
-            Group {
-                switch model.panelTab {
-                case .nowPlaying: QTNowPlayingTab()
-                case .queue: QTQueueList(style: .panel)
+            VStack(spacing: 0) {
+                QTPanelTabPicker()
+                    .padding(.top, QTTheme.Spacing.xs)
+                    .padding(.horizontal, QTTheme.Spacing.m)
+                Group {
+                    switch model.panelTab {
+                    case .nowPlaying: QTNowPlayingTab()
+                    case .queue: QTQueueList(style: .panel)
+                    }
                 }
-            }
-            .transition(.opacity)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        // The panel's header lives in the window toolbar over the inspector (Now Playing | Queue · hide), so the
-        // art-tinted backdrop runs up under the title bar and there is no extra header row or hard divider.
-        .toolbar {
-            // SwiftUI keeps a collapsed inspector's toolbar items; they leave with the panel.
-            if model.surface != .stage, model.isPanelShown {
-                QTPanelToolbar()
+                .transition(.opacity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .animation(QTTheme.Motion.animation(QTTheme.Motion.ui, reduceMotion: reduceMotion), value: model.panelTab)
@@ -42,40 +39,23 @@ public struct QTNowPlayingPanel: View {
 
 // MARK: - Header
 
-/// Now Playing | Queue (segmented) · hide button, as toolbar items of the inspector's section of the window toolbar
-/// (like Xcode's inspector tabs), so the panel still closes from its own header.
-struct QTPanelToolbar: ToolbarContent {
+/// Now Playing | Queue, centred at the top of the panel.
+struct QTPanelTabPicker: View {
     @Environment(QTAppModel.self) private var model
 
-    var body: some ToolbarContent {
+    var body: some View {
         @Bindable var model = model
-        ToolbarItem(placement: .automatic) {
-            Picker(selection: $model.panelTab) {
-                Text(QTLoc.tr("Now Playing")).tag(QTPanelTab.nowPlaying)
-                Text(QTLoc.tr("Queue")).tag(QTPanelTab.queue)
-            } label: {
-                Text(QTLoc.tr("Now Playing"))
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
-            .accessibilityIdentifier("qt.player.panel.tabs")
+        Picker(selection: $model.panelTab) {
+            Text(QTLoc.tr("Now Playing")).tag(QTPanelTab.nowPlaying)
+            Text(QTLoc.tr("Queue")).tag(QTPanelTab.queue)
+        } label: {
+            Text(QTLoc.tr("Now Playing"))
         }
-        // Tabs at the panel's leading edge, hide at its trailing edge (prototype).
-        if #available(macOS 26, *) {
-            ToolbarSpacer(.flexible)
-        }
-        ToolbarItem(placement: .primaryAction) {
-            Button {
-                withAnimation(QTTheme.Motion.animation(QTTheme.Motion.spring, reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)) {
-                    model.isPanelShown = false
-                }
-            } label: {
-                Label(QTLoc.tr("Hide Panel", table: .desktop), systemImage: QTIcon.sidebar.systemName)
-            }
-            .help("\(QTLoc.tr("Hide Panel", table: .desktop))  ⌥⌘N")
-            .accessibilityIdentifier("qt.player.panel.hide")
-        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .fixedSize()
+        .frame(maxWidth: .infinity)
+        .accessibilityIdentifier("qt.player.panel.tabs")
     }
 }
 
@@ -103,7 +83,11 @@ struct QTPanelBackdrop: View {
                     .transition(.opacity)
             }
         }
-        .ignoresSafeArea()
+        // Under the floating player bar, but not up under the toolbar, and clipped (the scaled, blurred art spreads
+        // past its frame): the toolbar's glass buttons re-render whenever what's behind them changes, so a backdrop
+        // sliding in under them made the whole toolbar flash.
+        .ignoresSafeArea(edges: .bottom)
+        .clipped()
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }

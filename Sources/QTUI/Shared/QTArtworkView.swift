@@ -9,7 +9,8 @@ public actor QTImageLoader {
     /// DEBUG fixture runs (`-qt.live.fixtures YES`) keep artwork offline: remote URLs show the placeholder.
     nonisolated(unsafe) static var allowsNetwork = true
 
-    private let cache = NSCache<NSString, CGImageBox>()
+    /// NSCache is thread-safe; `cachedImage` reads it without hopping onto the actor.
+    nonisolated(unsafe) private let cache = NSCache<NSString, CGImageBox>()
     private var inflight: [String: Task<CGImage?, Never>] = [:]
 
     final class CGImageBox: @unchecked Sendable {
@@ -21,9 +22,19 @@ public actor QTImageLoader {
         cache.countLimit = 400
     }
 
+    private nonisolated static func bucket(_ maxPixel: Int) -> Int {
+        max(64, Int(pow(2, ceil(log2(Double(max(maxPixel, 1)))))))
+    }
+
+    /// An image already decoded for this size, without waiting: a view that appears (the docked panel opening) shows
+    /// cached artwork in its first frame instead of a placeholder for a few frames.
+    public nonisolated func cachedImage(at url: URL, maxPixel: Int) -> CGImage? {
+        cache.object(forKey: "\(url.absoluteString)#\(Self.bucket(maxPixel))" as NSString)?.image
+    }
+
     /// Image no larger than `maxPixel` on its longest side.
     public func image(at url: URL, maxPixel: Int) async -> CGImage? {
-        let bucket = max(64, Int(pow(2, ceil(log2(Double(max(maxPixel, 1)))))))
+        let bucket = Self.bucket(maxPixel)
         let key = "\(url.absoluteString)#\(bucket)"
         if let hit = cache.object(forKey: key as NSString) { return hit.image }
         if let running = inflight[key] { return await running.value }
@@ -83,8 +94,9 @@ public struct QTArtworkView: View {
         GeometryReader { geo in
             let pixels = Int(max(geo.size.width, geo.size.height) * displayScale)
             let source = images.best(forPixelWidth: pixels)
+            let shown = source.flatMap { pixels > 0 ? QTImageLoader.shared.cachedImage(at: $0.url, maxPixel: pixels) : nil } ?? image
             ZStack {
-                if let image {
+                if let image = shown {
                     Image(decorative: image, scale: displayScale)
                         .resizable()
                         .aspectRatio(contentMode: contentMode)

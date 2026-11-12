@@ -3,8 +3,8 @@ import QTCore
 import SwiftUI
 
 // Owner: builder "window". The main window: native NavigationSplitView (sidebar material, traffic lights over the
-// sidebar, full-size content) | content with back/forward history | docked inspector; floating player bar over
-// the bottom of content + inspector; Stage over everything when open. Keep the readiness/placement plumbing at the bottom intact.
+// sidebar, full-size content) | content with back/forward history + docked panel (QTDockedPanel); floating player bar over
+// the bottom of content + panel; Stage over everything when open. Keep the readiness/placement plumbing at the bottom intact.
 
 public struct QTMainWindowView: View {
     @Environment(QTAppModel.self) private var model
@@ -28,23 +28,31 @@ public struct QTMainWindowView: View {
                     QTSidebarView()
                         .navigationSplitViewColumnWidth(min: QTTheme.Metrics.sidebarMinWidth, ideal: QTTheme.Metrics.sidebarWidth, max: 320)
                 } detail: {
-                    QTContentRouter()
-                        // No content minimum, ever: a page's fixed-width pieces (cards, the search top result, row
-                        // artwork) would otherwise become the content column's minimum width, and with the panel
-                        // open in a narrow window AppKit's split view loops on update-constraints until it throws
-                        // (crash reports 2026-10-18/19; a swallowed throw also left Swift's executor bookkeeping
-                        // dangling, see docs/architecture.md). Pages lay out in whatever width they get.
-                        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
-                        .background { QTWindowTint() }
-                        .overlay(alignment: .top) { QTToastOverlay() }
-                        .inspector(isPresented: $model.isPanelShown) {
-                            QTNowPlayingPanel()
-                                .inspectorColumnWidth(min: QTTheme.Metrics.panelMinWidth, ideal: QTTheme.Metrics.panelWidth,
-                                                      max: QTTheme.Metrics.panelMaxWidth)
-                        }
-                        // The player bar floats over the bottom of the content and the panel (glass on macOS 26,
-                        // a material before): the sidebar keeps the window's full height, pages scroll under it.
-                        .qtFloatingBottomBar { QTPlayerBar() }
+                    // The docked panel lives inside the detail column, not in an `.inspector` (see QTDockedPanel):
+                    // opening it never touches the split view or the toolbar.
+                    QTDockedPanel(persists: model.launch.screen == nil && model.launch.windowSize == nil) {
+                        QTContentRouter()
+                            // No content minimum, ever: a page's fixed-width pieces (cards, the search top result, row
+                            // artwork) would otherwise become the content column's minimum width and push the panel or
+                            // the sidebar past the window's edges in a narrow window (and, with the old inspector,
+                            // looped AppKit's update-constraints pass until it threw: crash reports 2026-10-18/19, see
+                            // docs/architecture.md). Pages lay out in whatever width they get.
+                            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+                            .overlay(alignment: .top) { QTToastOverlay() }
+                    } panel: {
+                        QTNowPlayingPanel()
+                            // The panel runs under the floating player bar (its lyrics and queue keep their own room
+                            // above it), like the content pages.
+                            .ignoresSafeArea(.container, edges: .bottom)
+                    }
+                    // The tint runs under the whole toolbar, panel or not: the toolbar's glass buttons re-adapt (and
+                    // dim for a few frames) whenever what's behind them changes, so the strip above the panel must look
+                    // the same open or closed.
+                    .background { QTWindowTint() }
+                    // The player bar floats over the bottom of the content and the panel (glass on macOS 26,
+                    // a material before): the sidebar keeps the window's full height, pages scroll under it.
+                    // No layout minimum from the bar either (it steps down through its own layouts as it narrows).
+                    .qtFloatingBottomBar { QTPlayerBar().frame(minWidth: 0) }
                 }
                 .toolbar {
                     // Not under the in-window Stage (QTStageTitlebar hides the rest of the toolbar there).
@@ -70,20 +78,11 @@ public struct QTMainWindowView: View {
                         // The search field sits right after back/forward in the content column (prototype), not at the
                         // window's trailing edge over the panel.
                     }
-                    // While the panel is shown it closes from its own header (QTPanelHeader); the toolbar only
-                    // offers the way back.
-                    if !model.isPanelShown, model.surface != .stage {
-                        ToolbarItem(placement: .primaryAction) {
-                            Button {
-                                withAnimation(QTTheme.Motion.animation(QTTheme.Motion.spring, reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)) {
-                                    model.isPanelShown = true
-                                }
-                            } label: {
-                                Label(QTLoc.tr("Show Panel", table: .desktop), systemImage: QTIcon.sidebar.systemName)
-                            }
-                            .help("\(QTLoc.tr("Show Panel", table: .desktop))  ⌥⌘N")
-                            .accessibilityIdentifier("qt.window.showPanel")
-                        }
+                    // One Show / Hide Panel button at the window's trailing edge, there whether the panel is open or
+                    // not: adding or removing toolbar items as the panel comes and goes makes SwiftUI rebuild the
+                    // whole toolbar (every item fades out and back in).
+                    if model.surface != .stage {
+                        ToolbarItem(placement: .primaryAction) { QTPanelToggleButton() }
                     }
                 }
                 // A real window title (VoiceOver, Mission Control, the Window menu), hidden in the toolbar like
@@ -122,13 +121,16 @@ public struct QTMainWindowView: View {
         .overlay { QTLyricsLabOverlay() }
         // The app's accent: the song's colour, or the system accent (Settings › Accent colour).
         .qtArtworkTint(model.palette)
-        .frame(minWidth: 960, minHeight: 600)
         // New / Edit Playlist sheet and the Delete Playlist question (Library/QTPlaylistSheets.swift).
         .qtPlaylistSheets()
         .onChange(of: model.sidebarSelection) { _, item in navigator.sidebarSelectionChanged(to: item) }
         .onChange(of: navigator.searchFocusRequest) { isSearchFocused = true }
         .background(QTWindowAccessor { window in
             window.identifier = QTWindowID.main.identifier
+            // The minimum window size is enforced on the window while it's dragged, not declared in the layout: a
+            // minimum the split view knows about stops the detail column shrinking when the sidebar comes in
+            // (see QTWindowMinSize).
+            QTWindowMinSize.keep(QTTheme.Metrics.minWindow, on: window)
             // The user's own size and position win (AppKit restores the autosaved frame); only dev/screenshot
             // launches (`-qt.screen`, `-qt.window`) and a first launch are placed.
             if QTWindowPlacement.shouldPlaceMainWindow(window, launch: model.launch) {
@@ -136,8 +138,6 @@ public struct QTMainWindowView: View {
                                         screenName: model.launch.effectiveScreenName)
             }
             QTWindowKeyMonitor.shared.install(model: model)
-            // One stable panel width, live or demo (see QTInspectorWidthKeeper).
-            QTInspectorWidthKeeper.attach(to: window, launch: model.launch)
         })
         .task {
             model.applyAppearance()
@@ -282,3 +282,4 @@ struct QTWindowTint: View {
         .accessibilityHidden(true)
     }
 }
+

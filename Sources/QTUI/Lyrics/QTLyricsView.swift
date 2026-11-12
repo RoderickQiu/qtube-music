@@ -141,8 +141,8 @@ public struct QTLyricsView: View {
         }
     }
 
-    /// Room under the floating buttons. The docked panel runs under the window's floating player bar (an inspector
-    /// column gets no safe-area inset from it), so they sit above the bar there.
+    /// Room under the floating buttons. The docked panel runs under the window's floating player bar (it ignores the
+    /// bar's safe-area inset), so they sit above the bar there.
     private var bottomClearance: CGFloat {
         guard style == .panel else { return 18 }
         return QTTheme.Metrics.playerBarHeight + QTTheme.Metrics.playerBarInset + 4 + 14

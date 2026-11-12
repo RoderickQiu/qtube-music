@@ -48,11 +48,19 @@ import Testing
     }
 
     @Test func panelWidthIsTheDesignWidthUntilTheUserDragsIt() {
-        #expect(QTInspectorWidthKeeper.clamped(0) == QTTheme.Metrics.panelWidth)
-        #expect(QTInspectorWidthKeeper.clamped(400) == 400)
-        #expect(QTInspectorWidthKeeper.clamped(100) == QTTheme.Metrics.panelMinWidth)
-        #expect(QTInspectorWidthKeeper.clamped(2000) == QTTheme.Metrics.panelMaxWidth)
-        // Above the split view's holding priority for the inspector (261), never required.
-        #expect(QTInspectorWidthKeeper.priority.rawValue > 261 && QTInspectorWidthKeeper.priority < .defaultHigh)
+        #expect(QTDockedPanelWidth.clamped(0) == QTTheme.Metrics.panelWidth)
+        #expect(QTDockedPanelWidth.clamped(400) == 400)
+        #expect(QTDockedPanelWidth.clamped(100) == QTTheme.Metrics.panelMinWidth)
+        #expect(QTDockedPanelWidth.clamped(2000) == QTTheme.Metrics.panelMaxWidth)
+    }
+
+    @Test func panelNarrowsInASmallWindowSoTheContentKeepsRoom() {
+        // 1277 pt window − 248 pt sidebar: the design width fits.
+        #expect(QTDockedPanelWidth.fitted(384, in: 1029) == 384)
+        // 960 pt window at the widest sidebar (320): the panel gives way, down to its minimum.
+        #expect(QTDockedPanelWidth.fitted(480, in: 640) == 640 - QTDockedPanelWidth.contentMinWidth)
+        #expect(QTDockedPanelWidth.fitted(384, in: 500) == QTTheme.Metrics.panelMinWidth)
+        // Before the first layout pass.
+        #expect(QTDockedPanelWidth.fitted(384, in: 0) == 384)
     }
 }

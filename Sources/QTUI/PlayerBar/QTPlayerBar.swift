@@ -221,7 +221,6 @@ struct QTPlayerBarTools: View {
     var showsWindowTools = true
     @Environment(QTAppModel.self) private var model
     @Environment(QTPlayerModel.self) private var player
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: 6) {
@@ -257,16 +256,7 @@ struct QTPlayerBarTools: View {
     private func panelToggle(_ tab: QTPanelTab, title: String, icon: QTIcon, id: String) -> some View {
         Toggle(isOn: Binding(
             get: { model.isPanelShown && model.panelTab == tab },
-            set: { on in
-                withAnimation(QTTheme.Motion.animation(QTTheme.Motion.spring, reduceMotion: reduceMotion)) {
-                    if on {
-                        model.panelTab = tab
-                        model.isPanelShown = true
-                    } else {
-                        model.isPanelShown = false
-                    }
-                }
-            })) {
+            set: { on in model.setPanelShown(on, tab: on ? tab : nil) })) {
             Label(title, systemImage: icon.systemName)
                 .font(.system(size: 14))
                 .frame(width: 22, height: 20)
