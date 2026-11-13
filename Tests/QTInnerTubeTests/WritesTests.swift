@@ -205,6 +205,46 @@ import Testing
         #expect(tracks.map(\.likeStatus) == [.like, .indifferent, nil])
     }
 
+    /// Issue #6. Shapes captured from a signed-in owned playlist on 2026-11-12 (the page's section-list continuation,
+    /// then the shelf's reload continuation); the fixtures keep the shape with made-up songs.
+    @Test func ownedPlaylistSuggestions() async throws {
+        let page = try #require(QTInnerTubeParser.playlist(try Fixture.json("handbuilt-playlist-owned"), browseId: "VLPLowned"))
+        #expect(page.suggestionsContinuation == QTContinuation("CTOKEN_OWNED_SUGGESTIONS"))
+        #expect(page.continuation == nil, "the section list's continuation isn't more tracks")
+
+        let first = try #require(QTInnerTubeParser.playlistSuggestions(try Fixture.json("handbuilt-playlist-suggestions")))
+        #expect(first.title == "Suggestions")
+        #expect(first.tracks.count == 7)
+        // Each row nests the row its Save button would insert; the suggestion is the outer one.
+        #expect(first.tracks.map(\.title).allSatisfy { !$0.contains("row to insert") })
+        #expect(first.tracks[0].videoId == "suggA0001vid")
+        #expect(first.tracks[0].artists.map(\.name) == ["Artist 1"])
+        #expect(first.tracks[0].album?.title == "Album 1")
+        #expect(first.tracks[0].duration == 191)
+        #expect(first.tracks[0].setVideoId == nil, "a suggestion isn't a row of the playlist yet")
+        #expect(first.reload == QTContinuation("CTOKEN_SUGGESTIONS_RELOAD_1"))
+
+        let again = try #require(QTInnerTubeParser.playlistSuggestions(try Fixture.json("handbuilt-playlist-suggestions-reload")))
+        #expect(again.title == nil)
+        #expect(again.tracks.first?.videoId == "suggB0001vid")
+        #expect(again.reload == QTContinuation("CTOKEN_SUGGESTIONS_RELOAD_2"))
+
+        // Not suggestions: more tracks, and someone else's playlist (its continuation leads to related playlists).
+        #expect(QTInnerTubeParser.playlistSuggestions(try Fixture.json("playlist-classic-rock-continuation-en")) == nil)
+        let saved = try #require(QTInnerTubeParser.playlist(try Fixture.json("handbuilt-playlist-saved"), browseId: "VLPLsaved"))
+        #expect(saved.suggestionsContinuation == nil)
+
+        // The client asks with the token, signed in, and never caches (Refresh must bring other songs).
+        let t = FakeTransport()
+        let client = await makeClient(t)
+        t.enqueue("browse", data: try Fixture.data("handbuilt-playlist-suggestions"))
+        t.enqueue("browse", data: try Fixture.data("handbuilt-playlist-suggestions-reload"))
+        let a = try await client.playlistSuggestions(QTContinuation("CTOKEN_OWNED_SUGGESTIONS"))
+        let b = try await client.playlistSuggestions(try #require(a?.reload))
+        #expect(b?.tracks.first?.videoId == "suggB0001vid")
+        #expect(await client.cachedResponseCount == 0)
+    }
+
     @Test func someoneElsesPlaylistAndPublicPages() throws {
         let saved = try #require(QTInnerTubeParser.playlist(try Fixture.json("handbuilt-playlist-saved"), browseId: "VLPLsaved"))
         #expect(saved.playlist.isEditable == false)

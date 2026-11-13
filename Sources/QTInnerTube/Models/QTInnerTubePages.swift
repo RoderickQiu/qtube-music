@@ -143,15 +143,34 @@ public struct QTPlaylistPage: Sendable, Hashable {
     /// Someone else's playlist saved in the signed-in library (the header's save toggle); nil when the page doesn't
     /// say (signed out, or the account's own playlist).
     public var isSaved: Bool?
+    /// The account's own playlist: where its "Suggestions" (songs YouTube Music would add) are asked for — the
+    /// section list's own continuation, not the track shelf's. nil for anyone else's playlist.
+    public var suggestionsContinuation: QTContinuation?
 
     public init(playlist: QTPlaylist, summary: String? = nil, description: String? = nil, totalTrackCount: Int? = nil,
-                continuation: QTContinuation? = nil, isSaved: Bool? = nil) {
+                continuation: QTContinuation? = nil, isSaved: Bool? = nil, suggestionsContinuation: QTContinuation? = nil) {
         self.playlist = playlist
         self.summary = summary
         self.description = description
         self.totalTrackCount = totalTrackCount
         self.continuation = continuation
         self.isSaved = isSaved
+        self.suggestionsContinuation = suggestionsContinuation
+    }
+}
+
+/// "Suggestions" under one of the account's playlists: songs YouTube Music picked from what the playlist holds.
+public struct QTPlaylistSuggestions: Sendable, Hashable {
+    /// YouTube Music's own heading, in the request's language ("Suggestions").
+    public var title: String?
+    public var tracks: [QTTrack]
+    /// Asks for another set (YouTube Music's Refresh button). nil = this is all there is.
+    public var reload: QTContinuation?
+
+    public init(title: String? = nil, tracks: [QTTrack] = [], reload: QTContinuation? = nil) {
+        self.title = title
+        self.tracks = tracks
+        self.reload = reload
     }
 }
 

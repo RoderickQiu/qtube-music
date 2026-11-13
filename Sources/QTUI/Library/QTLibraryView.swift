@@ -41,6 +41,9 @@ public struct QTLibraryView: View {
         let rows = QTTrackListing.rows(collection.tracks, filter: state.filter, sort: state.sort)
         let q = state.filter.trimmingCharacters(in: .whitespaces)
         let hosted = QTHostedEnvironment(model: model, player: player)
+        // The account's own playlist ends with YouTube Music's suggestions for it (not while a filter narrows the list).
+        let owned = q.isEmpty && collection.kind == .playlist ? collection.playlistID.flatMap(QTLiveCatalogStore.shared.playlist) : nil
+        let suggestions = owned.flatMap(QTLiveCatalogStore.shared.suggestions)
         QTTrackTable(
             collection: collection,
             rows: rows,
@@ -49,6 +52,8 @@ public struct QTLibraryView: View {
             header: AnyView(hosted.wrap(QTLibraryHeader(collection: collection, rows: rows, state: state))),
             headerHeight: Self.headerHeight(for: collection),
             compact: AnyView(hosted.wrap(QTLibraryCompactBar(collection: collection, rows: rows, state: state))),
+            footer: suggestions.flatMap { s in owned.map { AnyView(hosted.wrap(QTPlaylistSuggestionsSection(playlist: $0, suggestions: s))) } },
+            footerHeight: suggestions.map(QTPlaylistSuggestionsSection.height) ?? 0,
             playingID: player.nowPlaying?.videoId,
             isPlaying: player.isPlaying,
             likedIDs: player.likedTrackIDs,

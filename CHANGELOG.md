@@ -5,8 +5,11 @@ uses the section for a version as its release notes.
 
 ## 0.4.3
 
-Desktop lyrics that stay where you put them.
+Suggestions for your playlists, and desktop lyrics that stay where you put them.
 
+- **Suggestions under your playlists.** A playlist of your own now ends with the songs YouTube Music suggests for
+  it, picked from what it already holds. The button on a row adds that song to the playlist; Refresh shows other
+  songs. Signed in only (#6).
 - **Desktop lyrics stay where you drag them.** A lyric dragged towards a screen edge jumped back towards the middle
   when you locked it. It now stays put (#4).
 - **Desktop lyrics can be left- or right-aligned.** Settings › Lyrics › Desktop Lyrics › Alignment. With Left, a

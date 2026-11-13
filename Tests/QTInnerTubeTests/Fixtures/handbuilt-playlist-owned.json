@@ -80,7 +80,8 @@
                 }
               ]
             }
-          } ]
+          } ],
+          "continuations" : [ { "nextContinuationData" : { "continuation" : "CTOKEN_OWNED_SUGGESTIONS" } } ]
         }
       }
     }

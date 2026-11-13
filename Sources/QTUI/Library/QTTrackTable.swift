@@ -13,6 +13,9 @@ struct QTTrackTable: NSViewRepresentable {
     var header: AnyView?
     var headerHeight: CGFloat
     var compact: AnyView?
+    /// Content after the last row (a playlist's Suggestions) and its height; nil = none.
+    var footer: AnyView? = nil
+    var footerHeight: CGFloat = 0
     var playingID: String?
     var isPlaying: Bool
     var likedIDs: Set<String>
@@ -57,6 +60,7 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
     private var rows: [QTTrack] = []
     private var headerHost: NSHostingView<AnyView>?
     private var compactHost: NSHostingView<AnyView>?
+    private var footerHost: NSHostingView<AnyView>?
     private var alphabetHost: NSHostingView<QTAlphabetStrip>?
     private var isApplyingSort = false
     private var isRestoringSelection = false
@@ -142,6 +146,7 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
         page.reduceMotion = new.reduceMotion
         page.hasCompactBar = new.compact != nil
         page.headerHeight = new.header == nil ? 0 : new.headerHeight
+        page.footerHeight = new.footer == nil ? 0 : new.footerHeight
         // An album page doesn't repeat its own title in every row.
         page.wantsAlbumColumn = new.collection.kind != .album
         updateHosts(new, page: page)
@@ -217,6 +222,17 @@ final class QTTrackTableCoordinator: NSObject, NSTableViewDataSource, NSTableVie
         } else if compactHost != nil {
             compactHost = nil
             page.compactHost = nil
+        }
+        if let footer = new.footer {
+            if let footerHost { footerHost.rootView = footer } else {
+                let h = NSHostingView(rootView: footer)
+                h.sizingOptions = []
+                footerHost = h
+                page.footerHost = h
+            }
+        } else if footerHost != nil {
+            footerHost = nil
+            page.footerHost = nil
         }
         if new.showsAlphabet && Self.wantsAlphabet(rowCount: new.rows.count, sort: new.state.sort.key) {
             let strip = QTAlphabetStrip(available: availableLetters(new.rows, sort: new.state.sort.key),

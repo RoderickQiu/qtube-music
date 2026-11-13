@@ -29,6 +29,9 @@ final class QTTrackTablePageView: NSView {
             floatingLayer.addSubview(compactHost, positioned: .above, relativeTo: pinnedBackground)
         }
     }
+    /// SwiftUI content after the last row (a playlist's Suggestions), as wide as the table.
+    var footerHost: NSView? { didSet { oldValue?.removeFromSuperview(); if let footerHost { documentView.addSubview(footerHost) }; needsLayout = true } }
+    var footerHeight: CGFloat = 0 { didSet { if oldValue != footerHeight { needsLayout = true } } }
     var alphabetHost: NSView? { didSet { oldValue?.removeFromSuperview(); if let alphabetHost { documentView.addSubview(alphabetHost) } } }
 
     static let columnHeaderHeight: CGFloat = 30
@@ -234,7 +237,8 @@ final class QTTrackTablePageView: NSView {
         let rows = CGFloat(tableView.numberOfRows)
         let tableHeight = max(rows * tableView.rowHeight, 1)
         let emptyHeight: CGFloat = emptyLabel.isHidden ? 0 : 120
-        let docHeight = max(tableTop + tableHeight + emptyHeight + bottomSpace, clip.height)
+        let footer = footerHost == nil ? 0 : footerHeight
+        let docHeight = max(tableTop + tableHeight + emptyHeight + footer + bottomSpace, clip.height)
         if documentView.frame.size != NSSize(width: width, height: docHeight) {
             documentView.frame = NSRect(x: 0, y: 0, width: width, height: docHeight)
         }
@@ -246,6 +250,7 @@ final class QTTrackTablePageView: NSView {
         }
         fitColumns(to: tableFrame.width)
         emptyLabel.frame = NSRect(x: Self.leadingInset, y: tableTop + 40, width: tableWidth, height: 24)
+        footerHost?.frame = NSRect(x: Self.leadingInset, y: tableTop + tableHeight + emptyHeight, width: tableWidth, height: footer)
         layoutFloating()
     }
 

@@ -100,6 +100,22 @@ Everything is wired (integration of M1 polish + M2–M4):
   (right-click: Start Radio, Go to…, Add to Playlist, Like, Copy Link), album cards, artist cards and the artist page
   header (a button beside Shuffle), album/playlist page More menus, Home playlist cards (Play, Shuffle, Start Radio),
   sidebar playlists, Controls (the current song), the Dock menu and the mini player's menu.
+- **Playlist Suggestions** (`QTLiveCatalogStore+Suggestions.swift`, `Library/QTPlaylistSuggestionsSection.swift`;
+  issue #6): under the last row of one of the account's own playlists, the songs YouTube Music would add, each with
+  an add button, and Refresh for another set. Signed in only; someone else's playlist, Liked Songs and playlists
+  made on this Mac have none. YouTube Music sends them as the continuation of the playlist page's *section list*
+  (`QTPlaylistPage.suggestionsContinuation` — not the track shelf's continuation, which is more tracks): a
+  `sectionListContinuation` holding a `musicShelfRenderer` with a `reloadContinuationData` token; Refresh answers
+  with a bare `musicShelfContinuation` (`QTInnerTubeParser.playlistSuggestions`; shapes captured signed in on
+  2026-11-12, fixtures `handbuilt-playlist-suggestions*.json` with made-up songs). Each item nests the row its Save
+  button would insert and carries the placeholder entry id `to_be_updated_by_client`, which the parser drops. One
+  request per playlist per session, never cached and not repeated when the page reloads (the list must not reshuffle
+  after every add); Refresh is one request each. Shown: what the playlist doesn't hold yet, without blocked artists
+  (`suggestions(for:)`); an added song leaves the list, and when none is left the next set comes by itself. A failed
+  request means no section. The section is the track table's footer (`QTTrackTable.footer`, laid out below the rows
+  by `QTTrackTablePageView`), hidden while a filter narrows the list; its columns sit under the table's (artwork,
+  album, the add button under the heart, the length under Time). The demo library suggests its own songs the
+  playlist doesn't hold, five at a time.
   Lyrics' `QTInnerTubeLyricsClient` follows the app client's hl / gl / visitor id (still anonymous).
 - **Keep AI music out (0.4.0): Don't Play This Artist.** The list is `QTSettings.blockedArtists`
   (`[QTBlockedArtist]`: channel id when known, name, date; this Mac only, never synced; Settings › Advanced › Reset

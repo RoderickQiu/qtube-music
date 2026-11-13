@@ -469,6 +469,12 @@ public actor QTInnerTubeClient {
         QTInnerTubeParser.trackContinuation(try await continuation("browse", token, ttl: QTCacheTTL.playlist))
     }
 
+    /// Suggestions for one of the account's playlists (`QTPlaylistPage.suggestionsContinuation`), or another set
+    /// (`QTPlaylistSuggestions.reload`). Never cached: Refresh must bring different songs. nil = nothing suggested.
+    public func playlistSuggestions(_ token: QTContinuation) async throws -> QTPlaylistSuggestions? {
+        QTInnerTubeParser.playlistSuggestions(try await continuation("browse", token, requiresAuth: true))
+    }
+
     /// Every track of a playlist, following continuations (bounded by `maxPages`).
     public func playlistAllTracks(_ id: String, maxPages: Int = 50) async throws -> QTPlaylist {
         let first = try await playlist(id)

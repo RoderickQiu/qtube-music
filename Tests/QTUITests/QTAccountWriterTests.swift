@@ -51,6 +51,7 @@ import WebKit
         private var requests: [URLRequest] = []
         private var queued: [String: [Reply]] = [:]
         var holdsLikes = false
+        var suggestionsFail = false
         let gate = Gate()
         /// Set: one playlist continuation page is served once this opens (later pages fail, ending the paging).
         var continuationGate: Gate?
@@ -68,6 +69,15 @@ import WebKit
         func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
             let path = request.url?.path ?? ""
             let body = request.httpBody.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+            // The owned playlist's Suggestions (asked once after its page) answer from their fixtures and never use
+            // up a queued reply; `suggestionsFail` makes them fail like a dropped connection.
+            if path.hasSuffix("/browse"), body.contains("CTOKEN_OWNED_SUGGESTIONS") || body.contains("CTOKEN_SUGGESTIONS_RELOAD") {
+                lock.withLock { requests.append(request) }
+                if suggestionsFail { throw URLError(.notConnectedToInternet) }
+                let name = body.contains("CTOKEN_OWNED_SUGGESTIONS") ? "handbuilt-playlist-suggestions" : "handbuilt-playlist-suggestions-reload"
+                return (QTAccountWriterTests.fixture(name),
+                        HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: [:])!)
+            }
             let reply: Reply? = lock.withLock {
                 requests.append(request)
                 guard let key = queued.keys.sorted(by: { $0.count > $1.count }).first(where: { path.hasSuffix($0) }),
@@ -403,6 +413,55 @@ import WebKit
         await h.store.client.clearCache()
         await h.store.loadLibraryPlaylists(force: true)
         #expect(h.model.catalog.playlists.map(\.id) == ["VLPLowned"])
+    }
+
+    /// Issue #6: the account's own playlist ends with YouTube Music's suggestions; adding one takes it off the list,
+    /// Refresh brings another set, and the page is whole without them.
+    @Test func ownedPlaylistSuggestions() async throws {
+        let h = try await Self.makeHarness()
+        await h.store.loadPlaylist("VLPLowned")
+        await Self.waitUntil("suggestions") { h.store.playlistSuggestions["VLPLowned"]?.tracks.isEmpty == false }
+        let playlist = try #require(h.store.playlist("VLPLowned"))
+        func shown() -> QTLivePlaylistSuggestions? { h.store.playlist("VLPLowned").flatMap(h.store.suggestions) }
+        let first = try #require(shown())
+        #expect(first.tracks.count == 7)
+        #expect(first.tracks[0].videoId == "suggA0001vid")
+        #expect(first.canRefresh)
+
+        // Adding one: it is a row of the playlist now, so it leaves the suggestions.
+        QTTrackActions.add([first.tracks[0]], to: playlist, model: h.model, writer: h.writer)
+        await h.writer.idle()
+        let after = try #require(shown())
+        #expect(after.tracks.map(\.videoId).contains("suggA0001vid") == false)
+        #expect(after.tracks.count == 6)
+
+        // A reload of the page keeps the list (no reshuffle under the pointer): no second request.
+        let asked = { h.transport.recorded.filter { String(decoding: $0.httpBody ?? Data(), as: UTF8.self).contains("CTOKEN_OWNED_SUGGESTIONS") }.count }
+        #expect(asked() == 1)
+        await h.store.loadPlaylist("VLPLowned", force: true)
+        #expect(asked() == 1)
+
+        // Refresh: another set; a failed Refresh keeps what was there.
+        #expect(await h.store.refreshSuggestions(for: "VLPLowned"))
+        #expect(shown()?.tracks.first?.videoId == "suggB0001vid")
+        h.transport.suggestionsFail = true
+        #expect(await h.store.refreshSuggestions(for: "VLPLowned") == false)
+        #expect(shown()?.tracks.first?.videoId == "suggB0001vid")
+        #expect(h.store.playlistSuggestions["VLPLowned"]?.isRefreshing == false)
+
+        // Blocked artists are left out, like everywhere else the app suggests music.
+        h.model.settings.update { $0.blockedArtists = [QTBlockedArtist(channelID: "UCsuggArtist000000000002", name: "Artist 2")] }
+        #expect(shown()?.tracks.map(\.videoId).contains("suggB0002vid") == false)
+    }
+
+    @Test func playlistsWithoutSuggestions() async throws {
+        // Someone else's playlist, Liked Songs: nothing is asked for. A failed request: the page without the section.
+        let h = try await Self.makeHarness()
+        h.transport.suggestionsFail = true
+        await h.store.loadPlaylist("VLPLowned")
+        await Self.waitUntil("suggestions settled") { h.store.playlistSuggestions["VLPLowned"] == nil }
+        #expect(h.store.playlistPhase("VLPLowned") == .loaded)
+        #expect(h.store.playlist("VLPLowned").flatMap(h.store.suggestions) == nil)
     }
 
     @Test func renameAndDelete() async throws {

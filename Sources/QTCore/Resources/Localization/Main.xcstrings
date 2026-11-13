@@ -105,6 +105,16 @@
         }
       }
     },
+    "Add to %@" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "添加到“%@”"
+          }
+        }
+      }
+    },
     "Add to Library" : {
       "localizations" : {
         "zh-Hans" : {
@@ -179,6 +189,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "艺人"
+          }
+        }
+      }
+    },
+    "Based on the songs in this playlist" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "根据此播放列表中的歌曲推荐"
           }
         }
       }
@@ -553,6 +573,16 @@
         }
       }
     },
+    "Refresh" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "换一批"
+          }
+        }
+      }
+    },
     "Remove from Library" : {
       "localizations" : {
         "zh-Hans" : {
@@ -623,6 +653,16 @@
         }
       }
     },
+    "Show other suggestions" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示其他推荐"
+          }
+        }
+      }
+    },
     "Single" : {
       "localizations" : {
         "zh-Hans" : {
@@ -689,6 +729,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已在这台 Mac 上订阅%@"
+          }
+        }
+      }
+    },
+    "Suggestions" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "推荐歌曲"
           }
         }
       }

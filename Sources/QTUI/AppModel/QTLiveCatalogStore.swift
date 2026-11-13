@@ -124,6 +124,10 @@ public final class QTLiveCatalogStore {
     /// YouTube Music's own song count per playlist id (`LM` for Liked), from the header ("1,234 songs"): the header
     /// shows max(loaded rows, this), since paging stops at `maxPlaylistPages` and unavailable rows aren't listed.
     public private(set) var reportedTrackCounts: [String: Int] = [:]
+    /// "Suggestions" under the account's own playlists, by playlist id (QTLiveCatalogStore+Suggestions).
+    public internal(set) var playlistSuggestions: [String: QTLivePlaylistSuggestions] = [:]
+    /// Demo library: how many times Refresh was pressed per playlist (each press shows the next few songs).
+    public internal(set) var demoSuggestionRounds: [String: Int] = [:]
     public private(set) var albumPages: [String: QTAlbumPage] = [:]
     public private(set) var albumPhases: [String: QTLivePhase] = [:]
     public private(set) var artistPages: [String: QTArtistPage] = [:]
@@ -637,6 +641,7 @@ public final class QTLiveCatalogStore {
         exploreSections = [:]; exploreSectionPhases = [:]; moodsPage = nil
         searchResults = [:]; searchPhases = [:]; resolvedKeys = [:]
         savedStates = [:]; subscriptions = [:]
+        playlistSuggestions = [:]; demoSuggestionRounds = [:]
         didApplyLaunchPlayback = false
     }
 
@@ -970,6 +975,7 @@ public final class QTLiveCatalogStore {
                 store(p)
                 remember(tracks)
                 playlistPhases[id] = .loaded
+                loadSuggestions(for: id, from: first.suggestionsContinuation)
                 var token = first.continuation
                 var pages = 1
                 pagingConfirmed[id] = token == nil ? nil : ([], [])

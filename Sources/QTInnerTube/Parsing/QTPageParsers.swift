@@ -250,9 +250,34 @@ public enum QTInnerTubeParser {
                                   artwork: QTParse.artwork(header["thumbnail"]), tracks: tracks,
                                   isEditable: id == "LM" ? false : editable != nil, privacy: privacy,
                                   description: description)
+        // Suggestions come after the tracks, from the continuation of the section list the track shelf sits in
+        // (signed in, the account's own playlists; anyone else's leads to related playlists instead).
+        let lists = [response[path: "contents", "twoColumnBrowseResultsRenderer", "secondaryContents", "sectionListRenderer"]]
+            + response[path: "contents", "singleColumnBrowseResultsRenderer", "tabs"].array
+                .map { $0[path: "tabRenderer", "content", "sectionListRenderer"] }
+        let suggestions = editable == nil || id == "LM" ? nil : lists.lazy.compactMap(QTShelfParser.continuation).first
         return QTPlaylistPage(playlist: playlist, summary: summary.isEmpty ? nil : summary.text,
                               description: description, totalTrackCount: count,
-                              continuation: continuation, isSaved: editable == nil ? savedState(header) : nil)
+                              continuation: continuation, isSaved: editable == nil ? savedState(header) : nil,
+                              suggestionsContinuation: suggestions)
+    }
+
+    /// A playlist's Suggestions: the song shelf of the section list's continuation (first load), or a bare shelf
+    /// continuation (Refresh). nil when the answer holds no song shelf (YouTube Music has nothing to suggest).
+    public static func playlistSuggestions(_ response: QTJSON) -> QTPlaylistSuggestions? {
+        let contents = response["continuationContents"]
+        var shelves = contents[path: "sectionListContinuation", "contents"].array.map { $0["musicShelfRenderer"] }
+        shelves.append(contents["musicShelfContinuation"])
+        for shelf in shelves where !shelf.isNull {
+            // A suggestion isn't a row of the playlist yet: YouTube Music sends the placeholder entry id
+            // "to_be_updated_by_client" with it, which must never be taken for a real one (removals go by entry id).
+            let tracks = QTItemParser.tracks(shelf["contents"].array).map { t in var t = t; t.setVideoId = nil; return t }
+            guard !tracks.isEmpty else { continue }
+            let reload = shelf["continuations"].array.lazy
+                .compactMap { $0[path: "reloadContinuationData", "continuation"].string }.first
+            return QTPlaylistSuggestions(title: shelf["title"].text, tracks: tracks, reload: reload.map(QTContinuation.init))
+        }
+        return nil
     }
 
     /// The next page of a playlist / album / library song list.
