@@ -24,6 +24,11 @@ public enum QTDesktopLaunchKey {
     public static let settingsTab = "qt.settingsTab"
     /// Desktop lyrics size in points (screenshots).
     public static let lyricsSize = "qt.desktop.lyricsSize"
+    /// `left` | `center` | `right` — desktop lyrics alignment (screenshots).
+    public static let lyricsAlignment = "qt.desktop.lyricsAlignment"
+    /// Where the desktop lyrics' centre sits across the screen, 0 (left edge) … 1 (right edge); 0.5 = the default
+    /// (screenshots; not an offset from the centre, because a launch argument can't start with a minus sign).
+    public static let lyricsX = "qt.desktop.lyricsX"
     /// DEBUG: `en-US` | `zh-CN` — switch the interface language 3 s after launch (tests live switching).
     public static let switchLanguage = "qt.desktop.switchLanguage"
     /// DEBUG: index of a main-menu item (e.g. `4` = Controls) to pop up on the test display once ready (screenshots).
@@ -161,6 +166,10 @@ public final class QTDesktopCoordinator {
             if let v = l.bool(QTDesktopLaunchKey.lyricsUnlocked) { s.desktopLyrics.isLocked = !v }
             if let v = l.bool(QTDesktopLaunchKey.menuBarScroll) { s.menuBarScrollsTitle = v }
             if let v = l.double(QTDesktopLaunchKey.lyricsSize) { s.desktopLyrics.fontSize = v }
+            if let v = l.string(QTDesktopLaunchKey.lyricsAlignment).flatMap(QTDesktopLyricsAlignment.init(rawValue:)) {
+                s.desktopLyrics.alignment = v
+            }
+            if let v = l.double(QTDesktopLaunchKey.lyricsX) { s.desktopLyrics.horizontalOffset = min(max(v, 0), 1) - 0.5 }
         }
     }
 

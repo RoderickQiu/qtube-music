@@ -69,13 +69,32 @@ final class QTDesktopLyricsPanel: NSPanel, NSWindowDelegate {
             }
         }
         var f = NSRect(x: midX - size.width / 2, y: minY, width: size.width, height: size.height)
-        f.origin.x = min(max(f.origin.x, v.minX), v.maxX - f.width)
+        f.origin.x = Self.clampedX(f.origin.x, width: f.width, alignment: new.alignment, in: v)
         f.origin.y = min(max(f.origin.y, v.minY), v.maxY - f.height)
         f = f.integral
         guard f != frame else { return }
         isPlacing = true
         setFrame(f, display: true)
         isPlacing = false
+    }
+
+    /// How much of the overlay must stay on screen, measured from the side its lines hug: room for the unlock
+    /// toolbar and the start of a line.
+    static let minimumVisibleWidth: CGFloat = 240
+
+    /// Keeps the overlay where it was dragged. The overlay is far wider than most lines, so it may hang over a screen
+    /// edge — that is the only way a lyric gets near the edge; what has to stay on screen is the part the lines start
+    /// from (left edge, centre or right edge, by alignment). Clamping the whole overlay instead pulled a lyric
+    /// placed near an edge back towards the middle the moment it was locked.
+    static func clampedX(_ x: CGFloat, width: CGFloat, alignment: QTDesktopLyricsAlignment, in v: NSRect) -> CGFloat {
+        let keep = min(minimumVisibleWidth, width, v.width)
+        switch alignment {
+        case .left: return min(max(x, v.minX), v.maxX - keep)
+        case .right: return min(max(x, v.minX + keep - width), v.maxX - width)
+        case .center:
+            let mid = min(max(x + width / 2, v.minX + keep / 2), v.maxX - keep / 2)
+            return mid - width / 2
+        }
     }
 
     static func isDefaultPosition(_ p: QTDesktopLyricsPrefs) -> Bool {
@@ -129,7 +148,7 @@ public struct QTDesktopLyricsView: View {
                     .transition(.opacity)
             }
             lines(font: font)
-                .padding(.horizontal, 28)
+                .padding(.horizontal, Self.horizontalPadding(fontSize: prefs.fontSize))
                 .padding(.vertical, Self.verticalPadding(fontSize: prefs.fontSize))
                 .background {
                     if prefs.isLocked && (contrast == .increased || reduceTransparency) {
@@ -166,7 +185,8 @@ public struct QTDesktopLyricsView: View {
             // the word fill, and its own baked shadow + outline, so it reads on any wallpaper without a box.
             QTLyricsView(document: doc, time: player.timeline, style: .desktop,
                          showsTranslation: model.resolvedTranslationLanguage != nil,
-                         desktopLineCount: prefs.lineCount, desktopFontSize: prefs.fontSize) { _ in }
+                         desktopLineCount: prefs.lineCount, desktopFontSize: prefs.fontSize,
+                         desktopAlignment: prefs.alignment) { _ in }
                 .frame(height: Self.linesHeight(font: font, lineCount: prefs.lineCount))
                 .environment(\.qtLyricsFontOverride, font)
         } else if !prefs.isLocked {
@@ -175,7 +195,21 @@ public struct QTDesktopLyricsView: View {
                 .font(font.main)
                 .foregroundStyle(.white.opacity(0.85))
                 .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: frameAlignment)
         }
+    }
+
+    private var frameAlignment: Alignment {
+        switch prefs.alignment {
+        case .left: .leading
+        case .center: .center
+        case .right: .trailing
+        }
+    }
+
+    /// Room beside the lines for the same glow, so a left- or right-aligned line isn't cut by the panel's edge.
+    static func horizontalPadding(fontSize: Double) -> CGFloat {
+        max(28, (CGFloat(fontSize) * 0.7).rounded())
     }
 
     /// Room above and below the lines for the renderer's soft glow (`QTLyricsMetrics.glow`, ≈ 0.5 × the main size
@@ -192,10 +226,11 @@ public struct QTDesktopLyricsView: View {
         return (main + second).rounded(.up)
     }
 
-    /// Quiet controls while unlocked: smaller / larger, reset, lock.
+    /// Quiet controls while unlocked: smaller / larger, reset, lock. They sit over the side the lines hug
+    /// (the middle when centred): the part of the overlay that always stays on screen, so Lock is never out of reach.
     private var toolbar: some View {
         HStack(spacing: 4) {
-            Spacer()
+            if prefs.alignment != .left { Spacer(minLength: 0) }
             Button { QTDesktopCoordinator.shared.nudgeDesktopLyricsSize(by: -2) } label: {
                 Label(QTLoc.tr("Smaller", table: .desktop), systemImage: "textformat.size.smaller")
             }
@@ -213,6 +248,7 @@ public struct QTDesktopLyricsView: View {
             }
             .help(QTLoc.tr("Lock Desktop Lyrics", table: .desktop))
             .accessibilityIdentifier("qt.desktopLyrics.lock")
+            if prefs.alignment != .right { Spacer(minLength: 0) }
         }
         .labelStyle(.iconOnly)
         .buttonStyle(.borderless)

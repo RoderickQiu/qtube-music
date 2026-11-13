@@ -132,6 +132,12 @@ public struct QTUnofficialLyricsSources: Codable, Sendable, Hashable {
     public var anyEnabled: Bool { netease || kugou || qq }
 }
 
+/// Which side of the desktop overlay the lines hug. Left / right keep a lyric placed near a screen edge on screen:
+/// long lines grow away from the edge instead of across it.
+public enum QTDesktopLyricsAlignment: String, Codable, Sendable, Hashable, CaseIterable {
+    case left, center, right
+}
+
 public struct QTDesktopLyricsPrefs: Codable, Sendable, Hashable {
     public var isShown = false
     /// Points, main line. Translation line is ~55 %.
@@ -149,6 +155,8 @@ public struct QTDesktopLyricsPrefs: Codable, Sendable, Hashable {
     public var fontDesign: QTLyricsFontDesign = .standard
     /// Horizontal centre as a fraction of the screen's visible width, relative to its centre (-0.5…0.5).
     public var horizontalOffset: Double = 0
+    /// Where the lines sit in the overlay (and which way long lines grow).
+    public var alignment: QTDesktopLyricsAlignment = .center
     public init() {}
 
     public init(from decoder: any Decoder) throws {
@@ -163,6 +171,7 @@ public struct QTDesktopLyricsPrefs: Codable, Sendable, Hashable {
         isLocked = (try? c.decodeIfPresent(Bool.self, forKey: .isLocked)) ?? d.isLocked
         fontDesign = (try? c.decodeIfPresent(QTLyricsFontDesign.self, forKey: .fontDesign)) ?? d.fontDesign
         horizontalOffset = (try? c.decodeIfPresent(Double.self, forKey: .horizontalOffset)) ?? d.horizontalOffset
+        alignment = (try? c.decodeIfPresent(QTDesktopLyricsAlignment.self, forKey: .alignment)) ?? d.alignment
     }
 }
 

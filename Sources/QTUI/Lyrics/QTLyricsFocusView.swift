@@ -19,6 +19,8 @@ struct QTLyricsFocusConfiguration: Equatable {
     var desktopFontSize: CGFloat?
     /// Desktop / mini: Settings › Desktop Lyrics font (System, Rounded, Serif).
     var fontDesign: QTLyricsFontDesign = .standard
+    /// Desktop only: which side the lines hug. nil = the style's own alignment.
+    var alignment: QTDesktopLyricsAlignment?
 }
 
 @MainActor
@@ -56,10 +58,11 @@ final class QTLyricsFocusView: NSView {
         metrics = QTLyricsMetrics.make(new.style, textScale: new.textScale, increaseContrast: new.increaseContrast,
                                        desktopFontSize: new.desktopFontSize)
             .withDesign(new.fontDesign.systemDesign)
+        if let alignment = new.alignment { metrics = metrics.withAlignment(alignment) }
         setAccessibilityIdentifier(new.style.railIdentifier)
         if old == nil || old?.document.lines != new.document.lines || old?.lanes != new.lanes || old?.style != new.style
             || old?.textScale != new.textScale || old?.desktopFontSize != new.desktopFontSize || old?.lineCount != new.lineCount
-            || old?.fontDesign != new.fontDesign {
+            || old?.fontDesign != new.fontDesign || old?.alignment != new.alignment {
             rebuild()
         }
         refresh(animated: old != nil && window != nil)

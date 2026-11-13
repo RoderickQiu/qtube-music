@@ -62,6 +62,7 @@ public struct QTLyricsView: View {
     private let showsTranslation: Bool
     private let desktopLineCount: Int
     private let desktopFontSize: CGFloat?
+    private let desktopAlignment: QTDesktopLyricsAlignment?
     private let onSeek: (TimeInterval) -> Void
     @Environment(\.qtLyricsFontOverride) private var fontOverride
 
@@ -75,8 +76,10 @@ public struct QTLyricsView: View {
     /// - Parameters:
     ///   - desktopLineCount: `.desktop` only — 1 (current line) or 2 (current + translation, or + next line).
     ///   - desktopFontSize: `.desktop` only — main line size in points (Settings › Desktop Lyrics).
+    ///   - desktopAlignment: `.desktop` only — left / centre / right lines; nil = centred.
     public init(document: QTLyricsDocument?, time: QTPlaybackTimeline, style: QTLyricsStyle,
                 showsTranslation: Bool = true, desktopLineCount: Int = 2, desktopFontSize: CGFloat? = nil,
+                desktopAlignment: QTDesktopLyricsAlignment? = nil,
                 onSeek: @escaping (TimeInterval) -> Void) {
         self.document = document
         self.time = time
@@ -84,6 +87,7 @@ public struct QTLyricsView: View {
         self.showsTranslation = showsTranslation
         self.desktopLineCount = desktopLineCount
         self.desktopFontSize = desktopFontSize
+        self.desktopAlignment = desktopAlignment
         self.onSeek = onSeek
     }
 
@@ -137,7 +141,8 @@ public struct QTLyricsView: View {
                 lineCount: desktopLineCount,
                 // An explicit size wins; otherwise the desktop overlay's \.qtLyricsFontOverride (Settings).
                 desktopFontSize: desktopFontSize ?? fontOverride?.mainSize,
-                fontDesign: fontOverride?.design ?? .standard))
+                fontDesign: fontOverride?.design ?? .standard,
+                alignment: style == .desktop ? desktopAlignment : nil))
         }
     }
 

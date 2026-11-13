@@ -32,6 +32,44 @@ import Testing
         #expect(QTDesktopLyricsPanel.panelSize(prefs: p, screenWidth: 800).width == 720)
     }
 
+    /// Issue #4: a lyric dragged towards a screen edge stays there when locked. The overlay may hang over the edge;
+    /// the part its lines start from stays on screen.
+    @Test func desktopLyricsKeepTheirPlaceNearAScreenEdge() {
+        let v = NSRect(x: 0, y: 0, width: 1728, height: 1000)
+        let w: CGFloat = 1244
+        let keep = QTDesktopLyricsPanel.minimumVisibleWidth
+        // Centred lines dragged far left: the old clamp put the overlay back at x = 0.
+        #expect(QTDesktopLyricsPanel.clampedX(-400, width: w, alignment: .center, in: v) == -400)
+        #expect(QTDesktopLyricsPanel.clampedX(900, width: w, alignment: .center, in: v) == 900)
+        // …but never so far that nothing is left to grab.
+        #expect(QTDesktopLyricsPanel.clampedX(-5000, width: w, alignment: .center, in: v) == keep / 2 - w / 2)
+        #expect(QTDesktopLyricsPanel.clampedX(5000, width: w, alignment: .center, in: v) == v.maxX - keep / 2 - w / 2)
+        // Left lines start at the overlay's left edge, which stays on screen; right lines mirror that.
+        #expect(QTDesktopLyricsPanel.clampedX(-300, width: w, alignment: .left, in: v) == 0)
+        #expect(QTDesktopLyricsPanel.clampedX(5000, width: w, alignment: .left, in: v) == v.maxX - keep)
+        #expect(QTDesktopLyricsPanel.clampedX(5000, width: w, alignment: .right, in: v) == v.maxX - w)
+        #expect(QTDesktopLyricsPanel.clampedX(-5000, width: w, alignment: .right, in: v) == keep - w)
+        // The default spot is untouched.
+        #expect(QTDesktopLyricsPanel.clampedX((v.width - w) / 2, width: w, alignment: .center, in: v) == (v.width - w) / 2)
+    }
+
+    @Test func desktopLyricsAlignmentMovesTheLines() {
+        let doc = QTLyricsDocument(lines: [QTLyricsLine(start: 0, text: "Short line")], syncKind: .line, source: .netease)
+        func x(_ a: QTDesktopLyricsAlignment) -> CGFloat {
+            let rows = QTLyricsRowBuilder.rows(for: doc, lanes: .init(), metrics: QTLyricsMetrics.make(.desktop).withAlignment(a),
+                                               width: 1000, includeGaps: false)
+            return rows[0].mainOrigin.x
+        }
+        #expect(x(.left) == 0)
+        #expect(x(.center) > 200 && x(.center) < x(.right))
+        #expect(QTLyricsMetrics.make(.desktop).main.centered)   // the default stays centred
+        var old = QTDesktopLyricsPrefs()
+        old.alignment = .right
+        let data = try! JSONEncoder().encode(old)
+        #expect(try! JSONDecoder().decode(QTDesktopLyricsPrefs.self, from: data).alignment == .right)
+        #expect(try! JSONDecoder().decode(QTDesktopLyricsPrefs.self, from: Data("{}".utf8)).alignment == .center)
+    }
+
     @Test func menuBarTitleIsCappedAndTemplate() {
         let long = String(repeating: "Đối Với Anh Em Không Còn Cảm Giác ", count: 4)
         let image = QTMenuBarLabel.render(title: long, offset: 0)

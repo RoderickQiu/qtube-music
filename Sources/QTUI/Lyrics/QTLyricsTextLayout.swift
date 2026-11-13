@@ -64,6 +64,8 @@ struct QTLyricTextStyle: Hashable {
     /// Line height as a multiple of the font size (CSS `line-height`).
     var lineHeight: CGFloat
     var centered: Bool
+    /// Right-aligned (desktop lyrics placed at the right of the screen); `centered` wins.
+    var trailing = false
     /// Balance wrapped lines (CSS `text-wrap: balance`).
     var balanced = true
     /// Tracking in em for Latin text (CSS `letter-spacing`); ignored for CJK.
@@ -71,6 +73,11 @@ struct QTLyricTextStyle: Hashable {
     /// System font design (desktop lyrics: Rounded / Serif from Settings). Always the system family, so SF Pro
     /// leads in every locale and Han text falls back through the system cascade.
     var design: NSFontDescriptor.SystemDesign = .default
+
+    /// Left edge of content `width` wide inside a box `box` wide, for this alignment.
+    func leadingEdge(of width: CGFloat, in box: CGFloat) -> CGFloat {
+        centered ? ((box - width) / 2).rounded() : trailing ? (box - width).rounded() : 0
+    }
 }
 
 /// One wrapped visual line inside a block.
@@ -180,7 +187,7 @@ final class QTLyricTextLayout {
         let boxWidth = ceil(widest)
         fragments = raw.enumerated().map { i, item in
             let top = CGFloat(i) * lineHeight
-            let x = style.centered ? ((boxWidth - item.2) / 2).rounded() : 0
+            let x = style.leadingEdge(of: item.2, in: boxWidth)
             return QTLyricFragment(line: item.0, range: item.1, x: x, width: item.2, top: top, baseline: top + baselineInset)
         }
         size = CGSize(width: boxWidth, height: CGFloat(fragments.count) * lineHeight)

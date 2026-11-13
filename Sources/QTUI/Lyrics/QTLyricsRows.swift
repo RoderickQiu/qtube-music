@@ -90,6 +90,16 @@ struct QTLyricsMetrics {
     }
 
     /// Same metrics with every lane in the given system font design.
+    /// Desktop lyrics: left / centre / right lines (Settings › Desktop Lyrics › Alignment).
+    func withAlignment(_ alignment: QTDesktopLyricsAlignment) -> QTLyricsMetrics {
+        var m = self
+        for path in [\QTLyricsMetrics.main, \.romanization, \.translation] {
+            m[keyPath: path].centered = alignment == .center
+            m[keyPath: path].trailing = alignment == .right
+        }
+        return m
+    }
+
     func withDesign(_ design: NSFontDescriptor.SystemDesign) -> QTLyricsMetrics {
         var m = self
         m.main.design = design
@@ -314,7 +324,7 @@ enum QTLyricsRowBuilder {
         let text = line.text.isEmpty ? " " : line.text
         let main = QTLyricTextLayout(string: text, style: m.main, maxWidth: width, documentLanguage: doc.language, shadowRoom: shadowRoom)
         r.main = main
-        func x(_ l: QTLyricTextLayout) -> CGFloat { m.main.centered ? ((width - l.size.width) / 2).rounded() : 0 }
+        func x(_ l: QTLyricTextLayout) -> CGFloat { m.main.leadingEdge(of: l.size.width, in: width) }
         var y = m.rowPadding
         r.mainOrigin = CGPoint(x: x(main), y: y)
         y += main.size.height
@@ -523,7 +533,7 @@ final class QTLyricsRowNode {
         let d = m.dotSize
         let gap = d * 0.9
         let total = d * 3 + gap * 2
-        let x0 = m.main.centered ? (model.width - total) / 2 : 2
+        let x0 = m.main.centered ? (model.width - total) / 2 : m.main.trailing ? model.width - total - 2 : 2
         var color = NSColor.white.cgColor
         appearance.performAsCurrentDrawingAppearance { color = m.mainColor.cgColor }
         for k in 0..<3 {

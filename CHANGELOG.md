@@ -3,6 +3,16 @@
 All notable changes to QTube Music. Versions follow [Semantic Versioning](https://semver.org); `Scripts/release.sh`
 uses the section for a version as its release notes.
 
+## 0.4.3
+
+Desktop lyrics that stay where you put them.
+
+- **Desktop lyrics stay where you drag them.** A lyric dragged towards a screen edge jumped back towards the middle
+  when you locked it. It now stays put (#4).
+- **Desktop lyrics can be left- or right-aligned.** Settings › Lyrics › Desktop Lyrics › Alignment. With Left, a
+  lyric placed at the left edge of the screen grows to the right instead of running off the edge; Right mirrors it.
+  The unlock controls sit over the lines, so Lock is always within reach.
+
 ## 0.4.2
 
 Small windows, and links from the playing song.

@@ -352,6 +352,12 @@ struct QTDesktopLyricsSettingsSection: View {
                 Text(QTLoc.tr("Two", table: .desktop)).tag(2)
             }
             .pickerStyle(.segmented)
+            Picker(QTLoc.tr("Alignment", table: .desktop), selection: setting(store, \.desktopLyrics.alignment)) {
+                Text(QTLoc.tr("Left", table: .desktop)).tag(QTDesktopLyricsAlignment.left)
+                Text(QTLoc.tr("Center", table: .desktop)).tag(QTDesktopLyricsAlignment.center)
+                Text(QTLoc.tr("Right", table: .desktop)).tag(QTDesktopLyricsAlignment.right)
+            }
+            .pickerStyle(.segmented)
             LabeledContent(QTLoc.tr("Position", table: .desktop)) {
                 HStack {
                     Button(QTLoc.tr("Reset", table: .desktop)) { QTDesktopCoordinator.shared.resetDesktopLyricsPosition() }

@@ -11,6 +11,16 @@
         }
       }
     },
+    "Alignment" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "对齐"
+          }
+        }
+      }
+    },
     "API Key" : {
       "localizations" : {
         "zh-Hans" : {
@@ -137,6 +147,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "取消"
+          }
+        }
+      }
+    },
+    "Center" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "居中"
           }
         }
       }
@@ -477,6 +497,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Last.fm 暂不接受播放记录，请在设置中检查 API 密钥。"
+          }
+        }
+      }
+    },
+    "Left" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "靠左"
           }
         }
       }
@@ -847,6 +877,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "重置…"
+          }
+        }
+      }
+    },
+    "Right" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "靠右"
           }
         }
       }
