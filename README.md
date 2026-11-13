@@ -42,7 +42,9 @@ mini player. It's built in SwiftUI and AppKit, idles under 1% CPU and uses about
 - **The Stage.** A full-screen now-playing view with three layouts and five backgrounds: blurred cover, cover,
   vinyl, the music video, and an audio-reactive visualizer.
 - **Lyrics that keep up.** Word-by-word karaoke where the source has it. You can scroll back and jump to the
-  current line, and set the timing offset. Sources are YouTube Music, LRCLIB and the AMLL TTML DB; NetEase, Kugou
+  current line, and set the timing offset.
+  - Show lyrics in a floating window you can place anywhere on screen. Enable it under **Settings › Desktop Lyrics**.
+  - Sources are YouTube Music, LRCLIB and the AMLL TTML DB; NetEase, Kugou
   and QQ Music are opt-in. Wrong lyrics? Pick another version in Lyrics Source, report it, or turn lyrics off for
   that song; the app remembers.
 - **Translation on your Mac.** The Translation framework, or Apple Intelligence on macOS 26. Chinese lyrics show in
@@ -66,6 +68,8 @@ mini player. It's built in SwiftUI and AppKit, idles under 1% CPU and uses about
 ![My own library: lyrics follow the song word by word](docs/images/library.jpg)
 
 ![Feels like a Mac app: the window takes its colour from the song that's playing](docs/images/home.jpg)
+
+![Desktop Lyrics](docs/images/desktop-lyrics.webp)
 
 ## Install
 
